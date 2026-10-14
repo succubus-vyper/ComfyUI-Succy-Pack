@@ -4,13 +4,16 @@
 //   action:   release_graph  Continue / Stop of a waiting hold
 //   action:   sound_system   rings a bell (URL) — the ding of Pause, free for any other node
 //   io:       vram_system    live VRAM reading for status_element ({label, value, bar, tone}), ONE shared poller
-// The machinery itself is NOT here: run states live in SurvivalKit/shields/hold.js, the poller in runtime/vram-feed.js.
+//   io:       loop_system    live Succy Loop status for progress_element ({view, linked}: pass N of M, cells, slots, condition), ONE shared listener (D-101)
+// The machinery itself is NOT here: run states live in SurvivalKit/shields/hold.js, the poller in runtime/vram-feed.js,
+// the loop listener in runtime/loop-feed.js.
 // These pieces are the thin sockets the nodes plug into. Succubus was here — she plugs things in, then stays a while.
 // ============================================================
 import { piece } from "../catalog/registry.js";
 import { C, ex, exb, E, S, N, J } from "../catalog/kit.js";
 import { Sound } from "../runtime/sound.js";
 import { VramFeed } from "../runtime/vram-feed.js";
+import { LoopFeed } from "../runtime/loop-feed.js";
 
 const BTN = (id, text, on) => ({ t: "button_element", id, text, on });
 
@@ -108,3 +111,23 @@ piece(C("vram_system", {
     tag: ["vram", "dati", "stato"], props: {},
     esempio: ex({ t: "label_element", text: "{{$live.vram_system.label}}" }),
 }), vramSystem);
+
+// ---------- io: loop_system ----------
+// config loop_system.role: start | end | wstart | wend (which side of the loop this node is)
+// config loop_system.ext: state key of the EXT flag — while EXT is open (or a wire gives the count) `lock` is true
+const loopSystem = (api) => {
+    const c = api.cfg("loop_system");
+    const out = LoopFeed.view(api.liveNode() || api.node, c.role || "start", (n) => api.native.get(n));
+    out.lock = out.linked || (c.ext ? !!api.state?.get?.(c.ext) : false);
+    return out;
+};
+loopSystem.ensure = (api) => {
+    const off = LoopFeed.subscribe(() => api.refresh());
+    api.onDispose(off);
+};
+piece(C("loop_system", {
+    scopo: "Stato live di un loop ({view, linked}: vista per progress_element) da un solo ascoltatore; config role (start|end|wstart|wend), ext.",
+    natura: "funziona", dominio: "runtime", estado: "draft",
+    tag: ["loop", "dati", "stato", "run"], props: {},
+    esempio: ex({ t: "progress_element", data: "$live.loop_system.view" }, { config: { loop_system: { role: "start" } } }),
+}), loopSystem);

@@ -13,7 +13,7 @@
 import "./components/layout.js";
 import "./components/controls.js";
 import "./components/media.js";
-import "./components/status.js";
+import "./components/progress.js";
 import "./behaviors/builtin.js";
 import "./pieces/panes.js";
 import "./pieces/actions.js";
