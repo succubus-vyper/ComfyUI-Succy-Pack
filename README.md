@@ -74,3 +74,5 @@ A proper **Loop** system and an **LLM client** are getting dressed in the back r
 ---
 
 *Made with too much coffee and not enough sleep by Succubus. Issues and ideas are welcome; flattery even more.*
+
+© 2026 Succubus (succubus-vyper). All rights reserved.
