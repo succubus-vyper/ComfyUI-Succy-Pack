@@ -2,6 +2,8 @@
 
 *Nodes that behave. Mostly. Until you ask them nicely not to.*
 
+[![Support me on Ko-fi](https://img.shields.io/badge/Ko--fi-Spoil%20me%20a%20little-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/succubusvyper)
+
 Hi, darling. I'm Succubus, and these are my nodes.
 
 I didn't want another bag of clever widgets that break with the next ComfyUI update and leave you crying over a red node at 3 a.m. So I built them the slow, greedy way: a **kit** first, nodes second.
@@ -74,5 +76,7 @@ A proper **Loop** system and an **LLM client** are getting dressed in the back r
 ---
 
 *Made with too much coffee and not enough sleep by Succubus. Issues and ideas are welcome; flattery even more.*
+
+If my nodes made your nights a little more fun, you know where to find me: **[ko-fi.com/succubusvyper](https://ko-fi.com/succubusvyper)** ☕💋
 
 © 2026 Succubus (succubus-vyper). All rights reserved.
