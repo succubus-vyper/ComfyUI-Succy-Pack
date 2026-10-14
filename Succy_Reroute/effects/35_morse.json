@@ -1,0 +1,104 @@
+{
+  "id": "morse",
+  "name": "Morse Code",
+  "icon": "📡",
+  "order": 350,
+  "description": "Dots and dashes of a telegraph signal sliding along the wire, with a blinking lamp.",
+  "params": [
+    {
+      "key": "color",
+      "label": "Color",
+      "type": "color",
+      "default": "auto"
+    },
+    {
+      "key": "width",
+      "label": "Width",
+      "type": "range",
+      "min": 1.5,
+      "max": 8,
+      "step": 0.5,
+      "default": 3.5
+    },
+    {
+      "key": "unit",
+      "label": "Dot length",
+      "type": "range",
+      "min": 3,
+      "max": 12,
+      "step": 0.5,
+      "default": 5
+    },
+    {
+      "key": "speed",
+      "label": "Speed (px/s)",
+      "type": "range",
+      "min": -160,
+      "max": 160,
+      "step": 5,
+      "default": 50
+    },
+    {
+      "key": "glow",
+      "label": "Glow",
+      "type": "range",
+      "min": 0,
+      "max": 14,
+      "step": 1,
+      "default": 5
+    }
+  ],
+  "layers": [
+    {
+      "type": "stroke",
+      "color": "$color",
+      "alpha": 0.12,
+      "width": 1
+    },
+    {
+      "type": "stroke",
+      "color": "$color",
+      "width": "$width",
+      "blur": "$glow",
+      "cap": "round",
+      "dash": [
+        "=$unit*3",
+        "=$unit",
+        "=$unit",
+        "=$unit",
+        "=$unit",
+        "=$unit",
+        "=$unit*3",
+        "=$unit",
+        "=$unit*3",
+        "=$unit",
+        "=$unit",
+        "=$unit",
+        "=$unit*3",
+        "=$unit*5"
+      ],
+      "dashSpeed": "$speed"
+    }
+  ],
+  "skin": [
+    {
+      "type": "disc",
+      "color": "#14151a",
+      "radius": 1
+    },
+    {
+      "type": "ring",
+      "color": "$color",
+      "radius": 1,
+      "width": 0.14
+    },
+    {
+      "type": "disc",
+      "color": "$color",
+      "radius": 0.34,
+      "alpha": "=(sin(t*5)+sin(t*11.3)>0.4)?1:0.12",
+      "blur": 8
+    }
+  ],
+  "animated": true
+}

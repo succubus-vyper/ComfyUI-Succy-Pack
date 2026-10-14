@@ -1,0 +1,149 @@
+{
+  "id": "thunder_dragon",
+  "name": "Thunder Dragon",
+  "icon": "🌩",
+  "order": 270,
+  "description": "A jagged lightning dragon crackling with static as it strikes along the wire.",
+  "params": [
+    {
+      "key": "color",
+      "label": "Lightning",
+      "type": "color",
+      "default": "#ffe94a"
+    },
+    {
+      "key": "color2",
+      "label": "Core",
+      "type": "color",
+      "default": "#ffffff"
+    },
+    {
+      "key": "size",
+      "label": "Thickness",
+      "type": "range",
+      "min": 1.5,
+      "max": 6,
+      "step": 0.1,
+      "default": 3
+    },
+    {
+      "key": "length",
+      "label": "Length",
+      "type": "range",
+      "min": 40,
+      "max": 300,
+      "step": 5,
+      "default": 150
+    },
+    {
+      "key": "speed",
+      "label": "Speed (px/s)",
+      "type": "range",
+      "min": -500,
+      "max": 500,
+      "step": 10,
+      "default": 220
+    },
+    {
+      "key": "jag",
+      "label": "Jaggedness",
+      "type": "range",
+      "min": 0,
+      "max": 20,
+      "step": 0.5,
+      "default": 7
+    },
+    {
+      "key": "fps",
+      "label": "Crackle rate",
+      "type": "range",
+      "min": 4,
+      "max": 40,
+      "step": 1,
+      "default": 20
+    },
+    {
+      "key": "glow",
+      "label": "Glow",
+      "type": "range",
+      "min": 0,
+      "max": 30,
+      "step": 1,
+      "default": 14
+    }
+  ],
+  "layers": [
+    {
+      "type": "stroke",
+      "color": "$color",
+      "alpha": 0.3,
+      "width": 1.2,
+      "step": 7,
+      "displace": "=5*(rnd(i*7.13+floor(t*$fps)*91.7)*2-1)*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "color": "$color",
+      "size": "$size",
+      "spacing": "=L+$length+40",
+      "speed": "$speed",
+      "trail": "$length",
+      "trailSteps": 30,
+      "trailTaper": 0.8,
+      "trailFade": 0.3,
+      "blur": "$glow",
+      "displace": "=$jag*(rnd(s*0.37+floor(t*$fps)*5.7)*2-1)*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "color": "$color2",
+      "size": "=$size*0.4",
+      "spacing": "=L+$length+40",
+      "speed": "$speed",
+      "trail": "=$length*0.7",
+      "trailSteps": 30,
+      "trailTaper": 0.8,
+      "trailFade": 0.5,
+      "displace": "=$jag*(rnd(s*0.37+floor(t*$fps)*5.7)*2-1)*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "shape": "diamond",
+      "color": "$color2",
+      "size": "=$size*1.1",
+      "spacing": "=L+$length+40",
+      "speed": "$speed",
+      "blur": "=$glow",
+      "displace": "=$jag*(rnd(s*0.37+floor(t*$fps)*5.7)*2-1)*sin(v*3.14159)"
+    }
+  ],
+  "skin": [
+    {
+      "type": "glow",
+      "color": "$color",
+      "radius": 2.1,
+      "alpha": "=0.2+0.3*rnd(floor(t*$fps))"
+    },
+    {
+      "type": "disc",
+      "color": "#16140a",
+      "radius": 1
+    },
+    {
+      "type": "spin",
+      "color": "$color",
+      "radius": 1,
+      "width": 0.18,
+      "count": 4,
+      "span": 0.3,
+      "speed": 1.8,
+      "blur": 6
+    },
+    {
+      "type": "disc",
+      "color": "$color2",
+      "radius": 0.28,
+      "alpha": "=0.5+0.5*rnd(floor(t*$fps)+4)"
+    }
+  ]
+}

@@ -1,0 +1,119 @@
+{
+  "id": "dragon_fire",
+  "name": "Dragon Fire",
+  "icon": "🔥",
+  "order": 120,
+  "description": "Flickering flame breath with white-hot core and flying sparks.",
+  "params": [
+    {
+      "key": "width",
+      "label": "Flame width",
+      "type": "range",
+      "min": 2,
+      "max": 10,
+      "step": 0.5,
+      "default": 4.5
+    },
+    {
+      "key": "amp",
+      "label": "Flicker amplitude",
+      "type": "range",
+      "min": 0,
+      "max": 20,
+      "step": 0.5,
+      "default": 6
+    },
+    {
+      "key": "fps",
+      "label": "Flicker rate",
+      "type": "range",
+      "min": 4,
+      "max": 30,
+      "step": 1,
+      "default": 16
+    },
+    {
+      "key": "glow",
+      "label": "Glow",
+      "type": "range",
+      "min": 0,
+      "max": 30,
+      "step": 1,
+      "default": 14
+    },
+    {
+      "key": "sparks",
+      "label": "Spark spacing",
+      "type": "range",
+      "min": 10,
+      "max": 80,
+      "step": 2,
+      "default": 30
+    },
+    {
+      "key": "speed",
+      "label": "Spark speed",
+      "type": "range",
+      "min": -300,
+      "max": 300,
+      "step": 5,
+      "default": 150
+    }
+  ],
+  "layers": [
+    {
+      "type": "stroke",
+      "perSegment": true,
+      "step": 5,
+      "blur": "$glow",
+      "alpha": 0.92,
+      "width": "=$width*(0.45+0.9*u)",
+      "color": "=hsl(48-38*u+10*rnd(i+floor(t*$fps)*7),100,50+12*rnd(i*3+floor(t*$fps)))",
+      "displace": "=$amp*(rnd(i*5.3+floor(t*$fps)*37)*2-1)*u*sin(v*3.14159)"
+    },
+    {
+      "type": "stroke",
+      "step": 5,
+      "color": "#fff3c4",
+      "alpha": 0.7,
+      "width": "=$width*0.3",
+      "displace": "=0.4*($amp*(rnd(i*5.3+floor(t*$fps)*37)*2-1)*u*sin(v*3.14159))"
+    },
+    {
+      "type": "dots",
+      "shape": "star",
+      "color": "#ffd27a",
+      "size": 1.5,
+      "spacing": "$sparks",
+      "speed": "$speed",
+      "blur": 8,
+      "displace": "=9*sin(i*2.7+t*6)*sin(v*3.14159)"
+    }
+  ],
+  "skin": [
+    {
+      "type": "glow",
+      "color": "#ff7a1a",
+      "radius": 2.2,
+      "alpha": "=0.35+0.25*rnd(floor(t*$fps))"
+    },
+    {
+      "type": "disc",
+      "color": "#1a0d08",
+      "radius": 1
+    },
+    {
+      "type": "ring",
+      "color": "#ff8a2a",
+      "radius": 1,
+      "width": 0.16,
+      "blur": 6
+    },
+    {
+      "type": "disc",
+      "color": "=hsl(30+25*rnd(floor(t*$fps)+2),100,60)",
+      "radius": 0.4,
+      "blur": 6
+    }
+  ]
+}

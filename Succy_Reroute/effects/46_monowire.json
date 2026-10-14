@@ -1,0 +1,115 @@
+{
+  "id": "monowire",
+  "name": "Monowire Whip",
+  "icon": "➰",
+  "order": 460,
+  "description": "A hair-thin glowing wire; a violent whip-crack packet snaps along it and stings the destination.",
+  "params": [
+    {
+      "key": "color",
+      "label": "Aura",
+      "type": "color",
+      "default": "#ff2bd6"
+    },
+    {
+      "key": "amp",
+      "label": "Whip force",
+      "type": "range",
+      "min": 6,
+      "max": 50,
+      "step": 1,
+      "default": 26
+    },
+    {
+      "key": "speed",
+      "label": "Speed (px/s)",
+      "type": "range",
+      "min": 100,
+      "max": 900,
+      "step": 10,
+      "default": 330
+    },
+    {
+      "key": "width",
+      "label": "Wire",
+      "type": "range",
+      "min": 0.8,
+      "max": 3,
+      "step": 0.1,
+      "default": 1.5
+    }
+  ],
+  "layers": [
+    {
+      "type": "stroke",
+      "color": "$color",
+      "alpha": 0.45,
+      "width": "=$width*0.7"
+    },
+    {
+      "type": "stroke",
+      "color": "$color",
+      "alpha": 0.4,
+      "width": "=$width*3.2",
+      "step": 3,
+      "blur": 12,
+      "displace": "=((d)=>$amp*exp(-pow(d/55,2))*sin(d/9))((s-((t*$speed)%(L+240)))+120)"
+    },
+    {
+      "type": "stroke",
+      "color": "#ffffff",
+      "width": "$width",
+      "step": 3,
+      "displace": "=((d)=>$amp*exp(-pow(d/55,2))*sin(d/9))((s-((t*$speed)%(L+240)))+120)"
+    },
+    {
+      "type": "dots",
+      "shape": "star",
+      "color": "#ffffff",
+      "size": "=$width*2.2",
+      "count": 1,
+      "spacing": "=L+240",
+      "speed": "$speed",
+      "lead": -120,
+      "blur": 10,
+      "composite": "lighter",
+      "displace": "=((d)=>$amp*exp(-pow(d/55,2))*sin(d/9))((s-((t*$speed)%(L+240)))+120)"
+    }
+  ],
+  "skin": [
+    {
+      "type": "disc",
+      "color": "#14061a",
+      "radius": 1
+    },
+    {
+      "type": "ring",
+      "color": "$color",
+      "radius": 1,
+      "width": 0.1
+    },
+    {
+      "type": "orbit",
+      "color": "#ffffff",
+      "radius": 0.6,
+      "size": 0.1,
+      "count": 1,
+      "speed": 1.1,
+      "blur": 6
+    },
+    {
+      "type": "ring",
+      "color": "$color",
+      "radius": 0.6,
+      "width": 0.05,
+      "alpha": 0.5
+    },
+    {
+      "type": "disc",
+      "color": "$color",
+      "radius": 0.16,
+      "blur": 6
+    }
+  ],
+  "animated": true
+}

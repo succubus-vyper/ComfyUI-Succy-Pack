@@ -1,0 +1,157 @@
+{
+  "id": "serpent",
+  "name": "Serpent",
+  "icon": "🐍",
+  "order": 110,
+  "description": "A tapered green snake slithering along the wire, with belly and eyes.",
+  "params": [
+    {
+      "key": "color",
+      "label": "Body",
+      "type": "color",
+      "default": "#4fd36a"
+    },
+    {
+      "key": "color2",
+      "label": "Belly",
+      "type": "color",
+      "default": "#e9f7a6"
+    },
+    {
+      "key": "size",
+      "label": "Thickness",
+      "type": "range",
+      "min": 1.5,
+      "max": 7,
+      "step": 0.1,
+      "default": 3.4
+    },
+    {
+      "key": "length",
+      "label": "Length",
+      "type": "range",
+      "min": 40,
+      "max": 320,
+      "step": 5,
+      "default": 150
+    },
+    {
+      "key": "speed",
+      "label": "Speed (px/s)",
+      "type": "range",
+      "min": -300,
+      "max": 300,
+      "step": 5,
+      "default": 110
+    },
+    {
+      "key": "amp",
+      "label": "Slither amplitude",
+      "type": "range",
+      "min": 0,
+      "max": 20,
+      "step": 0.5,
+      "default": 7
+    },
+    {
+      "key": "wavelength",
+      "label": "Wavelength",
+      "type": "range",
+      "min": 20,
+      "max": 140,
+      "step": 2,
+      "default": 48
+    },
+    {
+      "key": "slither",
+      "label": "Slither speed",
+      "type": "range",
+      "min": -12,
+      "max": 12,
+      "step": 0.5,
+      "default": 5
+    }
+  ],
+  "layers": [
+    {
+      "type": "stroke",
+      "color": "$color",
+      "alpha": 0.1,
+      "width": 1.5
+    },
+    {
+      "type": "dots",
+      "color": "$color",
+      "size": "$size",
+      "spacing": "=L+$length+30",
+      "speed": "$speed",
+      "trail": "$length",
+      "trailSteps": 56,
+      "trailTaper": 0.8,
+      "trailFade": 0.15,
+      "blur": 4,
+      "displace": "=$amp*sin(s/$wavelength*6.2832 - t*$slither)*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "color": "$color2",
+      "alpha": 0.55,
+      "size": "=$size*0.42",
+      "spacing": "=L+$length+30",
+      "speed": "$speed",
+      "trail": "=$length*0.9",
+      "trailSteps": 56,
+      "trailTaper": 0.8,
+      "trailFade": 0.3,
+      "displace": "=$amp*sin(s/$wavelength*6.2832 - t*$slither)*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "color": "#ffe14a",
+      "size": "=$size*0.26",
+      "spacing": "=L+$length+30",
+      "speed": "$speed",
+      "offset": "=$size*0.55",
+      "displace": "=$amp*sin(s/$wavelength*6.2832 - t*$slither)*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "color": "#ffe14a",
+      "size": "=$size*0.26",
+      "spacing": "=L+$length+30",
+      "speed": "$speed",
+      "offset": "=-$size*0.55",
+      "displace": "=$amp*sin(s/$wavelength*6.2832 - t*$slither)*sin(v*3.14159)"
+    }
+  ],
+  "skin": [
+    {
+      "type": "disc",
+      "color": "#0f1a12",
+      "radius": 1
+    },
+    {
+      "type": "spin",
+      "color": "$color",
+      "radius": 1,
+      "width": 0.2,
+      "count": 3,
+      "span": 0.6,
+      "speed": 0.35
+    },
+    {
+      "type": "orbit",
+      "color": "$color2",
+      "radius": 0.55,
+      "size": 0.16,
+      "count": 1,
+      "speed": 0.9,
+      "blur": 4
+    },
+    {
+      "type": "disc",
+      "color": "$color",
+      "radius": 0.22
+    }
+  ]
+}

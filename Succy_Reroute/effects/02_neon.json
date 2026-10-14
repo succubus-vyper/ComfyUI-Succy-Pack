@@ -1,0 +1,24 @@
+{
+  "id": "neon",
+  "name": "Neon",
+  "icon": "💡",
+  "order": 20,
+  "description": "Glowing tube with a breathing halo.",
+  "params": [
+    { "key": "color", "label": "Color", "type": "color", "default": "auto" },
+    { "key": "width", "label": "Width", "type": "range", "min": 1, "max": 8, "step": 0.5, "default": 2.5 },
+    { "key": "glow", "label": "Glow", "type": "range", "min": 0, "max": 40, "step": 1, "default": 16 },
+    { "key": "pulse", "label": "Pulse speed", "type": "range", "min": 0, "max": 4, "step": 0.1, "default": 1.2 }
+  ],
+  "layers": [
+    { "type": "stroke", "color": "$color", "width": "=$width*3.2", "alpha": "=0.18+0.10*sin(t*$pulse*6.283)", "blur": "$glow" },
+    { "type": "stroke", "color": "$color", "width": "=$width*1.4", "alpha": 0.9, "blur": "=$glow*0.6" },
+    { "type": "stroke", "color": "#ffffff", "width": "=$width*0.5", "alpha": "=0.75+0.2*sin(t*$pulse*6.283)" }
+  ],
+  "skin": [
+    { "type": "glow", "color": "$color", "radius": 2.3, "alpha": "=0.35+0.15*sin(t*$pulse*6.283)" },
+    { "type": "disc", "color": "#101214", "radius": 1 },
+    { "type": "ring", "color": "$color", "radius": 1, "width": 0.18, "blur": 6 },
+    { "type": "disc", "color": "$color", "radius": 0.38, "blur": 6 }
+  ]
+}

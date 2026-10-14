@@ -1,0 +1,25 @@
+{
+  "id": "comets",
+  "name": "Comets",
+  "icon": "☄",
+  "order": 80,
+  "description": "Bright comets with fading tails shooting through the wire.",
+  "params": [
+    { "key": "color", "label": "Color", "type": "color", "default": "auto" },
+    { "key": "size", "label": "Head size", "type": "range", "min": 1, "max": 8, "step": 0.2, "default": 3 },
+    { "key": "spacing", "label": "Spacing", "type": "range", "min": 60, "max": 400, "step": 10, "default": 180 },
+    { "key": "speed", "label": "Speed (px/s)", "type": "range", "min": -600, "max": 600, "step": 10, "default": 180 },
+    { "key": "trail", "label": "Tail length", "type": "range", "min": 10, "max": 200, "step": 5, "default": 70 }
+  ],
+  "layers": [
+    { "type": "stroke", "color": "$color", "alpha": 0.2, "width": 1.8 },
+    { "type": "dots", "color": "$color", "size": "$size", "spacing": "$spacing", "speed": "$speed", "trail": "$trail", "blur": 10 },
+    { "type": "dots", "color": "#ffffff", "size": "=$size*0.5", "spacing": "$spacing", "speed": "$speed" }
+  ],
+  "skin": [
+    { "type": "disc", "color": "#121417", "radius": 1 },
+    { "type": "ring", "color": "$color", "radius": 1, "width": 0.1, "alpha": 0.5 },
+    { "type": "orbit", "color": "#ffffff", "radius": 0.6, "size": 0.22, "count": 1, "speed": 0.9, "blur": 6 },
+    { "type": "disc", "color": "$color", "radius": 0.26 }
+  ]
+}

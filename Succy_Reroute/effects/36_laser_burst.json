@@ -1,0 +1,117 @@
+{
+  "id": "laser_burst",
+  "name": "Laser Burst",
+  "icon": "🔫",
+  "order": 360,
+  "description": "Fast sci-fi laser bolts firing through a dark conduit, with a white-hot core.",
+  "params": [
+    {
+      "key": "color",
+      "label": "Beam",
+      "type": "color",
+      "default": "#ff2d55"
+    },
+    {
+      "key": "size",
+      "label": "Thickness",
+      "type": "range",
+      "min": 1,
+      "max": 5,
+      "step": 0.1,
+      "default": 2.4
+    },
+    {
+      "key": "length",
+      "label": "Bolt length",
+      "type": "range",
+      "min": 20,
+      "max": 160,
+      "step": 5,
+      "default": 70
+    },
+    {
+      "key": "speed",
+      "label": "Speed (px/s)",
+      "type": "range",
+      "min": 100,
+      "max": 1200,
+      "step": 10,
+      "default": 520
+    },
+    {
+      "key": "gap",
+      "label": "Gap",
+      "type": "range",
+      "min": 120,
+      "max": 600,
+      "step": 10,
+      "default": 260
+    }
+  ],
+  "layers": [
+    {
+      "type": "stroke",
+      "color": "$color",
+      "alpha": 0.14,
+      "width": 1
+    },
+    {
+      "type": "dots",
+      "shape": "dash",
+      "color": "$color",
+      "alpha": 0.55,
+      "size": "=$size*2.2",
+      "spacing": "=max($gap,L*0.55)",
+      "speed": "$speed",
+      "trail": "$length",
+      "trailSteps": 14,
+      "trailTaper": 0.15,
+      "trailFade": 0.9,
+      "blur": 14,
+      "composite": "lighter"
+    },
+    {
+      "type": "dots",
+      "shape": "dash",
+      "color": "#ffffff",
+      "size": "=$size*0.7",
+      "spacing": "=max($gap,L*0.55)",
+      "speed": "$speed",
+      "trail": "=$length*0.8",
+      "trailSteps": 14,
+      "trailTaper": 0.1,
+      "trailFade": 0.85
+    }
+  ],
+  "skin": [
+    {
+      "type": "disc",
+      "color": "#12060a",
+      "radius": 1
+    },
+    {
+      "type": "spin",
+      "color": "$color",
+      "radius": 1,
+      "width": 0.2,
+      "count": 2,
+      "span": 0.5,
+      "speed": 1.2,
+      "blur": 6
+    },
+    {
+      "type": "ring",
+      "color": "$color",
+      "radius": 0.62,
+      "width": 0.08,
+      "alpha": 0.6
+    },
+    {
+      "type": "disc",
+      "color": "#ffffff",
+      "radius": 0.18,
+      "blur": 6
+    }
+  ],
+  "animated": true
+}

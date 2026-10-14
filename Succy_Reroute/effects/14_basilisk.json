@@ -1,0 +1,116 @@
+{
+  "id": "basilisk",
+  "name": "Basilisk",
+  "icon": "👁",
+  "order": 140,
+  "description": "Toxic green gaze: venom glow, crawling dashes and dripping droplets.",
+  "params": [
+    {
+      "key": "color",
+      "label": "Venom",
+      "type": "color",
+      "default": "#b6ff3c"
+    },
+    {
+      "key": "width",
+      "label": "Width",
+      "type": "range",
+      "min": 1,
+      "max": 8,
+      "step": 0.5,
+      "default": 2.5
+    },
+    {
+      "key": "glow",
+      "label": "Glow",
+      "type": "range",
+      "min": 0,
+      "max": 30,
+      "step": 1,
+      "default": 16
+    },
+    {
+      "key": "drip",
+      "label": "Drop spacing",
+      "type": "range",
+      "min": 14,
+      "max": 90,
+      "step": 2,
+      "default": 38
+    },
+    {
+      "key": "speed",
+      "label": "Speed (px/s)",
+      "type": "range",
+      "min": -200,
+      "max": 200,
+      "step": 5,
+      "default": 90
+    }
+  ],
+  "layers": [
+    {
+      "type": "stroke",
+      "color": "$color",
+      "alpha": 0.22,
+      "width": "=$width*3",
+      "blur": "$glow"
+    },
+    {
+      "type": "stroke",
+      "color": "$color",
+      "width": "$width",
+      "dash": [
+        10,
+        6
+      ],
+      "dashSpeed": "$speed",
+      "cap": "butt",
+      "blur": 6
+    },
+    {
+      "type": "dots",
+      "shape": "circle",
+      "color": "#e8ff9a",
+      "size": 2.2,
+      "spacing": "$drip",
+      "speed": "=-$speed*0.6",
+      "blur": 10,
+      "displace": "=6*sin(i*2.1+t*3)*sin(v*3.14159)"
+    }
+  ],
+  "skin": [
+    {
+      "type": "disc",
+      "color": "#0b1205",
+      "radius": 1
+    },
+    {
+      "type": "glow",
+      "color": "$color",
+      "radius": 1.9,
+      "alpha": 0.3
+    },
+    {
+      "type": "ring",
+      "color": "$color",
+      "radius": 1,
+      "width": 0.12
+    },
+    {
+      "type": "spin",
+      "color": "$color",
+      "radius": 0.72,
+      "width": 0.14,
+      "count": 2,
+      "span": 0.25,
+      "speed": -1
+    },
+    {
+      "type": "disc",
+      "color": "#e8ff9a",
+      "radius": 0.34,
+      "blur": 5
+    }
+  ]
+}

@@ -1,0 +1,1168 @@
+═══════════════════════════════════════════════════════════════════
+  SUCCY LABEL — EFFECT AUTHORING GUIDE
+  Version 4.0 — Fully data-driven architecture
+═══════════════════════════════════════════════════════════════════
+
+  Table of contents:
+  0.  Overview and the golden rule
+  1.  Folder and file layout
+  2.  _UI_Options.json — THE source of truth for defaults
+  3.  Anatomy of an effect (shared schema)
+  4.  The "default" sentinel mechanism
+  5.  Card: BG_Animations.json     (background canvas)
+  6.  Card: Text_Styles.json       (CSS text styles)
+  7.  Card: Borders_Styles.json    (CSS border styles)
+  8.  Card: Overlay_Patterns.json  (CSS overlay patterns)
+  9.  Card: Overlay_Style.json     (overlay animations)
+  10. Card: Bg_Anim_Palettes.json  (preset palettes)
+  11. Card: Fonts.json             (fonts)
+  12. Canvas engine — all primitives
+  13. Runtime variables (background)
+  14. CSS custom properties (text / border / pattern)
+  15. The 🔄 reload button and live editing
+  16. What is NOT in JSON (and why)
+  17. Fundamental rules
+  18. Common mistakes
+  19. Pre-commit checklist
+
+
+═══════════════════════════════════════════════════════════════════
+  0. OVERVIEW AND THE GOLDEN RULE
+═══════════════════════════════════════════════════════════════════
+
+Succy Label is a data-driven ComfyUI node: ALL the data (effects,
+palettes, fonts, patterns, borders, animations, default widget
+values) lives in JSON files. JavaScript and Python are ONLY the
+engine that reads and executes it.
+
+  ▶ GOLDEN RULE ◀
+  To add, modify or remove an effect, or to change any default
+  value: you ONLY touch JSON. You never open the code.
+  After the edit: click the 🔄 button inside the node editor, and
+  the UI updates in real time. No restart, no Ctrl+Shift+R.
+
+The only file that REQUIRES a ComfyUI restart is _UI_Options.json
+when you change a default: those values flow into Python's
+INPUT_TYPES at import time (see §2).
+
+Exceptions (rare, and they apply to ALL effects):
+  - A NEW PRIMITIVE for the canvas engine is needed
+    (e.g. draw an image, cubic bezier, blur) → you edit JS.
+  - A NEW KIND of data field with new semantics is needed
+    → you edit JS/Python. That is not "adding an effect", it is
+    "adding a capability to the engine".
+  - You add a NEW FAMILY (a new JSON file served to the UI)
+    → you edit JS + Python. Three touch points (see §16).
+
+
+═══════════════════════════════════════════════════════════════════
+  1. FOLDER AND FILE LAYOUT
+═══════════════════════════════════════════════════════════════════
+
+ComfyUI-Succy-Pack/
+├── __init__.py
+├── js/
+│   └── Succy_Label.js              (engine + UI + lifecycle)
+└── Succy_Label/
+    ├── Succy_Label.py              (node + HTTP routes + font proxy)
+    └── effects/
+        ├── _UI_Options.json        defaults + non-effect UI choices
+        ├── BG_Animations.json      animated background canvas
+        ├── Text_Styles.json        text styles
+        ├── Borders_Styles.json     border styles
+        ├── Overlay_Patterns.json   overlay patterns (dots, grid, …)
+        ├── Overlay_Style.json      overlay animations
+        ├── Bg_Anim_Palettes.json   preset palettes
+        └── Fonts.json              fonts (Google + system)
+
+Effect JSON files share this envelope:
+
+{
+  "version": 1,
+  "family": "<family_name>",
+  "effects": [ {...}, {...} ],     ← main list
+  "items":   [ {...}, {...} ]      ← used ONLY by Fonts.json
+}
+
+_UI_Options.json is different: it has "defaults" + "items" as an
+object (not a list). See §2.
+
+JSON rules:
+  - No comments (//, /* */, #). JSON does not support them.
+  - If you need an inline note, add a "_comment": "…" field.
+  - The LAST element of an array/object has NO trailing comma.
+  - Adding at the END: put the comma on the former last item,
+    DO NOT put one after the new item.
+  - Adding at the START or MIDDLE: same rule, comma between
+    elements, never after the last.
+
+
+═══════════════════════════════════════════════════════════════════
+  2. _UI_Options.json — THE SOURCE OF TRUTH FOR DEFAULTS
+═══════════════════════════════════════════════════════════════════
+
+_UI_Options.json is where every default widget value lives. Nothing
+in Python or JS hardcodes these values anymore. If you want to
+change the default font size, the default background color, the
+default border width, the default shadow color — you open this
+file, change the number, and that's it.
+
+Shape:
+
+{
+  "version": 1,
+  "family": "uiconfig",
+  "defaults": {                    ← ALL widget defaults live here
+    "font_size": 24,
+    "font_color": "#ffffffff",
+    "bg_color": "#00000080",
+    "border_color": "#00ffffff",
+    "border_color_b": "#ff0000ff",
+    "border_width": 3,
+    "border_glow": 0,
+    "padding": 10,
+    "border_radius": 8,
+    "bg_color_a": "#000000ff",
+    "bg_color_b": "#00ffffff",
+    "bg_color_c": "#ff0000ff",
+    "bg_speed": 5.0,
+    "pattern_color": "#00ffffff80",
+    "pattern_opacity": 100,
+    "pattern_speed": 5.0,
+    "text_style_color": "#ff0000ff",
+    "text_style_color_b": "#00ffffff",
+    "text_style_intensity": 50,
+    "text_style_speed": 50,
+    "line_height": 1.3,
+    "box_shadow": 0,
+    "box_shadow_color": "#00000080",
+    "bg_grad_color": "#00808080",
+    "bg_grad_balance": 50,
+    "bg_grad_softness": 40
+  },
+  "items": {                       ← pick-lists (NOT defaults)
+    "align":          { "default": "left",   "options": [...] },
+    "align_vertical": { "default": "center", "options": [...] },
+    "gradient":       { "default": "off",    "options": [...] }
+  }
+}
+
+─── RULES ────────────────────────────────────────────────────────
+
+1. Every key in "defaults" is REQUIRED. If you remove a key, Python
+   will refuse to import the node (raises a clear error) and JS will
+   log a warning in the browser console. Do not delete keys unless
+   you are also removing the corresponding widget.
+
+2. Values must match the type the widget expects:
+     - ints for INT widgets
+     - floats for FLOAT widgets
+     - #rrggbbaa strings for color/string widgets
+   A mismatch (e.g. "3" instead of 3) will look like it works but
+   the widget might behave oddly.
+
+3. After changing "defaults", you MUST restart ComfyUI. The values
+   flow into INPUT_TYPES at import time. The 🔄 button does NOT
+   refresh defaults for the Python side. It DOES refresh them for
+   the JS side, so existing nodes pick up the new defaults on the
+   next visual refresh — but new nodes created before the restart
+   will still use the old values.
+
+4. "items" is different from "defaults". "items" holds dropdown
+   choices (align, gradient, etc.). Its "default" key picks which
+   option is preselected. Changing "items" also requires a restart.
+
+─── WHAT HAPPENS IF A KEY IS MISSING ────────────────────────────
+
+  Python: INPUT_TYPES raises a KeyError like
+          "[Succy_Label] Default mancante in _UI_Options.json →
+           defaults: 'font_size'"
+          The node will not load. This is intentional: it forces
+          you to fix the JSON before the UI silently uses a stale
+          or wrong value.
+
+  JS:     _succyDefault logs a console warning
+          "[Succy Label] Default mancante in _UI_Options.json →
+           defaults: 'font_size'"
+          and returns undefined. Fix it, click 🔄.
+
+─── EXAMPLES OF THINGS YOU CAN DO WITHOUT TOUCHING CODE ─────────
+
+  - Change the default border width from 3 to 5:
+      "border_width": 5
+
+  - Make the default background fully transparent:
+      "bg_color": "#00000000"
+
+  - Change the default second gradient color from teal to orange:
+      "bg_grad_color": "#ff8800ff"
+
+  - Add "justify" to the horizontal alignment menu:
+      "align": {
+        "default": "left",
+        "options": [
+          { "id": "left",    "label": "Left" },
+          { "id": "center",  "label": "Center" },
+          { "id": "right",   "label": "Right" },
+          { "id": "justify", "label": "Justify" }
+        ]
+      }
+
+  - Add a 45° diagonal gradient:
+      { "id": "diag ↗", "label": "Diagonal ↗",
+        "type": "linear", "angle": 45 }
+
+  - Rename "radial ⊙" to "Radial":
+      change only its "label".
+
+Remember: restart ComfyUI for any change in this file.
+
+
+═══════════════════════════════════════════════════════════════════
+  3. ANATOMY OF AN EFFECT (shared schema)
+═══════════════════════════════════════════════════════════════════
+
+Common fields, present in every effect family:
+
+  id        unique string in snake_case. Never duplicated.
+            Examples: "neon_pulse", "glitch_border", "scroll_x".
+  label     human-readable label shown in the menu.
+            Examples: "Neon Pulse", "Glitch Border", "Scroll X".
+  default   boolean. OPTIONAL, but exactly ONE entry per family
+            SHOULD have "default": true (see §4).
+  css       optional CSS string. If present, it is injected into a
+            global <style> at fetch time (or on 🔄 reload).
+            Newlines are written as "\n" inside the JSON string.
+
+Family-specific fields are documented in §5–§11.
+
+
+═══════════════════════════════════════════════════════════════════
+  4. THE "default" SENTINEL MECHANISM
+═══════════════════════════════════════════════════════════════════
+
+Historically, the engine hardcoded the strings "none", "off",
+"plain" and "solid" as the "no effect" sentinels for their
+respective families. Those are now JSON data.
+
+Rule: exactly ONE entry per family carries "default": true.
+That entry's `id` becomes the sentinel for that family. If you
+rename that `id` tomorrow, the whole engine follows. No code
+change.
+
+Current sentinels (as of this writing):
+
+  Family                | Sentinels' id | File
+  ----------------------+---------------+---------------------------
+  background            | "none"        | BG_Animations.json
+  text                  | "plain"       | Text_Styles.json
+  border                | "none"        | Borders_Styles.json
+  pattern               | "none"        | Overlay_Patterns.json
+  overlayStyle          | "none"        | Overlay_Style.json
+  palette               | "off"         | Bg_Anim_Palettes.json
+  fonts                 | "sans-serif"  | Fonts.json
+
+Additional flag for palettes:
+
+  noResolve: true  →  tells the palette resolver NOT to inject
+                      its own colors into the background, so the
+                      user's three custom color pickers stay live.
+                      The "off" palette carries this flag.
+
+If NO entry has "default": true in a family:
+  - Python picks the first id in the list (fallback).
+  - JS picks the first id in the list (fallback).
+  - The behavior is "no sentinel", which may cause the dropdown
+    to show something that is not really a "disable" option.
+  - Always have one entry with "default": true.
+
+
+═══════════════════════════════════════════════════════════════════
+  5. CARD: BG_Animations.json — BACKGROUND CANVAS
+═══════════════════════════════════════════════════════════════════
+
+Each effect is a recipe executed every frame on a transparent 2D
+canvas overlaid on the node.
+
+SCHEMA:
+
+{
+  "id": "unique_id_snake_case",
+  "label": "Menu label",
+  "default": true,                  OPTIONAL, at most one per file
+  "colors": 1 | 2 | 3,              how many color pickers to show
+  "defaults": {                     initial values (informational)
+    "colors": ["#rrggbbaa", ...],
+    "speed": 5
+  },
+  "functions": {                    reusable JS helpers
+    "name": "(x) => expression"
+  },
+  "state": {                        persistent state
+    "name": { "op": "initArray" | "initList", ... }
+  },
+  "frame": [                        REQUIRED — list of commands
+    { "op": "clear", "color": "colors[0]" },
+    { "op": "loop", "count": 10, "as": "k", "body": [ ... ] },
+    ...
+  ],
+  "reinitOnResize": false           OPTIONAL
+}
+
+─── FIELD DETAILS ────────────────────────────────────────────────
+
+"colors": how many pickers to show (1, 2 or 3). The recipe reads
+          them as colors[0], colors[1], colors[2].
+
+"defaults.colors": initial colors. There must be N colors if
+                   "colors": N. Format #rrggbbaa (alpha included).
+
+"defaults.speed": initial speed, 0.1–10.
+
+"functions": pure JS functions, reusable inside expressions.
+             Example: "hash": "n => Math.sin(n)*43758"
+
+"state": state that SURVIVES between frames and between rebuilds
+         (Ctrl+Z, tab switch). Each entry is an operation:
+
+  initArray: create an array of objects
+    { "op": "initArray", "count": 60, "each": {
+        "x": "random() * w",
+        "y": "random() * h",
+        "vx": "(random() - 0.5) * 40"
+    }}
+
+  initList: create an array of primitives (numbers, strings)
+    { "op": "initList", "values": [0, 0.33, 0.66] }
+
+"reinitOnResize": if true, state is recreated when the canvas
+                  changes size (node resized). Default: false.
+                  Enable ONLY if the state stores pixel coordinates
+                  and you want them redistributed.
+
+─── GOLDEN RULES OF BACKGROUND ───────────────────────────────────
+
+1. ALWAYS use "clear" as the first command, NEVER "fill".
+   clear wipes the bitmap and respects colors[0] alpha.
+   fill overlays and accumulates (only useful for trails:
+   matrix, hyperspace). If you get this wrong, with colors[0]
+   alpha 0 you will still see a black rectangle.
+
+2. NO HARDCODED COLORS in the frame. Every visible color must be
+   colors[0], colors[1], colors[2], or derived from them via
+   darken/lighten/mixColor/toRgba. Never "#fff", "rgba(0,0,0,0.5)"
+   fixed. Reason: the user must be able to bring every color to
+   transparent and see that layer disappear.
+
+3. SCALE COORDINATES TO w/h. Wrong: "x": 300. Correct:
+   "x": "w * 0.5". The canvas changes size with the node.
+
+4. SCALE SPEEDS WITH speed/dt. If you hardcode "move by 10px",
+   the effect will be too fast at speed=0.1. Use "dt * 60" to
+   scale linearly.
+
+5. EFFICIENCY: a frame at 60fps must stay under 5ms.
+   Avoid loops > 500 iterations per frame. If you need density,
+   reduce the canvas or simplify the pattern.
+
+─── COMPLETE EXAMPLE: "Pulsing Rings" ────────────────────────────
+
+{
+  "id": "pulsing_rings",
+  "label": "Pulsing Rings",
+  "colors": 2,
+  "defaults": { "colors": ["#0a0a1aff","#66eaffff"], "speed": 5 },
+  "state": {
+    "r": { "op": "initList", "values": [0, 0.33, 0.66] }
+  },
+  "frame": [
+    { "op": "clear", "color": "colors[0]" },
+    { "op": "lineWidth", "value": 2 },
+    { "op": "loop", "count": 3, "as": "k", "body": [
+      { "op": "alpha", "value": "max(0, 1 - state.r[k])" },
+      { "op": "circle", "cx": "w/2", "cy": "h/2",
+        "r": "state.r[k] * max(w, h) * 0.7",
+        "stroke": "colors[1]" },
+      { "op": "setItem", "list": "r", "index": "k",
+        "value": "state.r[k] + dt * 0.4" },
+      { "op": "if", "cond": "state.r[k] > 1",
+        "then": [ { "op": "setItem", "list": "r", "index": "k", "value": 0 } ] }
+    ]}
+  ]
+}
+
+
+═══════════════════════════════════════════════════════════════════
+  6. CARD: Text_Styles.json — TEXT STYLES
+═══════════════════════════════════════════════════════════════════
+
+Each effect is a CSS block applied to the text through a data
+attribute.
+
+SCHEMA:
+
+{
+  "id": "unique_id",
+  "label": "Menu label",
+  "default": true,                 OPTIONAL, at most one
+  "tsColors": 0 | 1 | 2,           how many "Effect Color" pickers
+                                   0 = none (motion only)
+                                   1 = Effect Color 1 only
+                                   2 = Effect Color 1 + 2
+  "textMult": 1.4,                 OPTIONAL main animation duration
+                                   multiplier (phase-shift)
+  "pseudoMult": 1.4,               OPTIONAL for ::before / ::after
+  "tsLabels": {                    OPTIONAL widget labels
+    "intensity": "Distortion",
+    "speed": "Glitch Rate",
+    "intensityOff": false,
+    "speedOff": false
+  },
+  "css": "/* effect-specific CSS */"
+}
+
+─── AVAILABLE CUSTOM PROPERTIES ─────────────────────────────────
+
+The text container exposes these CSS variables:
+
+  --sl-font-col     text color (chosen by the user)
+  --sl-ts-col       Effect Color 1
+  --sl-ts-col-b     Effect Color 2
+  --sl-ts-int       Intensity, normalized (0.00 – 2.00)
+  --sl-ts-dur       animation duration in seconds (e.g. "1.33s")
+  --sl-delay-text   phase-shift for ::before / ::after
+  --sl-bg-col       background color of the box
+  --sl-border-col   border color
+  --sl-rad          border radius in px
+
+─── CSS SELECTORS TO USE ────────────────────────────────────────
+
+  [data-text-style="YOUR_ID"] .succy-label-text { ... }
+      main text style
+
+  [data-text-style="YOUR_ID"] .succy-label-text::before { ... }
+  [data-text-style="YOUR_ID"] .succy-label-text::after  { ... }
+      extra layers (RGB split, slice, duplicate glow)
+
+  For the content of pseudo-elements:
+      content: attr(data-text);
+  The JS fills data-text with the current text automatically.
+
+  Every pseudo-element should have:
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+      font: inherit;
+
+─── ANIMATIONS ───────────────────────────────────────────────────
+
+For glitch / sharp steps: steps(1, end)
+    @keyframes my_glitch {
+      0%, 20%, 100% { transform: translate(0, 0); }
+      10%           { transform: translate(calc(var(--sl-ts-int) * -8px), 0); }
+    }
+
+For smooth animations: ease-in-out or linear.
+Always infinite, never finite.
+
+─── FUNDAMENTAL RULES ───────────────────────────────────────────
+
+1. NEVER HARDCODE COLORS. Only:
+     var(--sl-font-col)   text
+     var(--sl-ts-col)     effect color 1
+     var(--sl-ts-col-b)   effect color 2
+   If you write "#fff" or "rgba(...)", you are doing it wrong.
+
+2. TRANSPARENCY. If the user sets alpha 0 on an Effect Color, the
+   layer that uses it must disappear. Simply use var(--sl-ts-col)
+   without forcing opacity.
+
+3. `textMult` and `pseudoMult`: the JS uses these values to compute
+   the phase-shift (avoids animation restart after Ctrl+Z).
+   Declare them based on the real durations:
+     - if your animation lasts exactly var(--sl-ts-dur) → 1.0
+     - if it lasts var(--sl-ts-dur) * 1.4 → 1.4
+     - if you have no ::before / ::after → pseudoMult: 0
+
+4. NEVER TOUCH position / top / left / right on the textSpan.
+   Your CSS only touches:
+     color, background, text-shadow, filter, transform, opacity,
+     -webkit-text-stroke, -webkit-background-clip, clip-path.
+
+─── COMPLETE EXAMPLE: "Simple Glow" ─────────────────────────────
+
+{
+  "id": "simple_glow",
+  "label": "Simple Glow",
+  "tsColors": 1,
+  "textMult": 1.0,
+  "pseudoMult": 0,
+  "tsLabels": {
+    "intensity": "Brightness",
+    "speed": "Pulse Rate",
+    "intensityOff": false,
+    "speedOff": false
+  },
+  "css": "@keyframes sg_pulse {\n  0%, 100% { text-shadow: 0 0 calc(4px + 15px * var(--sl-ts-int)) var(--sl-ts-col); }\n  50%      { text-shadow: 0 0 calc(8px + 30px * var(--sl-ts-int)) var(--sl-ts-col); }\n}\n[data-text-style=\"simple_glow\"] .succy-label-text {\n    color: var(--sl-font-col);\n    animation: sg_pulse var(--sl-ts-dur) ease-in-out infinite;\n}"
+}
+
+
+═══════════════════════════════════════════════════════════════════
+  7. CARD: Borders_Styles.json — BORDER STYLES
+═══════════════════════════════════════════════════════════════════
+
+SCHEMA:
+
+{
+  "id": "unique_id",
+  "label": "Menu label",
+  "default": true,                 OPTIONAL, at most one
+  "borderColors": 1 | 2,           how many Border Color pickers
+  "borderDur": 1.0,                animation duration in seconds
+                                   0 = static (no animation-delay)
+  "noBorder": true,                true = native CSS border is off,
+                                   everything drawn in ::after
+  "solidBorder": false,            true = use standard CSS border
+                                   (only for solid)
+  "ignoreRadius": false,           true = force radius 0 on the box
+                                   (for sharp-corner borders)
+  "glowIgnored": false,            true = Glow slider is ignored
+  "css": "/* specific CSS */"
+}
+
+─── AVAILABLE CUSTOM PROPERTIES ─────────────────────────────────
+
+  --sl-border-col     Border Color (A)
+  --sl-border-col-b   Border Color 2 (B)
+  --sl-border-w       Border Width in px
+  --sl-rad            Border Radius in px
+  --sl-border-dur     animation duration (declared in borderDur)
+  --sl-delay-border   phase-shift computed by the JS
+
+The selector is always:
+  [data-border-style="YOUR_ID"]::after
+
+The ::after is already positioned (top/left/right/bottom:0), has
+border-radius: inherit, pointer-events: none. You only define what
+it draws.
+
+─── TWO TECHNIQUES ──────────────────────────────────────────────
+
+TECHNIQUE 1 — Solid border (simple):
+  [data-border-style="yours"]::after {
+      border: var(--sl-border-w) solid var(--sl-border-col);
+  }
+
+TECHNIQUE 2 — "Ring" border with mask (patterns, dashes, gradients):
+  [data-border-style="yours"]::after {
+      border: none;
+      padding: var(--sl-border-w);
+      background-image: /* pattern */;
+      background-size: /* tile */;
+      -webkit-mask: linear-gradient(#fff 0 0) content-box,
+                    linear-gradient(#fff 0 0);
+      mask: linear-gradient(#fff 0 0) content-box,
+            linear-gradient(#fff 0 0);
+      -webkit-mask-composite: xor;
+      mask-composite: exclude;
+  }
+
+  The mask keeps only the outer strip of thickness
+  var(--sl-border-w), which auto-adapts to any border-radius
+  (corners included).
+
+  Use technique 2 for: dashed, dotted, marching_ants, segments,
+  hazard, rainbow, gradient_border, comet.
+
+─── FUNDAMENTAL RULES ───────────────────────────────────────────
+
+1. NEVER HARDCODE COLORS. Only var(--sl-border-col) and, if
+   borderColors: 2, var(--sl-border-col-b).
+
+2. The border must respond to --sl-border-w. If you fix it in CSS,
+   you are doing it wrong.
+
+3. borderDur: 0 for static borders (solid, dashed, dotted, double,
+   corner_brackets, cut_corners, segments, notched).
+
+4. ignoreRadius: true for sharp-corner borders (corner_brackets,
+   cut_corners, notched) — otherwise the box corners become round
+   and the effect looks broken.
+
+5. glowIgnored: true for borders with their own glow (neon_pulse,
+   heartbeat, dashed_glow) — otherwise it stacks with the slider
+   Glow and becomes a double glow.
+
+─── COMPLETE EXAMPLE: "Dashed Glow" ─────────────────────────────
+
+{
+  "id": "dashed_glow",
+  "label": "Dashed Glow",
+  "borderColors": 1,
+  "noBorder": true,
+  "borderDur": 2.0,
+  "css": "@keyframes sl-dg-pulse {\n    0%, 100% { filter: drop-shadow(0 0 2px var(--sl-border-col)); }\n    50%      { filter: drop-shadow(0 0 12px var(--sl-border-col)) drop-shadow(0 0 24px var(--sl-border-col)); }\n}\n[data-border-style=\"dashed_glow\"]::after {\n    border: var(--sl-border-w) dashed var(--sl-border-col);\n    animation: sl-dg-pulse var(--sl-border-dur) ease-in-out infinite;\n    animation-delay: var(--sl-delay-border, 0s);\n}"
+}
+
+
+═══════════════════════════════════════════════════════════════════
+  8. CARD: Overlay_Patterns.json — OVERLAY PATTERNS
+═══════════════════════════════════════════════════════════════════
+
+Patterns are CSS background-images stretched over a layer above the
+background canvas and below the text.
+
+SCHEMA:
+
+{
+  "id": "dots",
+  "label": "Dots",
+  "default": true,                 OPTIONAL, at most one
+  "css": "radial-gradient({{color}} 1.2px, transparent 1.6px)",
+  "size": "14px 14px",
+  "position": "0 0",
+  "blendMode": "normal",
+  "tile": 14
+}
+
+─── FIELDS ──────────────────────────────────────────────────────
+
+  css        the value of background-image. It may contain the
+             placeholder {{color}}, which is replaced at runtime
+             with the user-chosen color + its opacity.
+             For multiple layers, separate with a comma and use
+             multiple {{color}}.
+
+  size       background-size value. E.g. "14px 14px".
+             IMPORTANT: it must be a multiple of `tile`, otherwise
+             the scroll animation glitches.
+
+  position   background-position value. E.g. "0 0".
+             If size holds multiple layers, separate with a comma.
+
+  blendMode  mix-blend-mode. "normal" (default), "screen",
+             "multiply", "overlay", "difference", etc.
+
+  tile       tile size in px. Used by the JS to compute the scroll
+             distance so the loop has no snapping. It must match
+             the smallest size.
+
+─── HOW TO WRITE A PATTERN ──────────────────────────────────────
+
+1. Choose a small tile (4–32 px).
+2. Draw it with CSS gradients (linear, radial, conic, repeating).
+3. Add {{color}} every time you want the user color.
+4. Set `tile` to the same value as `size`.
+5. If the pattern is periodic on X and Y, size must be "Wpx Hpx".
+
+─── EXAMPLE: adding a new "Plus" pattern ────────────────────────
+
+  ,{
+    "id": "plus",
+    "label": "Plus",
+    "css": "linear-gradient({{color}} 1px, transparent 1px), linear-gradient(90deg, {{color}} 1px, transparent 1px)",
+    "size": "16px 16px",
+    "position": "0 0",
+    "blendMode": "normal",
+    "tile": 16
+  }
+
+The leading comma is because you are appending to a list (the
+previous item had no comma, you add one for it).
+
+
+═══════════════════════════════════════════════════════════════════
+  9. CARD: Overlay_Style.json — OVERLAY ANIMATIONS
+═══════════════════════════════════════════════════════════════════
+
+Pattern animations (scroll, pulse, zoom) are ORTHOGONAL to the
+pattern: "dots" + "scroll_x" works as well as "grid" + "scroll_x".
+
+SCHEMA:
+
+{
+  "id": "scroll_x",
+  "label": "Scroll X",
+  "default": true,                 OPTIONAL, at most one
+  "keyframe": "sl-pat-scroll-x",
+  "css": "@keyframes sl-pat-scroll-x { from { ... } to { ... } }"
+}
+
+─── FIELDS ──────────────────────────────────────────────────────
+
+  keyframe   name of the @keyframes to apply via
+             `animation: <keyframe> <dur> linear infinite`.
+             The JS takes it and puts it on the pattern's inner
+             container.
+
+  css        definition of the @keyframes. It is injected into
+             the <head> together with the other effect CSS.
+
+─── VARIABLES AVAILABLE IN KEYFRAMES ────────────────────────────
+
+The pattern container exposes two custom properties:
+  --sl-pat-tx   X scroll distance (computed from the tile)
+  --sl-pat-ty   Y scroll distance
+
+This lets scroll_x, scroll_y, scroll_diag use the same loop
+distance without knowing which pattern is active.
+
+─── HOW TO WRITE AN ANIMATION ───────────────────────────────────
+
+1. Choose a unique keyframe name: "sl-pat-<name>".
+2. Write the from/to (or various % keyframes).
+3. For scroll: use var(--sl-pat-tx) and var(--sl-pat-ty).
+4. For pulse/flicker: opacity.
+5. For zoom/breathe: transform: scale(…).
+6. Do not use colors: animations are orthogonal to the color.
+
+─── EXAMPLE: adding "wobble" ────────────────────────────────────
+
+  ,{
+    "id": "wobble",
+    "label": "Wobble",
+    "keyframe": "sl-pat-wobble",
+    "css": "@keyframes sl-pat-wobble { 0%,100% { transform: translate(0,0) rotate(0deg); } 25% { transform: translate(-2px,1px) rotate(-0.5deg); } 75% { transform: translate(2px,-1px) rotate(0.5deg); } }"
+  }
+
+
+═══════════════════════════════════════════════════════════════════
+  10. CARD: Bg_Anim_Palettes.json — PRESET PALETTES
+═══════════════════════════════════════════════════════════════════
+
+A palette is a triplet of colors the user can apply to an animated
+background with one click.
+
+SCHEMA:
+
+{ "id": "neon", "label": "Neon",
+  "colors": ["#1a0033ff", "#ff00ffff", "#00ffffff"] }
+
+─── RULES ────────────────────────────────────────────────────────
+
+- The FIRST color is always the background (colors[0] in recipes).
+  Best if it is dark: it contrasts well and respects transparency.
+- Colors 2 and 3 are accent/highlight and can be bright.
+- Every color in #rrggbbaa format (alpha included).
+- NO hardcoded colors: the user can override the palette by
+  selecting "Off" and using their own three color pickers.
+
+The "off" entry carries "noResolve": true. This tells the palette
+resolver NOT to inject the palette's colors into the background, so
+the user's pickers stay live. See §4.
+
+─── HOW TO ADD A PALETTE ────────────────────────────────────────
+
+  ,{ "id": "vaporwave", "label": "Vaporwave",
+     "colors": ["#1a0033ff", "#ff77e0ff", "#00d4ffff"] }
+
+
+═══════════════════════════════════════════════════════════════════
+  11. CARD: Fonts.json — FONTS
+═══════════════════════════════════════════════════════════════════
+
+SCHEMA:
+
+{ "id": "Orbitron", "label": "Orbitron", "import": "Orbitron:wght@400;700" }
+
+─── FIELDS ──────────────────────────────────────────────────────
+
+  id       font name used in CSS (font-family).
+  label    menu label.
+  default  OPTIONAL, at most one. Usually on "sans-serif".
+  import   OPTIONAL. Exact name inside the Google Fonts URL:
+           https://fonts.googleapis.com/css2?family=<IMPORT>&display=swap
+           If missing, it is treated as a system font (Arial,
+           Impact, etc.) and Python does not include it in the
+           Google URL.
+
+─── HOW TO ADD A FONT ───────────────────────────────────────────
+
+1. Find the font at fonts.google.com.
+2. Click "Get font" → look at the CSS URL. The part after
+   "family=" is the value of `import`. E.g. "Rubik+Glitch".
+3. If you want specific weights: "Orbitron:wght@400;700".
+4. Add the object to `items` (NOTE: NOT `effects`).
+
+─── EXAMPLE ─────────────────────────────────────────────────────
+
+  ,{ "id": "Rubik Glitch", "label": "Rubik Glitch", "import": "Rubik+Glitch" }
+
+Note: in "id" and "label" you can have spaces. In "import" you must
+use "+" as separator (it is a URL).
+
+
+═══════════════════════════════════════════════════════════════════
+  12. CANVAS ENGINE — ALL PRIMITIVES
+═══════════════════════════════════════════════════════════════════
+
+Recipes in BG_Animations.json are lists of commands executed in
+sequence. Here is the full list of supported operations.
+
+─── DRAWING ─────────────────────────────────────────────────────
+
+  {"op": "clear",  "color": expr}    clears and fills (ALWAYS use
+                                      this as first command)
+  {"op": "fill",   "color": expr}    fills without clearing
+                                      (trails only)
+  {"op": "rect",   "x":, "y":, "w":, "h":, "fill":, "stroke":}
+  {"op": "circle", "cx":, "cy":, "r":, "fill":, "stroke":}
+  {"op": "ellipse","cx":, "cy":, "rx":, "ry":, "rotation":, "fill":, "stroke":}
+  {"op": "arc",    "cx":, "cy":, "r":, "a0":, "a1":, "fill":, "stroke":}
+  {"op": "line",   "x1":, "y1":, "x2":, "y2":, "stroke":, "lineWidth":}
+  {"op": "path",   "d": "M...", "fill":, "stroke":, "lineWidth":}
+                   (Path2D SVG)
+  {"op": "text",   "value":, "x":, "y":, "size":, "font":,
+                   "fill":, "align":, "baseline":}
+  {"op": "polyline", "points": [{"x":, "y":}, ...], "close": bool,
+                     "stroke":, "fill":, "lineWidth":,
+                     "fillGradientStops": [{"at":, "color":}, ...],
+                     "fillGradientY1":, "fillGradientY2":}
+      alternative with count+each:
+         "count": "expr", "each": {"x": "expr", "y": "expr"}
+
+─── STYLE ───────────────────────────────────────────────────────
+
+  {"op": "gradientLinear", "x1":, "y1":, "x2":, "y2":,
+                           "stops": [{"at":, "color":}, ...]}
+  {"op": "gradientRadial", "cx":, "cy":, "r":, "stops": [...]}
+  {"op": "alpha",     "value": 0.5}
+  {"op": "composite", "value": "screen" | "source-over" | "overlay" | ...}
+  {"op": "shadow",    "blur":, "color":}
+  {"op": "lineWidth", "value":}
+  {"op": "lineCap",   "value": "round" | "butt" | "square"}
+  {"op": "dash",      "pattern": [5, 3]}
+
+─── TRANSFORMS ──────────────────────────────────────────────────
+
+  {"op": "save"} / {"op": "restore"}
+  {"op": "translate", "x":, "y":}
+  {"op": "rotate",    "angle":}
+  {"op": "scale",     "x":, "y":}
+
+─── CLIP ────────────────────────────────────────────────────────
+
+  {"op": "clipRect", "x":, "y":, "w":, "h":}
+      clips the following drawing (use inside save/restore)
+
+─── CONTROL ─────────────────────────────────────────────────────
+
+  {"op": "loop", "count": "expr", "as": "k", "body": [...]}
+      repeats body k times, counter is env.k (or env.i if no "as")
+
+  {"op": "loopOver", "source": "stateName", "as": "item", "body": [...]}
+      iterates over a state array
+
+  {"op": "if", "cond": "expr", "then": [...], "else": [...]}
+
+  {"op": "set", "target": "state.foo", "value": "expr"}
+  {"op": "set", "target": "item.prop", "value": "expr"}
+
+  {"op": "setItem", "list": "arrName", "index": "expr",
+                    "value": "expr", "prop": "optional"}
+
+
+═══════════════════════════════════════════════════════════════════
+  13. RUNTIME VARIABLES AND UTILITIES (background)
+═══════════════════════════════════════════════════════════════════
+
+─── VARIABLES ───────────────────────────────────────────────────
+
+  w, h        canvas width, height
+  t           time in seconds (accumulates speed)
+  dt          delta time (scaled by speed)
+  speed       user-chosen speed (0.1 – 10)
+  colors[]    array of chosen colors
+  state       persistent object
+  i           current loop counter
+
+─── MATH ────────────────────────────────────────────────────────
+
+  PI, sin, cos, tan, random, min, max, abs,
+  floor, ceil, round, sqrt, hypot
+
+─── COLOR UTILITIES ─────────────────────────────────────────────
+
+  toRgba("#rrggbbaa")           → "rgba(r,g,b,a)"
+  darken("#rrggbbaa", 0.5)      → darkens
+  lighten("#rrggbbaa", 0.5)     → lightens
+  mixColor("#aaa", "#bbb", 0.5) → weighted mix
+
+─── KEYWORD LITERALS ────────────────────────────────────────────
+
+Strings that look like CSS keywords or color literals are returned
+as-is by the interpreter without being evaluated as JS:
+
+  - Anything starting with "#", "rgb(", "rgba(", "hsl(", "hsla("
+  - Any all-lowercase word made only of letters, digits, dashes and
+    spaces that is NOT a variable name in the current env.
+    E.g.: "source-over", "screen", "round", "top", "monospace".
+    This is why `{"op": "composite", "value": "source-over"}` works
+    without quoting tricks.
+
+
+═══════════════════════════════════════════════════════════════════
+  14. CSS CUSTOM PROPERTIES (text / border / pattern)
+═══════════════════════════════════════════════════════════════════
+
+─── TEXT (Text_Styles.json) ─────────────────────────────────────
+
+  --sl-font-col     Font Color
+  --sl-ts-col       Effect Color 1
+  --sl-ts-col-b     Effect Color 2
+  --sl-ts-int       Intensity (0.00 – 2.00)
+  --sl-ts-dur       animation duration in seconds
+  --sl-delay-text   phase-shift for ::before / ::after
+
+─── BORDER (Borders_Styles.json) ────────────────────────────────
+
+  --sl-border-col     Border Color A
+  --sl-border-col-b   Border Color B
+  --sl-border-w       width in px
+  --sl-rad            border radius in px
+  --sl-border-dur     animation duration
+  --sl-delay-border   phase-shift
+
+─── PATTERN (Overlay_Patterns + Overlay_Style) ──────────────────
+
+  {{color}}           placeholder in the "css" field of the
+                      pattern, replaced with the chosen color +
+                      opacity
+  --sl-pat-tx         X scroll distance
+  --sl-pat-ty         Y scroll distance
+
+
+═══════════════════════════════════════════════════════════════════
+  15. THE 🔄 BUTTON AND LIVE-EDITING
+═══════════════════════════════════════════════════════════════════
+
+In the editor header there is a 🔄 button. Clicking it:
+
+1. Takes a SNAPSHOT of the current values of all node widgets.
+2. Downloads all JSON files with `cache: "no-store"`.
+3. If ALL fetches succeed: replaces the in-memory Maps,
+   re-injects the CSS, restores the widget values.
+4. If ONE fetch fails (malformed JSON, server down): it touches
+   nothing. The UI stays as it was, and you see a warning in the
+   console.
+5. The editor does NOT close. Values do not reset.
+
+What it does NOT do:
+  - It does not reload the page.
+  - It does not rebuild the node.
+  - It does not touch the text, colors, bg, or positions.
+
+To SEE the new entries (freshly added fonts, new patterns):
+  close and reopen the editor (⚙️ twice). The dropdowns are
+  rebuilt with the fresh data. The canvas updates by itself.
+
+When you DO need a server RESTART:
+  - Never, to add / modify / remove effects.
+  - Only if you change Succy_Label.py (node, routes, etc.) or
+    _UI_Options.json (its defaults and options flow into Python
+    INPUT_TYPES at import time).
+
+
+═══════════════════════════════════════════════════════════════════
+  16. WHAT IS NOT IN JSON (and why)
+═══════════════════════════════════════════════════════════════════
+
+These are structural. They are the "wires", not the "data". You only
+touch them when you add a new CAPABILITY, not a new effect.
+
+1. HTTP routes:
+     /succy/effects/{family}   (JSON serving)
+     /succy/uiconfig           (_UI_Options.json serving)
+     /succy/css_proxy          (Google Fonts CSS proxy)
+     /succy/font_proxy         (webfont binary proxy)
+   Defined in Succy_Label.py.
+
+2. Family names and their routes:
+     Python: _FAMILIES tuple
+     JS:     the `families` array inside _succyReloadAllEffects
+             (2 places) and the SUCCY_EFFECTS keys.
+   Adding a new family means touching all three spots.
+
+3. Canvas primitive set:
+     SuccyFxInterpreter._exec() supports a closed set of `op`
+     values. Adding a new primitive (image, bezier, blur, …) means
+     editing Succy_Label.js.
+
+4. Widget order and INPUT_TYPES:
+     Python: INPUT_TYPES in Succy_Label.py
+     JS:     SUCCY_LABEL_NATIVE_ORDER
+   These MUST match, otherwise old workflows map saved positional
+   values onto the wrong widget. This is a ComfyUI convention, not
+   a limitation of this node. To add or remove a top-level widget
+   you must edit both.
+
+5. Base node CSS:
+     .succy-label-container, .succy-label-editor, .sl-stepper,
+     .succy-label-color-row, etc.
+   This is the editor chrome, not per-effect CSS. Per-effect CSS
+   lives in the JSON files.
+
+6. Node property keys:
+     succy_label_bg_grad_style, succy_label_bg_grad_balance,
+     succy_label_bg_grad_softness, succy_label_bg_grad_color,
+     succy_label_last_anim, succy_label_text_mode.
+   These are storage slots. Adding a new one means editing JS
+   (and the whitelist array inside configure()).
+
+SENTINELS: as of v4.0, sentinels ("none", "off", "plain", "solid")
+live in the JSON files, flagged with "default": true. See §4.
+
+DEFAULTS: as of v4.0, ALL widget defaults live in
+_UI_Options.json → defaults. Python reads them via the strict
+_d(key) helper, JS via _succyDefault(key). If a key is missing,
+Python refuses to import and JS warns in the console. There are no
+fallback values hardcoded in the engine. See §2.
+
+Summary table:
+
+  Action                                 | Touches
+  ---------------------------------------+----------------------
+  Add / modify / remove an effect        | JSON only
+  Rename an effect's id                  | JSON only (breaks old
+                                         | workflows that saved it)
+  Change a widget default                | _UI_Options.json +
+                                         | server restart
+  Add a canvas primitive                 | JS
+  Add a widget / control                 | JS + Python
+  Add a new family                       | JS + Python (3 spots)
+  Change UI pick-lists (align, gradient) | _UI_Options.json +
+                                         | server restart
+
+
+═══════════════════════════════════════════════════════════════════
+  17. FUNDAMENTAL RULES (summary)
+═══════════════════════════════════════════════════════════════════
+
+1. NO HARDCODED COLORS in effects. Every visible color must be a
+   CSS var or a colors[] entry passed by the user.
+
+2. NO HARDCODED DEFAULTS in code. Every default value lives in
+   _UI_Options.json → defaults.
+
+3. TRANSPARENCY RESPECTED. Test with alpha 0 on every color: the
+   layer using it must cleanly disappear.
+
+4. clear (not fill) for the background base.
+   fill only for trails.
+
+5. Canvas coordinates scaled to w/h.
+
+6. Speeds scaled with speed/dt (linearly from 0.1 to 10).
+
+7. CSS: never touch position/top/left/right on textSpan.
+   Only color, background, text-shadow, filter, transform,
+   opacity, -webkit-text-stroke, -webkit-background-clip,
+   clip-path.
+
+8. JSON: no trailing comma after the last element of an array or
+   object. No comments (use "_comment").
+
+9. Effect name unique and in snake_case (background) or canonical
+   (text/border/pattern/style).
+
+10. Every family has exactly ONE entry with "default": true.
+
+
+═══════════════════════════════════════════════════════════════════
+  18. COMMON MISTAKES
+═══════════════════════════════════════════════════════════════════
+
+"Nothing loads / dropdown is empty"
+  → Malformed JSON. Check the commas.
+  → Open the console: look for "[Succy_Label] <family> fetch failed".
+  → In the ComfyUI terminal: "effects/<name>.json not readable".
+
+"The effect looks black even with a transparent background"
+  → You are using fill instead of clear for the base.
+
+"Effect Color does nothing"
+  → The CSS uses hardcoded colors instead of var(--sl-ts-col).
+
+"Picker 2 is not enabled"
+  → tsColors (text) or borderColors (border) in the JSON is 1, not 2.
+
+"Text is always white"
+  → The CSS has color: #fff or similar. Replace with
+    color: var(--sl-font-col).
+
+"The effect is too fast even at speed 0.1"
+  → Speeds in the frame are hardcoded. Multiply by dt.
+
+"CSS animations restart from frame 0 after Ctrl+Z"
+  → textMult / pseudoMult / borderDur missing in the JSON.
+
+"The effect freezes when I resize the node"
+  → Add "reinitOnResize": true.
+
+"Refresh does not load the JSON changes"
+  → Verify the filename is EXACT (case-sensitive).
+  → Open the console: if you see 404 or 500, the JSON has a problem.
+
+"Bungee Shade does not appear after I added it"
+  → Missing comma between the last element and the new one, or one
+    comma too many after the new one. The ComfyUI terminal will
+    tell you the exact line of the parsing error.
+
+"Dropdown shows nothing for a family, no error in console"
+  → No entry with "default": true in the corresponding JSON, AND
+    the list is empty. Add at least the sentinel entry.
+
+"Palette preset overrides my custom colors even when I pick Off"
+  → The "off" entry in Bg_Anim_Palettes.json must have
+    "noResolve": true.
+
+"The node fails to import with a KeyError about a default"
+  → A key is missing in _UI_Options.json → defaults. The error
+    message tells you which. Add it, restart ComfyUI.
+
+"The console shows 'Default mancante in _UI_Options.json'"
+  → Same as above, but only JS side. Add the key, click 🔄.
+    The Python side also needs a restart to pick it up in
+    INPUT_TYPES.
+
+"A default I changed did not take effect on a NEW node"
+  → You forgot to restart ComfyUI. INPUT_TYPES is evaluated at
+    import time. The 🔄 button only refreshes the JS side.
+
+"A default I changed did not take effect on an EXISTING node"
+  → Existing nodes keep the values they were created with. The
+    default only applies to newly created nodes. Use the editor
+    UI to change the value on existing nodes.
+
+"Number widget shows a strange value at startup"
+  → The value in _UI_Options.json has the wrong type (string
+    instead of number). Fix the JSON, restart.
+
+
+═══════════════════════════════════════════════════════════════════
+  19. PRE-COMMIT CHECKLIST
+═══════════════════════════════════════════════════════════════════
+
+□ No hardcoded colors (#fff, rgba(...), #000000ff) in effect JSON.
+□ No hardcoded defaults in JS/Python. Every default lives in
+  _UI_Options.json → defaults.
+□ For background: clear (not fill) as the first command.
+□ Tested with colors[0] alpha 0 → transparent.
+□ Tested with Effect Color alpha 0 → layer disappears.
+□ Coordinates scaled to w/h.
+□ Speed tested from 0.1 to 10 (scales linearly).
+□ Ctrl+Z: no glitch, no frame-0 reset.
+□ Tab switch and return: same.
+□ Node resize: coherent layout.
+□ The JSON is valid (no stray commas, braces closed).
+□ For text: tested at font size 8 and 200.
+□ Effect name is unique.
+□ The 🔄 button loads it with no console errors.
+□ Exactly one entry in this family has "default": true.
+□ If you touched _UI_Options.json: ComfyUI restarted, node imports
+  cleanly, no KeyError in the terminal.
+
+═══════════════════════════════════════════════════════════════════
+  END OF GUIDE — Version 4.0
+═══════════════════════════════════════════════════════════════════

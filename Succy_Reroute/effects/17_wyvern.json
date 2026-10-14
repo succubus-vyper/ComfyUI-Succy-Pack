@@ -1,0 +1,143 @@
+{
+  "id": "wyvern",
+  "name": "Wyvern",
+  "icon": "🦎",
+  "order": 170,
+  "description": "A crimson wyvern breathing embers ahead of its head.",
+  "params": [
+    {
+      "key": "color",
+      "label": "Body",
+      "type": "color",
+      "default": "#c8423c"
+    },
+    {
+      "key": "color2",
+      "label": "Belly",
+      "type": "color",
+      "default": "#ffb84d"
+    },
+    {
+      "key": "size",
+      "label": "Thickness",
+      "type": "range",
+      "min": 1.5,
+      "max": 7,
+      "step": 0.1,
+      "default": 3.6
+    },
+    {
+      "key": "length",
+      "label": "Length",
+      "type": "range",
+      "min": 40,
+      "max": 320,
+      "step": 5,
+      "default": 170
+    },
+    {
+      "key": "speed",
+      "label": "Speed (px/s)",
+      "type": "range",
+      "min": -300,
+      "max": 300,
+      "step": 5,
+      "default": 130
+    },
+    {
+      "key": "amp",
+      "label": "Amplitude",
+      "type": "range",
+      "min": 0,
+      "max": 20,
+      "step": 0.5,
+      "default": 9
+    },
+    {
+      "key": "wavelength",
+      "label": "Wavelength",
+      "type": "range",
+      "min": 20,
+      "max": 160,
+      "step": 2,
+      "default": 70
+    }
+  ],
+  "layers": [
+    {
+      "type": "stroke",
+      "color": "$color",
+      "alpha": 0.1,
+      "width": 1.5
+    },
+    {
+      "type": "dots",
+      "color": "$color",
+      "size": "$size",
+      "spacing": "=L+$length+30",
+      "speed": "$speed",
+      "trail": "$length",
+      "trailSteps": 56,
+      "trailTaper": 0.65,
+      "trailFade": 0.1,
+      "blur": 5,
+      "displace": "=$amp*sin(s/$wavelength*6.2832 - t*2.2)*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "color": "$color2",
+      "alpha": 0.6,
+      "size": "=$size*0.4",
+      "spacing": "=L+$length+30",
+      "speed": "$speed",
+      "trail": "=$length*0.9",
+      "trailSteps": 56,
+      "trailTaper": 0.65,
+      "trailFade": 0.3,
+      "displace": "=$amp*sin(s/$wavelength*6.2832 - t*2.2)*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "shape": "star",
+      "color": "#ffcf70",
+      "size": 1.4,
+      "spacing": "=L+$length+30",
+      "speed": "$speed",
+      "lead": 8,
+      "trail": 40,
+      "trailSteps": 10,
+      "trailTaper": 0.4,
+      "trailFade": 1,
+      "blur": 8,
+      "displace": "=7*(rnd(i+floor(t*20)*3.1)*2-1)"
+    }
+  ],
+  "skin": [
+    {
+      "type": "glow",
+      "color": "$color",
+      "radius": 2,
+      "alpha": 0.3
+    },
+    {
+      "type": "disc",
+      "color": "#170a09",
+      "radius": 1
+    },
+    {
+      "type": "ring",
+      "color": "$color",
+      "radius": 1,
+      "width": 0.16
+    },
+    {
+      "type": "orbit",
+      "color": "$color2",
+      "radius": 0.58,
+      "size": 0.17,
+      "count": 2,
+      "speed": 0.6,
+      "blur": 4
+    }
+  ]
+}

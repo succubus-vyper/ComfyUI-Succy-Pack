@@ -1,0 +1,112 @@
+{
+  "id": "glitch",
+  "name": "Glitch RGB",
+  "icon": "📺",
+  "order": 390,
+  "description": "A corrupted signal: chromatic split with blocks that randomly jump sideways.",
+  "params": [
+    {
+      "key": "color",
+      "label": "Red channel",
+      "type": "color",
+      "default": "#ff2a55"
+    },
+    {
+      "key": "color2",
+      "label": "Blue channel",
+      "type": "color",
+      "default": "#00f0ff"
+    },
+    {
+      "key": "width",
+      "label": "Width",
+      "type": "range",
+      "min": 1,
+      "max": 5,
+      "step": 0.5,
+      "default": 2
+    },
+    {
+      "key": "jolt",
+      "label": "Glitch size",
+      "type": "range",
+      "min": 2,
+      "max": 30,
+      "step": 1,
+      "default": 14
+    },
+    {
+      "key": "split",
+      "label": "RGB split",
+      "type": "range",
+      "min": 0,
+      "max": 6,
+      "step": 0.5,
+      "default": 2
+    }
+  ],
+  "layers": [
+    {
+      "type": "stroke",
+      "color": "$color",
+      "width": "$width",
+      "step": 6,
+      "composite": "lighter",
+      "displace": "=((rnd(floor(s/26)+floor(t*7)*13.7)>0.7)?(rnd(floor(s/26)*1.3+floor(t*7)*3.9)-0.5)*$jolt:0)+($split)"
+    },
+    {
+      "type": "stroke",
+      "color": "$color2",
+      "width": "$width",
+      "step": 6,
+      "composite": "lighter",
+      "displace": "=((rnd(floor(s/26)+floor(t*7)*13.7)>0.7)?(rnd(floor(s/26)*1.3+floor(t*7)*3.9)-0.5)*$jolt:0)+(-$split)"
+    },
+    {
+      "type": "stroke",
+      "color": "#ffffff",
+      "alpha": 0.8,
+      "width": "=$width*0.5",
+      "step": 6,
+      "displace": "=((rnd(floor(s/26)+floor(t*7)*13.7)>0.7)?(rnd(floor(s/26)*1.3+floor(t*7)*3.9)-0.5)*$jolt:0)+(0)"
+    },
+    {
+      "type": "dots",
+      "shape": "square",
+      "color": "#ffffff",
+      "size": 2.2,
+      "spacing": 38,
+      "speed": 0,
+      "alpha": "=rnd(floor(t*9)+i*1.7)>0.65?0.9:0",
+      "composite": "lighter",
+      "displace": "=(rnd(floor(t*9)+i*3.3)-0.5)*$jolt*1.6*sin(v*3.14159)"
+    }
+  ],
+  "skin": [
+    {
+      "type": "disc",
+      "color": "#08080c",
+      "radius": 1
+    },
+    {
+      "type": "ring",
+      "color": "$color",
+      "radius": 1,
+      "width": 0.12,
+      "alpha": 0.8
+    },
+    {
+      "type": "ring",
+      "color": "$color2",
+      "radius": 0.94,
+      "width": 0.1,
+      "alpha": 0.7
+    },
+    {
+      "type": "disc",
+      "color": "#ffffff",
+      "radius": "=0.2+0.2*(rnd(floor(t*8))>0.6?1:0)"
+    }
+  ],
+  "animated": true
+}

@@ -1,0 +1,178 @@
+{
+  "id": "spectral_serpent",
+  "name": "Spectral Serpent",
+  "icon": "👻",
+  "order": 250,
+  "description": "A translucent ghost snake with a glowing aura, drifting wisps and cyan eyes.",
+  "params": [
+    {
+      "key": "color",
+      "label": "Ghost",
+      "type": "color",
+      "default": "#bfe9ff"
+    },
+    {
+      "key": "color2",
+      "label": "Core",
+      "type": "color",
+      "default": "#ffffff"
+    },
+    {
+      "key": "size",
+      "label": "Thickness",
+      "type": "range",
+      "min": 1.5,
+      "max": 6,
+      "step": 0.1,
+      "default": 3
+    },
+    {
+      "key": "length",
+      "label": "Length",
+      "type": "range",
+      "min": 60,
+      "max": 320,
+      "step": 5,
+      "default": 200
+    },
+    {
+      "key": "speed",
+      "label": "Speed (px/s)",
+      "type": "range",
+      "min": -300,
+      "max": 300,
+      "step": 5,
+      "default": 90
+    },
+    {
+      "key": "amp",
+      "label": "Amplitude",
+      "type": "range",
+      "min": 0,
+      "max": 20,
+      "step": 0.5,
+      "default": 9
+    },
+    {
+      "key": "wavelength",
+      "label": "Wavelength",
+      "type": "range",
+      "min": 25,
+      "max": 140,
+      "step": 2,
+      "default": 55
+    },
+    {
+      "key": "slither",
+      "label": "Slither speed",
+      "type": "range",
+      "min": -10,
+      "max": 10,
+      "step": 0.5,
+      "default": 4
+    }
+  ],
+  "layers": [
+    {
+      "type": "dots",
+      "color": "$color",
+      "alpha": 0.22,
+      "size": "=$size*2.4",
+      "spacing": "=L+$length+40",
+      "speed": "$speed",
+      "trail": "$length",
+      "trailSteps": 56,
+      "trailTaper": 0.85,
+      "trailFade": 0.6,
+      "blur": 20,
+      "composite": "lighter",
+      "displace": "=$amp*sin(s/$wavelength*6.2832 - t*$slither)*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "color": "$color",
+      "alpha": 0.6,
+      "size": "$size",
+      "spacing": "=L+$length+40",
+      "speed": "$speed",
+      "trail": "$length",
+      "trailSteps": 56,
+      "trailTaper": 0.8,
+      "trailFade": 0.5,
+      "blur": 10,
+      "composite": "lighter",
+      "displace": "=$amp*sin(s/$wavelength*6.2832 - t*$slither)*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "color": "$color2",
+      "alpha": 0.9,
+      "size": "=$size*0.4",
+      "spacing": "=L+$length+40",
+      "speed": "$speed",
+      "trail": "=$length*0.6",
+      "trailSteps": 40,
+      "trailTaper": 0.8,
+      "trailFade": 0.6,
+      "displace": "=$amp*sin(s/$wavelength*6.2832 - t*$slither)*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "color": "$color",
+      "alpha": 0.5,
+      "size": 1.2,
+      "spacing": "=L+$length+40",
+      "speed": "=$speed*0.85",
+      "blur": 8,
+      "displace": "=10*sin(i*3+t*2+s*0.08)*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "color": "#00e5ff",
+      "size": "=$size*0.25",
+      "spacing": "=L+$length+40",
+      "speed": "$speed",
+      "offset": "=$size*0.55",
+      "displace": "=$amp*sin(s/$wavelength*6.2832 - t*$slither)*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "color": "#00e5ff",
+      "size": "=$size*0.25",
+      "spacing": "=L+$length+40",
+      "speed": "$speed",
+      "offset": "=-$size*0.55",
+      "displace": "=$amp*sin(s/$wavelength*6.2832 - t*$slither)*sin(v*3.14159)"
+    }
+  ],
+  "skin": [
+    {
+      "type": "glow",
+      "color": "$color",
+      "radius": 2.2,
+      "alpha": "=0.25+0.1*sin(t*2)"
+    },
+    {
+      "type": "disc",
+      "color": "#0a1218",
+      "radius": 1
+    },
+    {
+      "type": "spin",
+      "color": "$color",
+      "radius": 1,
+      "width": 0.16,
+      "count": 2,
+      "span": 0.5,
+      "speed": 0.3,
+      "blur": 6
+    },
+    {
+      "type": "disc",
+      "color": "$color2",
+      "radius": 0.26,
+      "blur": 6,
+      "alpha": 0.9
+    }
+  ]
+}

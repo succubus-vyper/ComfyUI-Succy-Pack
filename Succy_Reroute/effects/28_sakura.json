@@ -1,0 +1,103 @@
+{
+  "id": "sakura",
+  "name": "Sakura",
+  "icon": "🌸",
+  "order": 280,
+  "description": "Cherry-blossom petals drifting and swaying along a soft pink thread.",
+  "params": [
+    {
+      "key": "size",
+      "label": "Petal size",
+      "type": "range",
+      "min": 1,
+      "max": 5,
+      "step": 0.1,
+      "default": 2.2
+    },
+    {
+      "key": "spacing",
+      "label": "Petal spacing",
+      "type": "range",
+      "min": 10,
+      "max": 70,
+      "step": 2,
+      "default": 22
+    },
+    {
+      "key": "speed",
+      "label": "Drift (px/s)",
+      "type": "range",
+      "min": -200,
+      "max": 200,
+      "step": 5,
+      "default": 50
+    },
+    {
+      "key": "sway",
+      "label": "Sway",
+      "type": "range",
+      "min": 0,
+      "max": 30,
+      "step": 0.5,
+      "default": 12
+    }
+  ],
+  "layers": [
+    {
+      "type": "stroke",
+      "color": "#ffb7d5",
+      "alpha": 0.14,
+      "width": 1.4,
+      "blur": 6
+    },
+    {
+      "type": "dots",
+      "shape": "diamond",
+      "color": "=hsl(335+14*rnd(i*2.3),85,80)",
+      "size": "=$size*(0.7+0.8*rnd(i*5.1))",
+      "spacing": "$spacing",
+      "speed": "$speed",
+      "alpha": 0.92,
+      "blur": 4,
+      "displace": "=$sway*sin(s*0.06 - t*1.6 + i*1.7)*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "shape": "circle",
+      "color": "#ffffff",
+      "size": "=$size*0.35",
+      "spacing": "=$spacing*1.9",
+      "speed": "=$speed*0.8",
+      "alpha": 0.8,
+      "blur": 6,
+      "displace": "=-$sway*sin(s*0.05 - t*1.3 + i*2.1)*sin(v*3.14159)"
+    }
+  ],
+  "skin": [
+    {
+      "type": "disc",
+      "color": "#1d0f16",
+      "radius": 1
+    },
+    {
+      "type": "ring",
+      "color": "#ffb7d5",
+      "radius": 1,
+      "width": 0.12
+    },
+    {
+      "type": "orbit",
+      "color": "=hsl(335+14*rnd(i),85,82)",
+      "radius": 0.58,
+      "size": 0.2,
+      "count": 5,
+      "speed": 0.2,
+      "blur": 3
+    },
+    {
+      "type": "disc",
+      "color": "#ffd9e8",
+      "radius": 0.2
+    }
+  ]
+}

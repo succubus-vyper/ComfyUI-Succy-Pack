@@ -1,0 +1,183 @@
+{
+  "id": "phoenix",
+  "name": "Phoenix",
+  "icon": "🪶",
+  "order": 220,
+  "description": "A blazing firebird with a golden core, molten tail and rising embers.",
+  "params": [
+    {
+      "key": "color",
+      "label": "Flame",
+      "type": "color",
+      "default": "#ff9d2e"
+    },
+    {
+      "key": "color2",
+      "label": "Core",
+      "type": "color",
+      "default": "#ffe08a"
+    },
+    {
+      "key": "color3",
+      "label": "Aura",
+      "type": "color",
+      "default": "#ff3d2e"
+    },
+    {
+      "key": "size",
+      "label": "Thickness",
+      "type": "range",
+      "min": 1.5,
+      "max": 7,
+      "step": 0.1,
+      "default": 3.4
+    },
+    {
+      "key": "length",
+      "label": "Length",
+      "type": "range",
+      "min": 40,
+      "max": 320,
+      "step": 5,
+      "default": 170
+    },
+    {
+      "key": "speed",
+      "label": "Speed (px/s)",
+      "type": "range",
+      "min": -300,
+      "max": 300,
+      "step": 5,
+      "default": 120
+    },
+    {
+      "key": "amp",
+      "label": "Wing beat",
+      "type": "range",
+      "min": 0,
+      "max": 20,
+      "step": 0.5,
+      "default": 8
+    },
+    {
+      "key": "wavelength",
+      "label": "Wavelength",
+      "type": "range",
+      "min": 30,
+      "max": 160,
+      "step": 2,
+      "default": 80
+    },
+    {
+      "key": "embers",
+      "label": "Ember spacing",
+      "type": "range",
+      "min": 10,
+      "max": 70,
+      "step": 2,
+      "default": 24
+    }
+  ],
+  "layers": [
+    {
+      "type": "stroke",
+      "color": "$color3",
+      "alpha": 0.08,
+      "width": 1.5
+    },
+    {
+      "type": "dots",
+      "color": "$color3",
+      "alpha": 0.45,
+      "size": "=$size*1.7",
+      "spacing": "=L+$length*1.2+30",
+      "speed": "$speed",
+      "trail": "=$length*1.15",
+      "trailSteps": 48,
+      "trailTaper": 0.9,
+      "trailFade": 0.4,
+      "blur": 16,
+      "displace": "=$amp*sin(s/$wavelength*6.2832 - t*3)*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "color": "$color",
+      "size": "$size",
+      "spacing": "=L+$length*1.2+30",
+      "speed": "$speed",
+      "trail": "$length",
+      "trailSteps": 56,
+      "trailTaper": 0.75,
+      "trailFade": 0.2,
+      "blur": 8,
+      "displace": "=$amp*sin(s/$wavelength*6.2832 - t*3)*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "color": "$color2",
+      "size": "=$size*0.45",
+      "spacing": "=L+$length*1.2+30",
+      "speed": "$speed",
+      "trail": "=$length*0.6",
+      "trailSteps": 40,
+      "trailTaper": 0.8,
+      "trailFade": 0.4,
+      "displace": "=$amp*sin(s/$wavelength*6.2832 - t*3)*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "shape": "star",
+      "color": "#ffffff",
+      "size": "=$size*1.1",
+      "spacing": "=L+$length*1.2+30",
+      "speed": "$speed",
+      "blur": 12,
+      "displace": "=$amp*sin(s/$wavelength*6.2832 - t*3)*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "shape": "star",
+      "color": "#ffd27a",
+      "size": 1.2,
+      "spacing": "$embers",
+      "speed": "=$speed*0.6",
+      "blur": 8,
+      "alpha": "=1-fract(t*0.7+i*0.37)",
+      "displace": "=-12*fract(t*0.7+i*0.37)"
+    }
+  ],
+  "skin": [
+    {
+      "type": "glow",
+      "color": "$color3",
+      "radius": 2.3,
+      "alpha": "=0.3+0.15*sin(t*3)"
+    },
+    {
+      "type": "disc",
+      "color": "#1a0b07",
+      "radius": 1
+    },
+    {
+      "type": "ring",
+      "color": "$color",
+      "radius": 1,
+      "width": 0.18,
+      "blur": 6
+    },
+    {
+      "type": "orbit",
+      "color": "$color2",
+      "radius": 0.58,
+      "size": 0.17,
+      "count": 3,
+      "speed": 0.55,
+      "blur": 5
+    },
+    {
+      "type": "disc",
+      "color": "$color2",
+      "radius": 0.2
+    }
+  ]
+}

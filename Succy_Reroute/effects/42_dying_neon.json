@@ -1,0 +1,106 @@
+{
+  "id": "dying_neon",
+  "name": "Dying Neon",
+  "icon": "🪫",
+  "order": 420,
+  "description": "A broken neon tube: some sections buzz steadily, others flicker, stutter and spit sparks.",
+  "params": [
+    {
+      "key": "color",
+      "label": "Tube",
+      "type": "color",
+      "default": "#ff2bd6"
+    },
+    {
+      "key": "color2",
+      "label": "Core",
+      "type": "color",
+      "default": "#ffe3fb"
+    },
+    {
+      "key": "width",
+      "label": "Thickness",
+      "type": "range",
+      "min": 1.5,
+      "max": 7,
+      "step": 0.5,
+      "default": 3.2
+    },
+    {
+      "key": "glow",
+      "label": "Glow",
+      "type": "range",
+      "min": 0,
+      "max": 20,
+      "step": 1,
+      "default": 12
+    },
+    {
+      "key": "sparks",
+      "label": "Sparks",
+      "type": "range",
+      "min": 0,
+      "max": 1,
+      "step": 0.05,
+      "default": 0.85
+    }
+  ],
+  "layers": [
+    {
+      "type": "stroke",
+      "perSegment": true,
+      "step": 8,
+      "color": "$color",
+      "width": "$width",
+      "blur": "$glow",
+      "alpha": "=((rnd(floor(s/46)*1.9+7)>0.78)?(rnd(floor(t*18)+floor(s/46))>0.55?0.95:0.06):(0.82+0.18*rnd(floor(t*30))))"
+    },
+    {
+      "type": "stroke",
+      "perSegment": true,
+      "step": 8,
+      "color": "$color2",
+      "width": "=$width*0.38",
+      "alpha": "=0.9*((rnd(floor(s/46)*1.9+7)>0.78)?(rnd(floor(t*18)+floor(s/46))>0.55?0.95:0.06):(0.82+0.18*rnd(floor(t*30))))"
+    },
+    {
+      "type": "dots",
+      "shape": "star",
+      "color": "#ffffff",
+      "size": 1.7,
+      "spacing": 34,
+      "speed": 0,
+      "composite": "lighter",
+      "alpha": "=(rnd(floor(t*12)+i*1.9)>(1-0.2*$sparks)?1:0)",
+      "displace": "=(rnd(floor(t*12)+i*4.1)-0.5)*18*sin(v*3.14159)"
+    }
+  ],
+  "skin": [
+    {
+      "type": "glow",
+      "color": "$color",
+      "radius": 2,
+      "alpha": 0.25
+    },
+    {
+      "type": "disc",
+      "color": "#16051a",
+      "radius": 1
+    },
+    {
+      "type": "ring",
+      "color": "$color",
+      "radius": 1,
+      "width": 0.2,
+      "blur": 8,
+      "alpha": "=rnd(floor(t*16))>0.25?1:0.15"
+    },
+    {
+      "type": "disc",
+      "color": "$color2",
+      "radius": 0.2,
+      "alpha": "=rnd(floor(t*10)+3)>0.3?1:0.2"
+    }
+  ],
+  "animated": true
+}

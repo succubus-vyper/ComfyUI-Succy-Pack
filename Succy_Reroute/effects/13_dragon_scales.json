@@ -1,0 +1,123 @@
+{
+  "id": "dragon_scales",
+  "name": "Dragon Scales",
+  "icon": "🐉",
+  "order": 130,
+  "description": "Armored scaled body crawling along the wire, with golden dorsal spikes.",
+  "params": [
+    {
+      "key": "hue",
+      "label": "Hue",
+      "type": "range",
+      "min": 0,
+      "max": 360,
+      "step": 1,
+      "default": 150
+    },
+    {
+      "key": "width",
+      "label": "Body width",
+      "type": "range",
+      "min": 3,
+      "max": 10,
+      "step": 0.5,
+      "default": 5
+    },
+    {
+      "key": "amp",
+      "label": "Wave",
+      "type": "range",
+      "min": 0,
+      "max": 12,
+      "step": 0.5,
+      "default": 3
+    },
+    {
+      "key": "scale",
+      "label": "Scale size",
+      "type": "range",
+      "min": 5,
+      "max": 24,
+      "step": 1,
+      "default": 10
+    },
+    {
+      "key": "spike",
+      "label": "Spike height",
+      "type": "range",
+      "min": 0,
+      "max": 12,
+      "step": 0.5,
+      "default": 5
+    },
+    {
+      "key": "speed",
+      "label": "Crawl speed",
+      "type": "range",
+      "min": -200,
+      "max": 200,
+      "step": 5,
+      "default": 40
+    }
+  ],
+  "layers": [
+    {
+      "type": "stroke",
+      "perSegment": true,
+      "step": 3,
+      "width": "$width",
+      "color": "=hsl($hue+14*tri((s-t*$speed)/$scale),55,24+20*tri((s-t*$speed)/$scale))",
+      "displace": "=$amp*sin(s/60*6.2832 - t*2)*sin(v*3.14159)"
+    },
+    {
+      "type": "stroke",
+      "step": 3,
+      "color": "=hsl($hue,60,70)",
+      "alpha": 0.35,
+      "width": 1,
+      "offset": "=-$width*0.25",
+      "displace": "=$amp*sin(s/60*6.2832 - t*2)*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "shape": "diamond",
+      "color": "=hsl($hue+160,80,60)",
+      "size": 2.2,
+      "spacing": "=$scale*2.5",
+      "speed": "$speed",
+      "offset": "=-($width*0.5+$spike*0.4)",
+      "displace": "=$amp*sin(s/60*6.2832 - t*2)*sin(v*3.14159)"
+    }
+  ],
+  "skin": [
+    {
+      "type": "disc",
+      "color": "=hsl($hue,40,10)",
+      "radius": 1
+    },
+    {
+      "type": "ring",
+      "color": "=hsl($hue,55,45)",
+      "radius": 1,
+      "width": 0.18,
+      "dash": [
+        0.28,
+        0.2
+      ],
+      "speed": 0.4
+    },
+    {
+      "type": "orbit",
+      "color": "=hsl($hue+160,80,60)",
+      "radius": 0.55,
+      "size": 0.14,
+      "count": 3,
+      "speed": -0.4
+    },
+    {
+      "type": "disc",
+      "color": "=hsl($hue,55,35)",
+      "radius": 0.3
+    }
+  ]
+}

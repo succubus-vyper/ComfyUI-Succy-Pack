@@ -1,0 +1,178 @@
+{
+  "id": "braindance",
+  "name": "Braindance Scrub",
+  "icon": "🧠",
+  "order": 430,
+  "description": "A timeline ruler with major ticks and a red playhead scrubbing through it, leaving a motion smear.",
+  "params": [
+    {
+      "key": "color",
+      "label": "Ruler",
+      "type": "color",
+      "default": "#7ef9ff"
+    },
+    {
+      "key": "head",
+      "label": "Playhead",
+      "type": "color",
+      "default": "#ff3b3b"
+    },
+    {
+      "key": "tick",
+      "label": "Tick spacing",
+      "type": "range",
+      "min": 6,
+      "max": 24,
+      "step": 1,
+      "default": 10
+    },
+    {
+      "key": "speed",
+      "label": "Scrub (px/s)",
+      "type": "range",
+      "min": -400,
+      "max": 400,
+      "step": 5,
+      "default": 150
+    }
+  ],
+  "layers": [
+    {
+      "type": "stroke",
+      "color": "$color",
+      "alpha": 0.5,
+      "width": 1
+    },
+    {
+      "type": "stroke",
+      "color": "$color",
+      "alpha": 0.45,
+      "width": 9,
+      "cap": "butt",
+      "dash": [
+        1,
+        "=$tick-1"
+      ]
+    },
+    {
+      "type": "stroke",
+      "color": "$color",
+      "alpha": 0.8,
+      "width": 16,
+      "cap": "butt",
+      "dash": [
+        1.4,
+        "=$tick*5-1.4"
+      ]
+    },
+    {
+      "type": "dots",
+      "shape": "square",
+      "color": "$head",
+      "size": 1.1,
+      "count": 1,
+      "spacing": "=L+120",
+      "speed": "$speed",
+      "offset": -10,
+      "trail": "=$speed*0.22",
+      "trailSteps": 8,
+      "trailTaper": 0,
+      "trailFade": 0.95,
+      "composite": "lighter"
+    },
+    {
+      "type": "dots",
+      "shape": "square",
+      "color": "$head",
+      "size": 1.1,
+      "count": 1,
+      "spacing": "=L+120",
+      "speed": "$speed",
+      "offset": -5,
+      "trail": "=$speed*0.22",
+      "trailSteps": 8,
+      "trailTaper": 0,
+      "trailFade": 0.95,
+      "composite": "lighter"
+    },
+    {
+      "type": "dots",
+      "shape": "square",
+      "color": "$head",
+      "size": 1.1,
+      "count": 1,
+      "spacing": "=L+120",
+      "speed": "$speed",
+      "offset": 0,
+      "trail": "=$speed*0.22",
+      "trailSteps": 8,
+      "trailTaper": 0,
+      "trailFade": 0.95,
+      "composite": "lighter"
+    },
+    {
+      "type": "dots",
+      "shape": "square",
+      "color": "$head",
+      "size": 1.1,
+      "count": 1,
+      "spacing": "=L+120",
+      "speed": "$speed",
+      "offset": 5,
+      "trail": "=$speed*0.22",
+      "trailSteps": 8,
+      "trailTaper": 0,
+      "trailFade": 0.95,
+      "composite": "lighter"
+    },
+    {
+      "type": "dots",
+      "shape": "square",
+      "color": "$head",
+      "size": 1.1,
+      "count": 1,
+      "spacing": "=L+120",
+      "speed": "$speed",
+      "offset": 10,
+      "trail": "=$speed*0.22",
+      "trailSteps": 8,
+      "trailTaper": 0,
+      "trailFade": 0.95,
+      "composite": "lighter"
+    }
+  ],
+  "skin": [
+    {
+      "type": "disc",
+      "color": "#071418",
+      "radius": 1
+    },
+    {
+      "type": "ring",
+      "color": "$color",
+      "radius": 1,
+      "width": 0.1,
+      "dash": [
+        0.05,
+        0.2
+      ],
+      "speed": 0.04
+    },
+    {
+      "type": "spin",
+      "color": "$head",
+      "radius": 0.78,
+      "width": 0.16,
+      "count": 1,
+      "span": 0.3,
+      "speed": 0.7
+    },
+    {
+      "type": "disc",
+      "color": "$head",
+      "radius": 0.18,
+      "blur": 6
+    }
+  ],
+  "animated": true
+}

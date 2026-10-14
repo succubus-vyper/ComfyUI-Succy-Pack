@@ -1,0 +1,1355 @@
+{
+  "version": 1,
+  "family": "background",
+  "effects": [
+    {
+      "id": "none",
+      "label": "None",
+      "default": true,
+      "colors": 1,
+      "frame": []
+    },
+    {
+      "id": "stars",
+      "label": "Stars",
+      "colors": 2,
+      "defaults": { "colors": ["#050814ff","#e8f0ffff"], "speed": 5 },
+      "state": {
+        "list": { "op": "initArray", "count": 100, "each": {
+          "x": "random()", "y": "random()",
+          "s": "0.12 + random()*0.55", "r": "0.4 + random()*1.7",
+          "c": "floor(random()*2)"
+        }}
+      },
+      "frame": [
+        { "op": "clear", "color": "colors[0]" },
+        { "op": "loopOver", "source": "list", "as": "st", "body": [
+          { "op": "set", "target": "st.y", "value": "st.y + st.s * dt * 0.35" },
+          { "op": "if", "cond": "st.y > 1.05",
+            "then": [
+              { "op": "set", "target": "st.y", "value": "-0.05" },
+              { "op": "set", "target": "st.x", "value": "random()" }
+            ]
+          },
+          { "op": "circle", "cx": "st.x * w", "cy": "st.y * h", "r": "st.r", "fill": "colors[1]" }
+        ]}
+      ]
+    },
+    {
+      "id": "rain",
+      "label": "Rain",
+      "colors": 2,
+      "defaults": { "colors": ["#0a1020ff","#6fbaffff"], "speed": 5 },
+      "state": {
+        "list": { "op": "initArray", "count": 60, "each": {
+          "x": "random()", "y": "random()",
+          "l": "10 + random()*20", "v": "5 + random()*10"
+        }}
+      },
+      "frame": [
+        { "op": "clear", "color": "colors[0]" },
+        { "op": "lineWidth", "value": 1 },
+        { "op": "loopOver", "source": "list", "as": "d", "body": [
+          { "op": "set", "target": "d.y", "value": "d.y + d.v * dt * 30" },
+          { "op": "if", "cond": "d.y > h",
+            "then": [
+              { "op": "set", "target": "d.y", "value": "-d.l" },
+              { "op": "set", "target": "d.x", "value": "random() * w" }
+            ]
+          },
+          { "op": "line", "x1": "d.x", "y1": "d.y", "x2": "d.x", "y2": "d.y + d.l", "stroke": "colors[1]", "lineWidth": 1 }
+        ]}
+      ]
+    },
+    {
+      "id": "snow",
+      "label": "Snow",
+      "colors": 2,
+      "defaults": { "colors": ["#0d1226ff","#ffffffff"], "speed": 5 },
+      "state": {
+        "list": { "op": "initArray", "count": 60, "each": {
+          "x": "random()", "y": "random()",
+          "r": "1 + random()*2", "s": "1 + random()*2", "ph": "random() * 6.28"
+        }}
+      },
+      "frame": [
+        { "op": "clear", "color": "colors[0]" },
+        { "op": "loopOver", "source": "list", "as": "f", "body": [
+          { "op": "set", "target": "f.y", "value": "f.y + f.s * dt * 30" },
+          { "op": "if", "cond": "f.y > h",
+            "then": [
+              { "op": "set", "target": "f.y", "value": "0" },
+              { "op": "set", "target": "f.x", "value": "random() * w" }
+            ]
+          },
+          { "op": "circle", "cx": "f.x + sin(f.y * 0.01 + f.ph) * 0.5", "cy": "f.y", "r": "f.r", "fill": "colors[1]" }
+        ]}
+      ]
+    },
+    {
+      "id": "waves",
+      "label": "Waves",
+      "colors": 3,
+      "defaults": { "colors": ["#0b1224ff","#2a6dd6ff","#7ce7ffff"], "speed": 5 },
+      "frame": [
+        { "op": "clear", "color": "darken(colors[0], 0.09)" },
+        { "op": "loop", "count": 3, "as": "k", "body": [
+          { "op": "save" },
+          { "op": "alpha", "value": 0.65 },
+          { "op": "polyline",
+            "count": "floor(w / 3) + 3",
+            "each": {
+              "x": "i === 0 ? 0 : (i >= floor(w/3) + 2 ? w : (i - 1) * 3)",
+              "y": "i === 0 || i >= floor(w/3) + 2 ? h : h * (0.42 + k*0.14) + sin(((i-1)*3/w) * (2 + k*0.9) * PI + t * (0.55 + k*0.35)) * (h * (0.08 + k*0.05))"
+            },
+            "close": true,
+            "fillGradientY1": "h * (0.42 + k*0.14) - h * (0.08 + k*0.05)",
+            "fillGradientY2": "h",
+            "fillGradientStops": [
+              { "at": 0, "color": "toRgba(colors[k])" },
+              { "at": 1, "color": "rgba(0,0,0,0)" }
+            ]
+          },
+          { "op": "restore" }
+        ]}
+      ]
+    },
+    {
+      "id": "plasma",
+      "label": "Plasma",
+      "colors": 3,
+      "defaults": { "colors": ["#12030eff","#ff20c0ff","#20a0ffff"], "speed": 5 },
+      "frame": [
+        { "op": "clear", "color": "colors[0]" },
+        { "op": "composite", "value": "screen" },
+        { "op": "loop", "count": 5, "as": "i", "body": [
+          { "op": "gradientRadial",
+            "cx": "w * (0.5 + 0.42 * sin(t * (0.35 + i * 0.09) + i * 1.7))",
+            "cy": "h * (0.5 + 0.42 * cos(t * (0.30 + i * 0.11) + i * 1.7))",
+            "r":  "max(w, h) * (0.55 + 0.15 * sin(t * 0.6 + i))",
+            "stops": [
+              { "at": 0, "color": "toRgba(colors[1 + (i % 2)])" },
+              { "at": 1, "color": "rgba(0,0,0,0)" }
+            ]
+          },
+          { "op": "alpha", "value": 0.55 },
+          { "op": "rect", "x": 0, "y": 0, "w": "w", "h": "h" }
+        ]},
+        { "op": "alpha", "value": 1 },
+        { "op": "composite", "value": "source-over" }
+      ]
+    },
+    {
+      "id": "gradient_flow",
+      "label": "Gradient Flow",
+      "colors": 3,
+      "defaults": { "colors": ["#ff00ffff","#00ffffff","#9d00ffff"], "speed": 5 },
+      "frame": [
+        { "op": "clear", "color": "rgba(0,0,0,0)" },
+        { "op": "gradientLinear",
+          "x1": "w/2 - cos(t*0.10) * w * 1.2",
+          "y1": "h/2 - sin(t*0.10) * h * 1.2",
+          "x2": "w/2 + cos(t*0.10) * w * 1.2",
+          "y2": "h/2 + sin(t*0.10) * h * 1.2",
+          "stops": [
+            { "at": 0,   "color": "toRgba(colors[0])" },
+            { "at": 0.5, "color": "toRgba(colors[1])" },
+            { "at": 1,   "color": "toRgba(colors[2])" }
+          ]
+        },
+        { "op": "rect", "x": 0, "y": 0, "w": "w", "h": "h" },
+        { "op": "composite", "value": "screen" },
+        { "op": "alpha", "value": 0.35 },
+        { "op": "gradientRadial",
+          "cx": "w * (0.5 + 0.35 * cos(t * 0.13))",
+          "cy": "h * (0.5 + 0.35 * sin(t * 0.09))",
+          "r":  "max(w, h) * 0.8",
+          "stops": [
+            { "at": 0, "color": "toRgba(colors[2])" },
+            { "at": 1, "color": "rgba(0,0,0,0)" }
+          ]
+        },
+        { "op": "rect", "x": 0, "y": 0, "w": "w", "h": "h" },
+        { "op": "alpha", "value": 1 },
+        { "op": "composite", "value": "source-over" }
+      ]
+    },
+    {
+      "id": "aurora",
+      "label": "Aurora",
+      "colors": 3,
+      "defaults": { "colors": ["#02060cff","#3cff9eff","#a05cffff"], "speed": 5 },
+      "frame": [
+        { "op": "clear", "color": "toRgba(colors[0])" },
+        { "op": "composite", "value": "screen" },
+        { "op": "loop", "count": 3, "as": "b", "body": [
+          { "op": "alpha", "value": "b === 1 ? 0.55 : 0.42" },
+          { "op": "loop", "count": "floor(w / 4)", "as": "k", "body": [
+            { "op": "gradientLinear",
+              "x1": 0, "y1": "h * (b * 0.2 + 0.30 + 0.10 * sin((k*4/w)*PI*2 + t*0.6 + b*1.9)) - h * 0.225",
+              "x2": 0, "y2": "h * (b * 0.2 + 0.30 + 0.10 * sin((k*4/w)*PI*2 + t*0.6 + b*1.9)) + h * 0.225",
+              "stops": [
+                { "at": 0,   "color": "rgba(0,0,0,0)" },
+                { "at": 0.5, "color": "toRgba(b === 1 ? colors[2] : colors[1])" },
+                { "at": 1,   "color": "rgba(0,0,0,0)" }
+              ]
+            },
+            { "op": "rect",
+              "x": "k * 4",
+              "y": "h * (b * 0.2 + 0.30 + 0.10 * sin((k*4/w)*PI*2 + t*0.6 + b*1.9)) - h * 0.225",
+              "w": 8, "h": "h * 0.45" }
+          ]}
+        ]},
+        { "op": "alpha", "value": 1 },
+        { "op": "composite", "value": "source-over" }
+      ]
+    },
+    {
+      "id": "caution",
+      "label": "Caution",
+      "colors": 2,
+      "defaults": { "colors": ["#1a1a1aff","#ffcc00ff"], "speed": 5 },
+      "frame": [
+        { "op": "clear", "color": "toRgba(colors[0])" },
+        { "op": "save" },
+        { "op": "clipRect", "x": 0, "y": 0, "w": "w", "h": "h" },
+        { "op": "loop", "count": "ceil((w + 2*h) / 30) + 4", "as": "k", "body": [
+          { "op": "polyline",
+            "points": [
+              { "x": "k*30 - h - 15 + (t * 40) % 30",           "y": 0 },
+              { "x": "k*30 - h - 15 + (t * 40) % 30 + 15",      "y": 0 },
+              { "x": "k*30 - h - 15 + (t * 40) % 30 + 15 - h",  "y": "h" },
+              { "x": "k*30 - h - 15 + (t * 40) % 30 - h",       "y": "h" }
+            ],
+            "close": true, "fill": "colors[1]" }
+        ]},
+        { "op": "restore" },
+        { "op": "gradientRadial",
+          "cx": "w/2", "cy": "h/2", "r": "max(w, h)",
+          "stops": [
+            { "at": 0, "color": "rgba(0,0,0,0)" },
+            { "at": 1, "color": "darken(colors[0], 0.55)" }
+          ]
+        },
+        { "op": "rect", "x": 0, "y": 0, "w": "w", "h": "h" }
+      ]
+    },
+    {
+      "id": "sonar",
+      "label": "Sonar",
+      "colors": 2,
+      "defaults": { "colors": ["#02090dff","#00ff88ff"], "speed": 5 },
+      "state": { "r": { "op": "initList", "values": [0, "-w/3", "-w*0.6"] } },
+      "frame": [
+        { "op": "clear", "color": "colors[0]" },
+        { "op": "lineWidth", "value": 2 },
+        { "op": "loop", "count": 3, "as": "k", "body": [
+          { "op": "if", "cond": "state.r[k] > 0",
+            "then": [
+              { "op": "alpha", "value": "max(0, 1 - (state.r[k] / w))" },
+              { "op": "circle", "cx": "w/2", "cy": "h/2", "r": "state.r[k]", "stroke": "colors[1]" }
+            ]
+          },
+          { "op": "setItem", "list": "r", "index": "k", "value": "state.r[k] + dt * 60" },
+          { "op": "if", "cond": "state.r[k] > w",
+            "then": [ { "op": "setItem", "list": "r", "index": "k", "value": 0 } ]
+          }
+        ]},
+        { "op": "alpha", "value": 1 }
+      ]
+    },
+    {
+      "id": "pulse_rings",
+      "label": "Pulse Rings",
+      "colors": 2,
+      "defaults": { "colors": ["#0a0a1aff","#66eaffff"], "speed": 5 },
+      "state": { "p": { "op": "initList", "values": [0, 0.3, 0.6] } },
+      "frame": [
+        { "op": "clear", "color": "colors[0]" },
+        { "op": "lineWidth", "value": 2 },
+        { "op": "loop", "count": 3, "as": "k", "body": [
+          { "op": "alpha", "value": "max(0, 1 - state.p[k])" },
+          { "op": "circle", "cx": "w/2", "cy": "h/2", "r": "state.p[k] * max(w, h) * 0.7", "stroke": "colors[1]" },
+          { "op": "setItem", "list": "p", "index": "k", "value": "state.p[k] + dt * 0.4" },
+          { "op": "if", "cond": "state.p[k] > 1",
+            "then": [ { "op": "setItem", "list": "p", "index": "k", "value": 0 } ]
+          }
+        ]},
+        { "op": "alpha", "value": 1 }
+      ]
+    },
+    {
+      "id": "matrix",
+      "label": "Matrix",
+      "colors": 3,
+      "defaults": { "colors": ["#000000ff","#00ff41ff","#e0ffe0ff"], "speed": 5 },
+      "functions": {
+        "CHARS": "'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワン0123456789'",
+        "hash": "n => { const s = Math.sin(n * 12.9898) * 43758.5453; return s - Math.floor(s); }"
+      },
+      "state": {
+        "cols": { "op": "initArray", "count": 100, "each": {
+          "i": "i",
+          "y": "-random() * h",
+          "speed": "60 + random() * 160"
+        }}
+      },
+      "frame": [
+        { "op": "clear", "color": "colors[0]" },
+        { "op": "alpha", "value": 0.22 },
+        { "op": "rect", "x": 0, "y": 0, "w": "w", "h": "h", "fill": "colors[0]" },
+        { "op": "alpha", "value": 1 },
+        { "op": "text", "size": 14, "font": "monospace", "baseline": "top",
+          "value": "''", "x": 0, "y": 0 },
+        { "op": "loopOver", "source": "cols", "as": "col", "body": [
+          { "op": "set", "target": "col.y", "value": "col.y + col.speed * dt" },
+          { "op": "if", "cond": "col.i * 14 > w", "then": [] },
+          { "op": "if", "cond": "col.i * 14 <= w",
+            "then": [
+              { "op": "loop", "count": 10, "as": "k", "body": [
+                { "op": "set", "target": "state._y", "value": "col.y - k * 14" },
+                { "op": "if", "cond": "state._y > -14 && state._y < h + 14",
+                  "then": [
+                    { "op": "alpha", "value": "0.15 + (1 - k/10) * 0.85" },
+                    { "op": "text", "size": 14, "font": "monospace", "baseline": "top",
+                      "value": "CHARS[floor(hash(col.i * 137 + (floor(col.y/14) - k) * 17) * CHARS.length)]",
+                      "x": "col.i * 14",
+                      "y": "state._y",
+                      "fill": "k === 0 ? colors[2] : colors[1]" }
+                  ]
+                }
+              ]}
+            ]
+          },
+          { "op": "if", "cond": "col.y - 10 * 14 > h",
+            "then": [
+              { "op": "set", "target": "col.y", "value": "-random() * 80" },
+              { "op": "set", "target": "col.speed", "value": "60 + random() * 160" }
+            ]
+          }
+        ]},
+        { "op": "alpha", "value": 1 }
+      ]
+    },
+    {
+      "id": "digital_rain",
+      "label": "Digital Rain",
+      "colors": 2,
+      "defaults": { "colors": ["#000000ff","#00d0ffff"], "speed": 5 },
+      "functions": {
+        "hash": "n => { const s = Math.sin(n * 12.9898) * 43758.5453; return s - Math.floor(s); }"
+      },
+      "state": {
+        "cols": { "op": "initArray", "count": 100, "each": {
+          "i": "i",
+          "y": "-random() * h",
+          "speed": "60 + random() * 160"
+        }}
+      },
+      "frame": [
+        { "op": "clear", "color": "colors[0]" },
+        { "op": "alpha", "value": 0.30 },
+        { "op": "rect", "x": 0, "y": 0, "w": "w", "h": "h", "fill": "colors[0]" },
+        { "op": "alpha", "value": 1 },
+        { "op": "loopOver", "source": "cols", "as": "col", "body": [
+          { "op": "set", "target": "col.y", "value": "col.y + col.speed * dt" },
+          { "op": "if", "cond": "col.i * 14 <= w",
+            "then": [
+              { "op": "loop", "count": 8, "as": "k", "body": [
+                { "op": "set", "target": "state._y", "value": "col.y - k * 14" },
+                { "op": "if", "cond": "state._y > -14 && state._y < h + 14",
+                  "then": [
+                    { "op": "alpha", "value": "0.15 + (1 - k/8) * 0.85" },
+                    { "op": "text", "size": 14, "font": "monospace", "baseline": "top",
+                      "value": "hash(col.i * 137 + (floor(col.y/14) - k) * 17) > 0.5 ? '1' : '0'",
+                      "x": "col.i * 14", "y": "state._y",
+                      "fill": "colors[1]" }
+                  ]
+                }
+              ]}
+            ]
+          },
+          { "op": "if", "cond": "col.y - 8 * 14 > h",
+            "then": [
+              { "op": "set", "target": "col.y", "value": "-random() * 80" },
+              { "op": "set", "target": "col.speed", "value": "60 + random() * 160" }
+            ]
+          }
+        ]},
+        { "op": "alpha", "value": 1 }
+      ]
+    },
+    {
+      "id": "dna",
+      "label": "DNA",
+      "colors": 2,
+      "defaults": { "colors": ["#050510ff","#ff50a0ff"], "speed": 5 },
+      "frame": [
+        { "op": "clear", "color": "colors[0]" },
+        { "op": "loop", "count": "floor(w / 15) + 1", "as": "k", "body": [
+          { "op": "set", "target": "state._x", "value": "k * 15" },
+          { "op": "set", "target": "state._y1", "value": "h/2 + sin(state._x * 0.05 + t) * 30" },
+          { "op": "set", "target": "state._y2", "value": "h/2 + sin(state._x * 0.05 + t + PI) * 30" },
+          { "op": "alpha", "value": 0.35 },
+          { "op": "line", "x1": "state._x", "y1": "state._y1", "x2": "state._x", "y2": "state._y2", "stroke": "colors[1]", "lineWidth": 1 },
+          { "op": "alpha", "value": 1 },
+          { "op": "circle", "cx": "state._x", "cy": "state._y1", "r": 3, "fill": "colors[1]" },
+          { "op": "circle", "cx": "state._x", "cy": "state._y2", "r": 3, "fill": "colors[1]" }
+        ]},
+        { "op": "alpha", "value": 1 }
+      ]
+    },
+    {
+      "id": "lightning",
+      "label": "Lightning",
+      "colors": 2,
+      "defaults": { "colors": ["#0a0a1aff","#e8f5ffff"], "speed": 5 },
+      "functions": {
+        "rnd": "n => { const s = Math.sin(n * 78.233) * 43758.5453; return s - Math.floor(s); }"
+      },
+      "state": {
+        "points": { "op": "initArray", "count": 20, "each": { "x": 0, "y": 0 } },
+        "ttl": 0,
+        "seed": 0,
+        "nextX": 0
+      },
+      "frame": [
+        { "op": "clear", "color": "colors[0]" },
+        { "op": "if", "cond": "state.ttl <= 0 && random() < 0.03",
+          "then": [
+            { "op": "set", "target": "state.ttl", "value": 0.4 },
+            { "op": "set", "target": "state.seed", "value": "random() * 1000" },
+            { "op": "set", "target": "state.nextX", "value": "random() * w" },
+            { "op": "loop", "count": 20, "as": "k", "body": [
+              { "op": "setItem", "list": "points", "index": "k", "prop": "x", "value": "state.nextX" },
+              { "op": "setItem", "list": "points", "index": "k", "prop": "y", "value": "k * h / 20" },
+              { "op": "set", "target": "state.nextX", "value": "state.points[k].x + (rnd(state.seed + k) - 0.5) * 40" }
+            ]}
+          ]
+        },
+        { "op": "if", "cond": "state.ttl > 0",
+          "then": [
+            { "op": "set", "target": "state.ttl", "value": "state.ttl - dt" },
+            { "op": "alpha", "value": "max(0, state.ttl / 0.4)" },
+            { "op": "shadow", "blur": 12, "color": "colors[1]" },
+            { "op": "polyline",
+              "count": 20,
+              "each": {
+                "x": "state.points[i].x",
+                "y": "state.points[i].y"
+              },
+              "stroke": "colors[1]", "lineWidth": 2
+            },
+            { "op": "shadow", "blur": 0, "color": "transparent" },
+            { "op": "alpha", "value": 1 }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "meteor",
+      "label": "Meteor",
+      "colors": 3,
+      "defaults": { "colors": ["#050510ff","#ffaa44ff","#ffffffff"], "speed": 5 },
+      "state": {
+        "list": { "op": "initArray", "count": 15, "each": {
+          "x": "random() * w",
+          "y": "-random() * h",
+          "l": "30 + random() * 40",
+          "v": "200 + random() * 300"
+        }}
+      },
+      "frame": [
+        { "op": "clear", "color": "colors[0]" },
+        { "op": "loopOver", "source": "list", "as": "m", "body": [
+          { "op": "set", "target": "m.x", "value": "m.x + dt * 100" },
+          { "op": "set", "target": "m.y", "value": "m.y + m.v * dt" },
+          { "op": "if", "cond": "m.y > h + 50",
+            "then": [
+              { "op": "set", "target": "m.y", "value": "-50" },
+              { "op": "set", "target": "m.x", "value": "random() * w" }
+            ]
+          },
+          { "op": "loop", "count": 8, "as": "k", "body": [
+            { "op": "alpha", "value": "(1 - k/8) * 0.7" },
+            { "op": "line",
+              "x1": "m.x - m.l * (k + 1) / 8",
+              "y1": "m.y - m.l * (k + 1) / 8",
+              "x2": "m.x - m.l * k / 8",
+              "y2": "m.y - m.l * k / 8",
+              "stroke": "colors[1]", "lineWidth": 2 }
+          ]},
+          { "op": "alpha", "value": 1 },
+          { "op": "circle", "cx": "m.x", "cy": "m.y", "r": 3, "fill": "colors[2]" }
+        ]},
+        { "op": "alpha", "value": 1 }
+      ]
+    },
+    {
+      "id": "confetti",
+      "label": "Confetti",
+      "colors": 2,
+      "defaults": { "colors": ["#0a0a1aff","#ff5599ff"], "speed": 5 },
+      "state": {
+        "list": { "op": "initArray", "count": 40, "each": {
+          "x": "random() * w",
+          "y": "random() * h",
+          "r": "random() * PI",
+          "vy": "1 + random() * 3",
+          "a": "0.45 + random() * 0.55",
+          "sz": "3 + random() * 4"
+        }}
+      },
+      "frame": [
+        { "op": "clear", "color": "colors[0]" },
+        { "op": "loopOver", "source": "list", "as": "c", "body": [
+          { "op": "set", "target": "c.y", "value": "c.y + c.vy * dt * 30" },
+          { "op": "set", "target": "c.r", "value": "c.r + dt * 2" },
+          { "op": "if", "cond": "c.y > h",
+            "then": [ { "op": "set", "target": "c.y", "value": -10 } ]
+          },
+          { "op": "save" },
+          { "op": "translate", "x": "c.x", "y": "c.y" },
+          { "op": "rotate", "angle": "c.r" },
+          { "op": "alpha", "value": "c.a" },
+          { "op": "rect", "x": "c.sz / -2", "y": "c.sz / -2", "w": "c.sz", "h": "c.sz", "fill": "colors[1]" },
+          { "op": "restore" }
+        ]},
+        { "op": "alpha", "value": 1 }
+      ]
+    },
+        {
+      "id": "bokeh",
+      "label": "Bokeh",
+      "colors": 2,
+      "defaults": { "colors": ["#0a0a1aff","#ffaa55ff"], "speed": 5 },
+      "state": {
+        "list": { "op": "initArray", "count": 15, "each": {
+          "x": "random() * w",
+          "y": "random() * h",
+          "r": "20 + random() * 40",
+          "vx": "random() - 0.5",
+          "vy": "random() - 0.5"
+        }}
+      },
+      "frame": [
+        { "op": "clear", "color": "colors[0]" },
+        { "op": "composite", "value": "screen" },
+        { "op": "loopOver", "source": "list", "as": "b", "body": [
+          { "op": "set", "target": "b.x", "value": "b.x + b.vx * dt * 20" },
+          { "op": "set", "target": "b.y", "value": "b.y + b.vy * dt * 20" },
+          { "op": "if", "cond": "b.x < -b.r", "then": [ { "op": "set", "target": "b.x", "value": "w + b.r" } ] },
+          { "op": "if", "cond": "b.x > w + b.r", "then": [ { "op": "set", "target": "b.x", "value": "-b.r" } ] },
+          { "op": "if", "cond": "b.y < -b.r", "then": [ { "op": "set", "target": "b.y", "value": "h + b.r" } ] },
+          { "op": "if", "cond": "b.y > h + b.r", "then": [ { "op": "set", "target": "b.y", "value": "-b.r" } ] },
+          { "op": "alpha", "value": 0.30 },
+          { "op": "circle", "cx": "b.x", "cy": "b.y", "r": "b.r", "fill": "colors[1]" }
+        ]},
+        { "op": "alpha", "value": 1 },
+        { "op": "composite", "value": "source-over" }
+      ]
+    },
+    {
+      "id": "fireflies",
+      "label": "Fireflies",
+      "colors": 2,
+      "defaults": { "colors": ["#050a08ff","#c8ff55ff"], "speed": 5 },
+      "state": {
+        "list": { "op": "initArray", "count": 30, "each": {
+          "x": "random() * w",
+          "y": "random() * h",
+          "offset": "random() * 100"
+        }}
+      },
+      "frame": [
+        { "op": "clear", "color": "colors[0]" },
+        { "op": "loopOver", "source": "list", "as": "f", "body": [
+          { "op": "set", "target": "f.x", "value": "f.x + sin(t + f.offset) * dt * 20" },
+          { "op": "set", "target": "f.y", "value": "f.y - dt * 15" },
+          { "op": "if", "cond": "f.y < -10",
+            "then": [ { "op": "set", "target": "f.y", "value": "h + 10" } ]
+          },
+          { "op": "alpha", "value": "0.5 + 0.5 * sin(t * 3 + f.offset)" },
+          { "op": "shadow", "blur": 10, "color": "colors[1]" },
+          { "op": "circle", "cx": "f.x", "cy": "f.y", "r": 2, "fill": "colors[1]" },
+          { "op": "shadow", "blur": 0, "color": "transparent" }
+        ]},
+        { "op": "alpha", "value": 1 }
+      ]
+    },
+    {
+      "id": "tunnel",
+      "label": "Tunnel",
+      "colors": 2,
+      "defaults": { "colors": ["#050510ff","#7d5cffff"], "speed": 5 },
+      "state": {
+        "list": { "op": "initList", "values": [0.1, 0.4, 0.7, 1.0] }
+      },
+      "frame": [
+        { "op": "clear", "color": "colors[0]" },
+        { "op": "lineWidth", "value": 2 },
+        { "op": "loop", "count": 4, "as": "k", "body": [
+          { "op": "set", "target": "state._sz", "value": "state.list[k]" },
+          { "op": "rect",
+            "x": "w/2 - w * state._sz / 2",
+            "y": "h/2 - h * state._sz / 2",
+            "w": "w * state._sz",
+            "h": "h * state._sz",
+            "stroke": "colors[1]"
+          },
+          { "op": "setItem", "list": "list", "index": "k", "value": "state.list[k] + dt * 0.5" },
+          { "op": "if", "cond": "state.list[k] > 1.5",
+            "then": [ { "op": "setItem", "list": "list", "index": "k", "value": 0.1 } ]
+          }
+        ]}
+      ]
+    },
+    {
+      "id": "circuit",
+      "label": "Circuit",
+      "colors": 3,
+      "defaults": { "colors": ["#0a0a18ff","#00d4ffff","#00ff88ff"], "speed": 5 },
+      "state": {
+        "traces": { "op": "initArray", "count": 22, "each": {
+          "gx": "2 + floor(random() * 26)",
+          "gy": "1 + floor(random() * 13)",
+          "h1": "random() < 0.5",
+          "l1": "2 + floor(random() * 4)",
+          "l2": "1 + floor(random() * 3)",
+          "pulse": "random()",
+          "pspeed": "0.15 + random() * 0.35",
+          "c": "1 + floor(random() * 2)"
+        }}
+      },
+      "frame": [
+        { "op": "clear", "color": "colors[0]" },
+        { "op": "set", "target": "state._cw", "value": "w / 30" },
+        { "op": "set", "target": "state._ch", "value": "h / 15" },
+
+        { "op": "alpha", "value": 0.10 },
+        { "op": "loop", "count": 31, "as": "gx", "body": [
+          { "op": "line", "x1": "gx * state._cw", "y1": 0, "x2": "gx * state._cw", "y2": "h", "stroke": "colors[1]", "lineWidth": 1 }
+        ]},
+        { "op": "loop", "count": 16, "as": "gy", "body": [
+          { "op": "line", "x1": 0, "y1": "gy * state._ch", "x2": "w", "y2": "gy * state._ch", "stroke": "colors[1]", "lineWidth": 1 }
+        ]},
+        { "op": "alpha", "value": 1 },
+
+        { "op": "loopOver", "source": "traces", "as": "tr", "body": [
+          { "op": "set", "target": "state._x0", "value": "tr.gx * state._cw" },
+          { "op": "set", "target": "state._y0", "value": "tr.gy * state._ch" },
+          { "op": "set", "target": "state._x1", "value": "state._x0 + (tr.h1 ? tr.l1 * state._cw : 0)" },
+          { "op": "set", "target": "state._y1", "value": "state._y0 + (tr.h1 ? 0 : tr.l1 * state._ch)" },
+          { "op": "set", "target": "state._x2", "value": "state._x1 + (tr.h1 ? 0 : tr.l2 * state._cw)" },
+          { "op": "set", "target": "state._y2", "value": "state._y1 + (tr.h1 ? tr.l2 * state._ch : 0)" },
+
+          { "op": "alpha", "value": 0.55 },
+          { "op": "polyline",
+            "points": [
+              { "x": "state._x0", "y": "state._y0" },
+              { "x": "state._x1", "y": "state._y1" },
+              { "x": "state._x2", "y": "state._y2" }
+            ],
+            "stroke": "colors[tr.c]", "lineWidth": 2 },
+
+          { "op": "alpha", "value": 0.9 },
+          { "op": "circle", "cx": "state._x0", "cy": "state._y0", "r": 3.5, "stroke": "colors[tr.c]", "lineWidth": 1.5 },
+          { "op": "circle", "cx": "state._x1", "cy": "state._y1", "r": 3.5, "stroke": "colors[tr.c]", "lineWidth": 1.5 },
+          { "op": "circle", "cx": "state._x2", "cy": "state._y2", "r": 3.5, "stroke": "colors[tr.c]", "lineWidth": 1.5 },
+
+          { "op": "set", "target": "tr.pulse", "value": "tr.pulse + dt * tr.pspeed" },
+          { "op": "if", "cond": "tr.pulse > 1",
+            "then": [ { "op": "set", "target": "tr.pulse", "value": 0 } ]
+          },
+          { "op": "if", "cond": "tr.pulse < 0.5",
+            "then": [
+              { "op": "set", "target": "state._px", "value": "state._x0 + (state._x1 - state._x0) * (tr.pulse * 2)" },
+              { "op": "set", "target": "state._py", "value": "state._y0 + (state._y1 - state._y0) * (tr.pulse * 2)" }
+            ],
+            "else": [
+              { "op": "set", "target": "state._px", "value": "state._x1 + (state._x2 - state._x1) * ((tr.pulse - 0.5) * 2)" },
+              { "op": "set", "target": "state._py", "value": "state._y1 + (state._y2 - state._y1) * ((tr.pulse - 0.5) * 2)" }
+            ]
+          },
+          { "op": "shadow", "blur": 10, "color": "colors[tr.c]" },
+          { "op": "circle", "cx": "state._px", "cy": "state._py", "r": 2.5, "fill": "colors[tr.c]" },
+          { "op": "shadow", "blur": 0, "color": "transparent" },
+          { "op": "circle", "cx": "state._px", "cy": "state._py", "r": 1.2, "fill": "colors[2]" }
+        ]},
+        { "op": "alpha", "value": 1 }
+      ]
+    },
+    {
+      "id": "floating_line",
+      "label": "Floating Line",
+      "colors": 2,
+      "defaults": { "colors": ["#000000ff","#00ff88ff"], "speed": 5 },
+      "frame": [
+        { "op": "clear", "color": "colors[0]" },
+        { "op": "line",
+          "x1": "0", "y1": "h/2 + sin(t*2)*30",
+          "x2": "w", "y2": "h/2 + sin(t*2 + 2)*30",
+          "stroke": "colors[1]",
+          "lineWidth": 4 }
+      ]
+    },
+    {
+      "id": "particles",
+      "label": "Particles",
+      "colors": 2,
+      "defaults": { "colors": ["#000000ff","#00d0ffff"], "speed": 5 },
+      "state": {
+        "list": { "op": "initArray", "count": 60, "each": {
+          "x": "random()*w", "y": "random()*h",
+          "vx": "(random()-0.5)*40", "vy": "(random()-0.5)*40"
+        }}
+      },
+      "frame": [
+        { "op": "clear", "color": "colors[0]" },
+        { "op": "loopOver", "source": "list", "as": "p", "body": [
+          { "op": "set", "target": "p.x", "value": "p.x + p.vx * dt" },
+          { "op": "set", "target": "p.y", "value": "p.y + p.vy * dt" },
+          { "op": "if", "cond": "p.x < 0 || p.x > w",
+            "then": [{ "op": "set", "target": "p.vx", "value": "-p.vx" }] },
+          { "op": "if", "cond": "p.y < 0 || p.y > h",
+            "then": [{ "op": "set", "target": "p.vy", "value": "-p.vy" }] },
+          { "op": "circle", "cx": "p.x", "cy": "p.y", "r": "2", "fill": "colors[1]" }
+        ]}
+      ]
+    },
+	{
+      "id": "vortex",
+      "label": "Vortex",
+      "colors": 3,
+      "defaults": { "colors": ["#050510ff","#00e0ffff","#b050ffff"], "speed": 5 },
+      "frame": [
+        { "op": "clear", "color": "colors[0]" },
+        { "op": "save" },
+        { "op": "translate", "x": "w/2", "y": "h/2" },
+        { "op": "rotate", "angle": "t * 0.5" },
+        { "op": "loop", "count": 100, "as": "k", "body": [
+          { "op": "set", "target": "state._a", "value": "k * 0.2 + t" },
+          { "op": "set", "target": "state._r", "value": "k * max(w,h) * 0.005" },
+          { "op": "circle",
+            "cx": "cos(state._a) * state._r",
+            "cy": "sin(state._a) * state._r",
+            "r": 2.4,
+            "fill": "colors[1 + (k % 2)]" }
+        ]},
+        { "op": "restore" }
+      ]
+    },
+    {
+      "id": "hyperspace",
+      "label": "Hyperspace",
+      "colors": 2,
+      "defaults": { "colors": ["#000510ff","#80e0ffff"], "speed": 5 },
+      "state": {
+        "stars": { "op": "initArray", "count": 70, "each": {
+          "x": "random() - 0.5",
+          "y": "random() - 0.5",
+          "z": "0.1 + random() * 1.0"
+        }}
+      },
+      "frame": [
+        { "op": "clear", "color": "colors[0]" },
+        { "op": "alpha", "value": 0.35 },
+        { "op": "rect", "x": 0, "y": 0, "w": "w", "h": "h", "fill": "colors[0]" },
+        { "op": "alpha", "value": 1 },
+        { "op": "save" },
+        { "op": "translate", "x": "w/2", "y": "h/2" },
+        { "op": "loopOver", "source": "stars", "as": "st", "body": [
+          { "op": "set", "target": "st.z", "value": "st.z - dt * 0.5" },
+          { "op": "if", "cond": "st.z <= 0.05",
+            "then": [
+              { "op": "set", "target": "st.z", "value": 1.0 },
+              { "op": "set", "target": "st.x", "value": "random() - 0.5" },
+              { "op": "set", "target": "st.y", "value": "random() - 0.5" }
+            ]
+          },
+          { "op": "set", "target": "state._px", "value": "(st.x / st.z) * w" },
+          { "op": "set", "target": "state._py", "value": "(st.y / st.z) * h" },
+          { "op": "set", "target": "state._depth", "value": "1 - st.z" },
+          { "op": "if", "cond": "abs(state._px) < w && abs(state._py) < h",
+            "then": [
+              { "op": "shadow", "blur": "state._depth * 8", "color": "colors[1]" },
+              { "op": "circle", "cx": "state._px", "cy": "state._py",
+                "r": "max(0.6, state._depth * 3.5)", "fill": "colors[1]" },
+              { "op": "shadow", "blur": 0, "color": "transparent" }
+            ]
+          }
+        ]},
+        { "op": "restore" }
+      ]
+    },
+    {
+      "id": "warp_speed",
+      "label": "Warp Speed",
+      "colors": 2,
+      "defaults": { "colors": ["#000510ff","#80e0ffff"], "speed": 5 },
+      "state": {
+        "stars": { "op": "initArray", "count": 70, "each": {
+          "a": "random() * PI * 2",
+          "d": "random() * 0.5",
+          "s": "0.5 + random() * 1.5",
+          "thick": "0.6 + random() * 1.2"
+        }}
+      },
+      "frame": [
+        { "op": "clear", "color": "colors[0]" },
+        { "op": "alpha", "value": 0.35 },
+        { "op": "rect", "x": 0, "y": 0, "w": "w", "h": "h", "fill": "colors[0]" },
+        { "op": "alpha", "value": 1 },
+        { "op": "save" },
+        { "op": "translate", "x": "w/2", "y": "h/2" },
+        { "op": "lineCap", "value": "round" },
+        { "op": "loopOver", "source": "stars", "as": "st", "body": [
+          { "op": "set", "target": "state._spd", "value": "st.s * (1 + st.d / 0.7 * 3)" },
+          { "op": "set", "target": "st.d", "value": "st.d + state._spd * dt * 0.3" },
+          { "op": "if", "cond": "st.d > 0.7",
+            "then": [
+              { "op": "set", "target": "st.d", "value": 0 },
+              { "op": "set", "target": "st.a", "value": "random() * PI * 2" }
+            ]
+          },
+          { "op": "set", "target": "state._x1", "value": "cos(st.a) * st.d * w" },
+          { "op": "set", "target": "state._y1", "value": "sin(st.a) * st.d * h" },
+          { "op": "set", "target": "state._tail", "value": "max(0.02, state._spd * 0.1)" },
+          { "op": "set", "target": "state._x0", "value": "cos(st.a) * max(0, st.d - state._tail) * w" },
+          { "op": "set", "target": "state._y0", "value": "sin(st.a) * max(0, st.d - state._tail) * h" },
+          { "op": "alpha", "value": "0.25 + (1 - st.d / 0.7) * 0.75" },
+          { "op": "line", "x1": "state._x0", "y1": "state._y0",
+            "x2": "state._x1", "y2": "state._y1",
+            "stroke": "colors[1]", "lineWidth": "st.thick" },
+          { "op": "circle", "cx": "state._x1", "cy": "state._y1",
+            "r": "st.thick * 0.7", "fill": "colors[1]" }
+        ]},
+        { "op": "restore" },
+        { "op": "alpha", "value": 1 }
+      ]
+    },
+        {
+      "id": "laser_grid",
+      "label": "Laser Grid",
+      "colors": 2,
+      "defaults": { "colors": ["#050510ff","#ff2b6aff"], "speed": 1.5 },
+      "frame": [
+        { "op": "clear", "color": "colors[0]" },
+        { "op": "lineWidth", "value": 1 },
+        { "op": "loop", "count": 20, "as": "k", "body": [
+          { "op": "set", "target": "state._off", "value": "(t * 20) % 20" },
+          { "op": "set", "target": "state._kf", "value": "((k + state._off) % 20)" },
+          { "op": "set", "target": "state._ratio", "value": "state._kf / 20" },
+          { "op": "set", "target": "state._y", "value": "h/2 + (h/2) * state._ratio * state._ratio" },
+          { "op": "set", "target": "state._fade", "value": "1 - state._ratio" },
+          { "op": "alpha", "value": "0.15 + state._fade * 0.85" },
+          { "op": "line", "x1": 0, "y1": "state._y",
+            "x2": "w", "y2": "state._y",
+            "stroke": "colors[1]", "lineWidth": 1 }
+        ]},
+        { "op": "alpha", "value": 0.85 },
+        { "op": "loop", "count": 31, "as": "k", "body": [
+          { "op": "line",
+            "x1": "w/2 + (k - 15) * 8",
+            "y1": "h/2",
+            "x2": "w/2 + (k - 15) * w / 5",
+            "y2": "h",
+            "stroke": "colors[1]", "lineWidth": 1 }
+        ]},
+        { "op": "alpha", "value": 1 }
+      ]
+    },
+    {
+      "id": "synthwave",
+      "label": "Synthwave",
+      "colors": 3,
+      "defaults": { "colors": ["#0d0221ff","#ff2b9cff","#ffcc44ff"], "speed": 1.5 },
+      "frame": [
+        { "op": "clear", "color": "colors[0]" },
+        { "op": "arc", "cx": "w/2", "cy": "h*0.55", "r": "h*0.35",
+          "a0": "PI", "a1": "PI*2", "fill": "colors[2]" },
+        { "op": "lineWidth", "value": 1 },
+        { "op": "loop", "count": 15, "as": "k", "body": [
+          { "op": "set", "target": "state._off", "value": "(t * 15) % 15" },
+          { "op": "set", "target": "state._kf", "value": "((k + state._off) % 15)" },
+          { "op": "set", "target": "state._ratio", "value": "state._kf / 15" },
+          { "op": "set", "target": "state._y", "value": "h*0.55 + (h*0.45) * state._ratio * state._ratio" },
+          { "op": "set", "target": "state._fade", "value": "1 - state._ratio" },
+          { "op": "alpha", "value": "0.15 + state._fade * 0.85" },
+          { "op": "line",
+            "x1": 0, "y1": "state._y",
+            "x2": "w", "y2": "state._y",
+            "stroke": "colors[1]", "lineWidth": 1 }
+        ]},
+        { "op": "alpha", "value": 0.85 },
+        { "op": "loop", "count": 21, "as": "k", "body": [
+          { "op": "line",
+            "x1": "w/2 + (k - 10) * 8",
+            "y1": "h*0.55",
+            "x2": "w/2 + (k - 10) * w / 3",
+            "y2": "h",
+            "stroke": "colors[1]", "lineWidth": 1 }
+        ]},
+        { "op": "alpha", "value": 1 }
+      ]
+    },
+    {
+      "id": "neon_lines",
+      "label": "Neon Lines",
+      "colors": 2,
+      "defaults": { "colors": ["#050510ff","#ff2b6aff"], "speed": 5 },
+      "frame": [
+        { "op": "clear", "color": "colors[0]" },
+        { "op": "lineCap", "value": "round" },
+        { "op": "loop", "count": 5, "as": "k", "body": [
+          { "op": "set", "target": "state._y", "value": "h * (0.15 + k * 0.175)" },
+          { "op": "set", "target": "state._off", "value": "((t * 50 + k * 40) % (w + 240)) - 120" },
+          { "op": "gradientLinear",
+            "x1": "state._off - 80", "y1": 0,
+            "x2": "state._off + 80", "y2": 0,
+            "stops": [
+              { "at": 0,    "color": "rgba(0,0,0,0)" },
+              { "at": 0.5,  "color": "toRgba(colors[1])" },
+              { "at": 1,    "color": "rgba(0,0,0,0)" }
+            ]
+          },
+          { "op": "rect", "x": "state._off - 80", "y": "state._y - 2", "w": 160, "h": 4 }
+        ]}
+      ]
+    },
+    {
+      "id": "clouds",
+      "label": "Clouds",
+      "colors": 2,
+      "defaults": { "colors": ["#0a1220ff","#7fb0ffff"], "speed": 5 },
+      "state": {
+        "list": { "op": "initArray", "count": 8, "each": {
+          "x": "random() * w",
+          "y": "random() * h",
+          "r": "(0.15 + random() * 0.15) * max(w, h)",
+          "vx": "20 + random() * 30"
+        }}
+      },
+      "frame": [
+        { "op": "clear", "color": "colors[0]" },
+        { "op": "composite", "value": "screen" },
+        { "op": "loopOver", "source": "list", "as": "c", "body": [
+          { "op": "set", "target": "c.x", "value": "c.x + c.vx * dt * 0.3" },
+          { "op": "if", "cond": "c.x - c.r > w",
+            "then": [ { "op": "set", "target": "c.x", "value": "-c.r" } ]
+          },
+          { "op": "alpha", "value": 0.5 },
+          { "op": "gradientRadial",
+            "cx": "c.x", "cy": "c.y", "r": "c.r",
+            "stops": [
+              { "at": 0, "color": "toRgba(colors[1])" },
+              { "at": 1, "color": "rgba(0,0,0,0)" }
+            ]
+          },
+          { "op": "circle", "cx": "c.x", "cy": "c.y", "r": "c.r" }
+        ]},
+        { "op": "alpha", "value": 1 },
+        { "op": "composite", "value": "source-over" }
+      ]
+    },
+    {
+      "id": "geometric",
+      "label": "Geometric",
+      "colors": 3,
+      "defaults": { "colors": ["#0a0a1aff","#00e0ffff","#b050ffff"], "speed": 5 },
+      "frame": [
+        { "op": "clear", "color": "colors[0]" },
+        { "op": "save" },
+        { "op": "translate", "x": "w/2", "y": "h/2" },
+        { "op": "loop", "count": 8, "as": "k", "body": [
+          { "op": "set", "target": "state._sides", "value": "3 + (k % 5)" },
+          { "op": "set", "target": "state._r", "value": "max(w, h) * (0.2 + k * 0.1) / 2" },
+          { "op": "save" },
+          { "op": "rotate", "angle": "t * (0.3 + k * 0.1) * (k % 2 === 0 ? -1 : 1)" },
+          { "op": "alpha", "value": 0.6 },
+          { "op": "polyline",
+            "count": "state._sides + 1",
+            "each": {
+              "x": "cos(i * PI * 2 / state._sides) * state._r",
+              "y": "sin(i * PI * 2 / state._sides) * state._r"
+            },
+            "stroke": "colors[1 + (k % 2)]", "lineWidth": 2 },
+          { "op": "restore" }
+        ]},
+        { "op": "restore" },
+        { "op": "alpha", "value": 1 }
+      ]
+    },
+    {
+      "id": "radar",
+      "label": "Radar",
+      "colors": 2,
+      "defaults": { "colors": ["#021410ff","#00ff88ff"], "speed": 5 },
+      "frame": [
+        { "op": "clear", "color": "colors[0]" },
+        { "op": "lineWidth", "value": 1 },
+        { "op": "alpha", "value": 0.40 },
+        { "op": "loop", "count": 4, "as": "k", "body": [
+          { "op": "circle", "cx": "w/2", "cy": "h/2",
+            "r": "max(w, h) * 0.5 * (k + 1) / 4", "stroke": "colors[1]" }
+        ]},
+        { "op": "alpha", "value": 0.25 },
+        { "op": "loop", "count": 8, "as": "k", "body": [
+          { "op": "line",
+            "x1": "w/2", "y1": "h/2",
+            "x2": "w/2 + cos(k * PI / 4) * max(w, h) * 0.5",
+            "y2": "h/2 + sin(k * PI / 4) * max(w, h) * 0.5",
+            "stroke": "colors[1]", "lineWidth": 1 }
+        ]},
+        { "op": "alpha", "value": 1 },
+        { "op": "save" },
+        { "op": "translate", "x": "w/2", "y": "h/2" },
+        { "op": "rotate", "angle": "t * 1.5" },
+        { "op": "gradientLinear",
+          "x1": 0, "y1": 0,
+          "x2": "max(w, h) * 0.5", "y2": 0,
+          "stops": [
+            { "at": 0, "color": "toRgba(colors[1])" },
+            { "at": 1, "color": "rgba(0,0,0,0)" }
+          ]
+        },
+        { "op": "polyline",
+          "points": [
+            { "x": 0, "y": 0 },
+            { "x": "max(w, h) * 0.5", "y": "max(w, h) * 0.5 * 0.2" },
+            { "x": "max(w, h) * 0.5", "y": "-max(w, h) * 0.5 * 0.2" }
+          ],
+          "close": true },
+        { "op": "restore" }
+      ]
+    },
+    {
+      "id": "ripple",
+      "label": "Ripple",
+      "colors": 3,
+      "defaults": { "colors": ["#050a1aff","#00d0ffff","#b050ffff"], "speed": 5 },
+      "state": {
+        "r": { "op": "initList", "values": [0, 0.25, 0.5, 0.75] }
+      },
+      "frame": [
+        { "op": "clear", "color": "colors[0]" },
+        { "op": "lineWidth", "value": 2 },
+        { "op": "loop", "count": 4, "as": "k", "body": [
+          { "op": "set", "target": "state._maxR", "value": "max(w, h) * 0.55" },
+          { "op": "set", "target": "state._fade", "value": "max(0, 1 - state.r[k])" },
+          { "op": "if", "cond": "state._fade > 0.02",
+            "then": [
+              { "op": "alpha", "value": "state._fade * 0.85" },
+              { "op": "shadow", "blur": "8 * state._fade", "color": "colors[1 + (k % 2)]" },
+              { "op": "circle", "cx": "w/2", "cy": "h/2",
+                "r": "state.r[k] * state._maxR",
+                "stroke": "colors[1 + (k % 2)]", "lineWidth": "1.6 + state._fade * 1.2" },
+              { "op": "shadow", "blur": 0, "color": "transparent" }
+            ]
+          },
+          { "op": "setItem", "list": "r", "index": "k", "value": "state.r[k] + dt * 0.35" },
+          { "op": "if", "cond": "state.r[k] > 1",
+            "then": [ { "op": "setItem", "list": "r", "index": "k", "value": 0 } ]
+          }
+        ]},
+        { "op": "alpha", "value": "0.85" },
+        { "op": "shadow", "blur": 14, "color": "colors[2]" },
+        { "op": "circle", "cx": "w/2", "cy": "h/2", "r": 4, "fill": "colors[2]" },
+        { "op": "shadow", "blur": 0, "color": "transparent" },
+        { "op": "alpha", "value": 1 }
+      ]
+    },
+{
+      "id": "grid_pulse",
+      "label": "Grid Pulse",
+      "colors": 3,
+      "defaults": { "colors": ["#050510ff","#0055aaff","#00e0ffff"], "speed": 5 },
+      "frame": [
+        { "op": "clear", "color": "colors[0]" },
+        { "op": "set", "target": "state._cx", "value": "w/2" },
+        { "op": "set", "target": "state._cy", "value": "h/2" },
+        { "op": "set", "target": "state._maxR", "value": "hypot(w, h) * 0.5" },
+        { "op": "set", "target": "state._wf1", "value": "((t / 2.4) % 1) * state._maxR" },
+        { "op": "set", "target": "state._wf2", "value": "(((t / 2.4) + 0.5) % 1) * state._maxR" },
+        { "op": "set", "target": "state._band", "value": "state._maxR * 0.16" },
+        { "op": "lineWidth", "value": 1 },
+        { "op": "alpha", "value": 0.14 },
+        { "op": "loop", "count": "floor(w/24)+2", "as": "gx", "body": [
+          { "op": "line", "x1": "gx*24", "y1": 0, "x2": "gx*24", "y2": "h", "stroke": "colors[1]", "lineWidth": 1 }
+        ]},
+        { "op": "loop", "count": "floor(h/24)+2", "as": "gy", "body": [
+          { "op": "line", "x1": 0, "y1": "gy*24", "x2": "w", "y2": "gy*24", "stroke": "colors[1]", "lineWidth": 1 }
+        ]},
+        { "op": "alpha", "value": 0.10 },
+        { "op": "loop", "count": 16, "as": "k", "body": [
+          { "op": "line",
+            "x1": "state._cx", "y1": "state._cy",
+            "x2": "state._cx + cos(k * PI / 8) * state._maxR",
+            "y2": "state._cy + sin(k * PI / 8) * state._maxR",
+            "stroke": "colors[1]", "lineWidth": 1 }
+        ]},
+        { "op": "alpha", "value": 1 },
+        { "op": "loop", "count": "floor(w/24)+2", "as": "gx", "body": [
+          { "op": "loop", "count": "floor(h/24)+2", "as": "gy", "body": [
+            { "op": "set", "target": "state._x", "value": "gx*24" },
+            { "op": "set", "target": "state._y", "value": "gy*24" },
+            { "op": "set", "target": "state._d", "value": "hypot(state._x - state._cx, state._y - state._cy)" },
+            { "op": "set", "target": "state._n1", "value": "max(0, 1 - abs(state._d - state._wf1) / state._band)" },
+            { "op": "set", "target": "state._n2", "value": "max(0, 1 - abs(state._d - state._wf2) / state._band)" },
+            { "op": "set", "target": "state._near", "value": "max(state._n1, state._n2)" },
+            { "op": "if", "cond": "state._near > 0.02",
+              "then": [
+                { "op": "alpha", "value": "state._near * 0.9" },
+                { "op": "set", "target": "state._arm", "value": "10" },
+                { "op": "polyline",
+                  "points": [
+                    { "x": "state._x - state._arm", "y": "state._y" },
+                    { "x": "state._x + state._arm", "y": "state._y" }
+                  ],
+                  "stroke": "colors[2]", "lineWidth": "1.4 + state._near * 1.2" },
+                { "op": "polyline",
+                  "points": [
+                    { "x": "state._x", "y": "state._y - state._arm" },
+                    { "x": "state._x", "y": "state._y + state._arm" }
+                  ],
+                  "stroke": "colors[2]", "lineWidth": "1.4 + state._near * 1.2" },
+                { "op": "circle", "cx": "state._x", "cy": "state._y",
+                  "r": "1 + state._near * 1.6", "fill": "colors[2]" }
+              ]
+            }
+          ]}
+        ]},
+        { "op": "alpha", "value": 1 }
+      ]
+    },
+    {
+      "id": "ekg",
+      "label": "EKG",
+      "colors": 2,
+      "defaults": { "colors": ["#0a3a2aff","#00ff88ff"], "speed": 5 },
+      "functions": {
+        "qrs": "(p) => p < 0.06 ? -Math.sin(p/0.06*Math.PI)*0.18 : p < 0.10 ? 0 : p < 0.13 ? Math.sin((p-0.10)/0.03*Math.PI*0.5)*0.22 : p < 0.17 ? 0.22 - Math.sin((p-0.13)/0.04*Math.PI*0.5)*1.22 : p < 0.21 ? -1.0 + Math.sin((p-0.17)/0.04*Math.PI*0.5)*1.3 : p < 0.26 ? 0.30 * (1 - (p-0.21)/0.05) : p < 0.42 ? 0 : p < 0.60 ? -Math.sin((p-0.42)/0.18*Math.PI)*0.35 : 0",
+        "wrap": "(v) => ((v % 1) + 1) % 1"
+      },
+      "frame": [
+        { "op": "clear", "color": "colors[0]" },
+        { "op": "lineWidth", "value": 1 },
+        { "op": "alpha", "value": 0.10 },
+        { "op": "loop", "count": "floor(w/20)+1", "as": "gx", "body": [
+          { "op": "line", "x1": "gx*20", "y1": 0, "x2": "gx*20", "y2": "h", "stroke": "colors[0]", "lineWidth": 1 }
+        ]},
+        { "op": "loop", "count": "floor(h/20)+1", "as": "gy", "body": [
+          { "op": "line", "x1": 0, "y1": "gy*20", "x2": "w", "y2": "gy*20", "stroke": "colors[0]", "lineWidth": 1 }
+        ]},
+        { "op": "alpha", "value": 0.30 },
+        { "op": "loop", "count": "floor(w/100)+1", "as": "gx", "body": [
+          { "op": "line", "x1": "gx*100", "y1": 0, "x2": "gx*100", "y2": "h", "stroke": "colors[0]", "lineWidth": 1 }
+        ]},
+        { "op": "loop", "count": "floor(h/100)+1", "as": "gy", "body": [
+          { "op": "line", "x1": 0, "y1": "gy*100", "x2": "w", "y2": "gy*100", "stroke": "colors[0]", "lineWidth": 1 }
+        ]},
+        { "op": "alpha", "value": 1 },
+        { "op": "shadow", "blur": 8, "color": "colors[1]" },
+        { "op": "polyline",
+          "count": "floor(w/2) + 1",
+          "each": {
+            "x": "i * 2",
+            "y": "h/2 + qrs(wrap((i*2 - t*120) / 160)) * min(h * 0.35, 55)"
+          },
+          "stroke": "colors[1]", "lineWidth": 2.4 },
+        { "op": "shadow", "blur": 0, "color": "transparent" }
+      ]
+    },
+    {
+      "id": "liquid",
+      "label": "Liquid",
+      "colors": 3,
+      "defaults": { "colors": ["#050510ff","#00d0ffff","#b050ffff"], "speed": 5 },
+      "state": {
+        "blobs": { "op": "initArray", "count": 5, "each": {
+          "x": "random() * w",
+          "y": "random() * h",
+          "vx": "(random() - 0.5) * 2",
+          "vy": "(random() - 0.5) * 2",
+          "c": "i % 2"
+        }}
+      },
+      "frame": [
+        { "op": "clear", "color": "colors[0]" },
+        { "op": "composite", "value": "screen" },
+        { "op": "loopOver", "source": "blobs", "as": "b", "body": [
+          { "op": "set", "target": "b.x", "value": "b.x + b.vx * dt * 30" },
+          { "op": "set", "target": "b.y", "value": "b.y + b.vy * dt * 30" },
+          { "op": "if", "cond": "b.x < 0 || b.x > w", "then": [ { "op": "set", "target": "b.vx", "value": "-b.vx" } ] },
+          { "op": "if", "cond": "b.y < 0 || b.y > h", "then": [ { "op": "set", "target": "b.vy", "value": "-b.vy" } ] },
+          { "op": "gradientRadial",
+            "cx": "b.x", "cy": "b.y", "r": "h * 0.4",
+            "stops": [
+              { "at": 0, "color": "toRgba(colors[1 + b.c])" },
+              { "at": 1, "color": "rgba(0,0,0,0)" }
+            ]
+          },
+          { "op": "circle", "cx": "b.x", "cy": "b.y", "r": "h * 0.4" }
+        ]},
+        { "op": "composite", "value": "source-over" }
+      ]
+    },
+    {
+      "id": "nebula",
+      "label": "Nebula",
+      "colors": 3,
+      "defaults": { "colors": ["#050520ff","#9d4effff","#00d0ffff"], "speed": 5 },
+      "frame": [
+        { "op": "clear", "color": "colors[0]" },
+        { "op": "composite", "value": "screen" },
+        { "op": "loop", "count": 8, "as": "i", "body": [
+          { "op": "set", "target": "state._ph", "value": "i * 2.1" },
+          { "op": "set", "target": "state._cx", "value": "w * (0.5 + 0.45 * sin(t * (0.2 + i * 0.07) + state._ph))" },
+          { "op": "set", "target": "state._cy", "value": "h * (0.5 + 0.45 * cos(t * (0.18 + i * 0.09) + state._ph * 0.8))" },
+          { "op": "set", "target": "state._r",  "value": "max(w, h) * (0.35 + 0.25 * sin(t * 0.3 + state._ph))" },
+          { "op": "gradientRadial",
+            "cx": "state._cx", "cy": "state._cy", "r": "state._r",
+            "stops": [
+              { "at": 0,   "color": "toRgba(colors[i % 3])" },
+              { "at": 0.6, "color": "rgba(0,0,0,0)" }
+            ]
+          },
+          { "op": "alpha", "value": 0.4 },
+          { "op": "rect", "x": 0, "y": 0, "w": "w", "h": "h" }
+        ]},
+        { "op": "alpha", "value": 1 },
+        { "op": "composite", "value": "source-over" }
+      ]
+    },
+    {
+      "id": "black_hole",
+      "label": "Black Hole",
+      "colors": 3,
+      "defaults": { "colors": ["#050510ff","#8a5cffff","#00d0ffff"], "speed": 5 },
+      "frame": [
+        { "op": "clear", "color": "colors[0]" },
+        { "op": "save" },
+        { "op": "translate", "x": "w/2", "y": "h/2" },
+        { "op": "loop", "count": 5, "as": "k", "body": [
+          { "op": "save" },
+          { "op": "rotate", "angle": "t * 0.15 + k * 0.2" },
+          { "op": "set", "target": "state._r", "value": "(w*0.15 + k * max(w,h)*0.08) * (1 + 0.05 * sin(t * 1.5 + k))" },
+          { "op": "alpha", "value": "0.7 - k * 0.1" },
+          { "op": "ellipse",
+            "cx": 0, "cy": 0,
+            "rx": "state._r",
+            "ry": "state._r * 0.25",
+            "stroke": "colors[1 + (k % 2)]",
+            "lineWidth": "2 + k * 0.8" },
+          { "op": "restore" }
+        ]},
+        { "op": "restore" },
+        { "op": "alpha", "value": 1 },
+        { "op": "shadow", "blur": 20, "color": "colors[2]" },
+        { "op": "circle", "cx": "w/2", "cy": "h/2", "r": 26, "stroke": "colors[2]", "lineWidth": 2 },
+        { "op": "shadow", "blur": 0, "color": "transparent" },
+        { "op": "circle", "cx": "w/2", "cy": "h/2", "r": 20, "fill": "colors[0]" }
+      ]
+    },
+    {
+      "id": "hex_grid",
+      "label": "Hex Grid",
+      "colors": 2,
+      "defaults": { "colors": ["#050510ff","#00d0ffff"], "speed": 5 },
+      "frame": [
+        { "op": "clear", "color": "colors[0]" },
+        { "op": "lineWidth", "value": 1 },
+        { "op": "alpha", "value": "0.2 + (0.5 + 0.5 * sin(t * 1.2)) * 0.4" },
+        { "op": "set", "target": "state._size", "value": 20 },
+        { "op": "set", "target": "state._hstep", "value": 30 },
+        { "op": "set", "target": "state._vstep", "value": "20 * sqrt(3)" },
+        { "op": "loop", "count": "floor(h / state._vstep) + 3", "as": "row", "body": [
+          { "op": "loop", "count": "floor(w / state._hstep) + 3", "as": "col", "body": [
+            { "op": "set", "target": "state._cx", "value": "(col - 1) * state._hstep + ((row % 2) ? state._hstep / 2 : 0)" },
+            { "op": "set", "target": "state._cy", "value": "(row - 1) * state._vstep" },
+            { "op": "polyline",
+              "count": 7,
+              "each": {
+                "x": "state._cx + cos((i % 6) * PI / 3 + PI / 6) * state._size",
+                "y": "state._cy + sin((i % 6) * PI / 3 + PI / 6) * state._size"
+              },
+              "stroke": "colors[1]", "lineWidth": 1 }
+          ]}
+        ]},
+        { "op": "alpha", "value": 1 }
+      ]
+    },
+    {
+      "id": "spiral",
+      "label": "Spiral",
+      "colors": 2,
+      "defaults": { "colors": ["#050510ff","#00d0ffff"], "speed": 5 },
+      "frame": [
+        { "op": "clear", "color": "colors[0]" },
+        { "op": "save" },
+        { "op": "translate", "x": "w/2", "y": "h/2" },
+        { "op": "loop", "count": 200, "as": "k", "body": [
+          { "op": "set", "target": "state._a", "value": "k * 0.2 + t" },
+          { "op": "set", "target": "state._r", "value": "k * 1.5" },
+          { "op": "set", "target": "state._alpha", "value": "max(0, 1 - state._r / max(w, h) * 1.5)" },
+          { "op": "alpha", "value": "state._alpha" },
+          { "op": "circle",
+            "cx": "cos(state._a) * state._r",
+            "cy": "sin(state._a) * state._r",
+            "r": 3, "fill": "colors[1]" }
+        ]},
+        { "op": "restore" },
+        { "op": "alpha", "value": 1 }
+      ]
+    },
+
+    {
+      "id": "sparkle",
+      "label": "Sparkle",
+      "colors": 3,
+      "defaults": { "colors": ["#0a0a1aff","#00d0ffff","#ffffff"], "speed": 5 },
+      "state": {
+        "list": { "op": "initArray", "count": 30, "each": {
+          "x": "random() * w",
+          "y": "random() * h",
+          "l": "random()",
+          "c": "floor(random() * 3)"
+        }}
+      },
+      "frame": [
+        { "op": "clear", "color": "colors[0]" },
+        { "op": "lineWidth", "value": 2 },
+        { "op": "loopOver", "source": "list", "as": "sp", "body": [
+          { "op": "set", "target": "sp.l", "value": "sp.l - dt * 1.5" },
+          { "op": "if", "cond": "sp.l <= 0",
+            "then": [
+              { "op": "set", "target": "sp.x", "value": "random() * w" },
+              { "op": "set", "target": "sp.y", "value": "random() * h" },
+              { "op": "set", "target": "sp.l", "value": 1 },
+              { "op": "set", "target": "sp.c", "value": "floor(random() * 3)" }
+            ]
+          },
+          { "op": "alpha", "value": "sp.l" },
+          { "op": "set", "target": "state._sz", "value": "6 + (1 - sp.l) * 10" },
+          { "op": "shadow", "blur": 22, "color": "colors[sp.c]" },
+          { "op": "polyline",
+            "points": [
+              { "x": "sp.x - state._sz", "y": "sp.y" },
+              { "x": "sp.x + state._sz", "y": "sp.y" }
+            ],
+            "stroke": "colors[sp.c]", "lineWidth": 2 },
+          { "op": "polyline",
+            "points": [
+              { "x": "sp.x", "y": "sp.y - state._sz" },
+              { "x": "sp.x", "y": "sp.y + state._sz" }
+            ],
+            "stroke": "colors[sp.c]", "lineWidth": 2 },
+          { "op": "circle", "cx": "sp.x", "cy": "sp.y", "r": 2, "fill": "colors[2]" },
+          { "op": "shadow", "blur": 0, "color": "transparent" }
+        ]},
+        { "op": "alpha", "value": 1 }
+      ]
+    }
+	
+  ]
+}

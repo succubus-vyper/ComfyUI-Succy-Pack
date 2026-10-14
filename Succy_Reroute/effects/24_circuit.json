@@ -1,0 +1,127 @@
+{
+  "id": "circuit",
+  "name": "Circuit Trace",
+  "icon": "🔌",
+  "order": 240,
+  "description": "A PCB trace with solder vias and bright data packets racing through.",
+  "params": [
+    {
+      "key": "color",
+      "label": "Trace",
+      "type": "color",
+      "default": "#38f5c8"
+    },
+    {
+      "key": "width",
+      "label": "Width",
+      "type": "range",
+      "min": 0.8,
+      "max": 5,
+      "step": 0.2,
+      "default": 1.6
+    },
+    {
+      "key": "speed",
+      "label": "Packet speed",
+      "type": "range",
+      "min": -400,
+      "max": 400,
+      "step": 10,
+      "default": 170
+    },
+    {
+      "key": "via",
+      "label": "Via spacing",
+      "type": "range",
+      "min": 16,
+      "max": 100,
+      "step": 2,
+      "default": 44
+    },
+    {
+      "key": "glow",
+      "label": "Glow",
+      "type": "range",
+      "min": 0,
+      "max": 24,
+      "step": 1,
+      "default": 8
+    }
+  ],
+  "layers": [
+    {
+      "type": "stroke",
+      "color": "$color",
+      "alpha": 0.3,
+      "width": "=$width*2.2",
+      "cap": "butt"
+    },
+    {
+      "type": "stroke",
+      "color": "$color",
+      "alpha": 0.75,
+      "width": "$width",
+      "cap": "butt"
+    },
+    {
+      "type": "dots",
+      "shape": "square",
+      "color": "$color",
+      "alpha": 0.8,
+      "size": "=$width*1.6",
+      "spacing": "$via",
+      "speed": 0
+    },
+    {
+      "type": "dots",
+      "shape": "square",
+      "color": "#ffffff",
+      "size": 2.2,
+      "spacing": "=L+80",
+      "speed": "$speed",
+      "trail": 50,
+      "trailSteps": 12,
+      "trailTaper": 0.6,
+      "trailFade": 1,
+      "blur": "$glow"
+    },
+    {
+      "type": "dots",
+      "shape": "square",
+      "color": "$color",
+      "size": 1.8,
+      "spacing": "=L+80",
+      "speed": "=$speed*0.7",
+      "lead": 90,
+      "trail": 36,
+      "trailSteps": 10,
+      "trailTaper": 0.5,
+      "trailFade": 1,
+      "blur": "$glow"
+    }
+  ],
+  "skin": [
+    {
+      "type": "disc",
+      "color": "#07130f",
+      "radius": 1
+    },
+    {
+      "type": "ring",
+      "color": "$color",
+      "radius": 1,
+      "width": 0.16,
+      "dash": [
+        0.3,
+        0.25
+      ],
+      "speed": 0.4
+    },
+    {
+      "type": "disc",
+      "color": "$color",
+      "radius": 0.3,
+      "blur": 5
+    }
+  ]
+}

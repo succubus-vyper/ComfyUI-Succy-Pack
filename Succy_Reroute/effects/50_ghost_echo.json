@@ -1,0 +1,142 @@
+{
+  "id": "ghost_echo",
+  "name": "Ghost Echo",
+  "icon": "👻",
+  "order": 500,
+  "description": "A swaying wire followed by fading afterimages of itself, like a signal ghosting through the net.",
+  "params": [
+    {
+      "key": "color",
+      "label": "Signal",
+      "type": "color",
+      "default": "#ffffff"
+    },
+    {
+      "key": "color2",
+      "label": "Echo",
+      "type": "color",
+      "default": "#ff2bd6"
+    },
+    {
+      "key": "amp",
+      "label": "Amplitude",
+      "type": "range",
+      "min": 3,
+      "max": 30,
+      "step": 1,
+      "default": 12
+    },
+    {
+      "key": "wavelength",
+      "label": "Wavelength",
+      "type": "range",
+      "min": 40,
+      "max": 240,
+      "step": 5,
+      "default": 120
+    },
+    {
+      "key": "speed",
+      "label": "Speed",
+      "type": "range",
+      "min": -8,
+      "max": 8,
+      "step": 0.25,
+      "default": 2.5
+    },
+    {
+      "key": "delay",
+      "label": "Echo delay (s)",
+      "type": "range",
+      "min": 0.05,
+      "max": 0.6,
+      "step": 0.01,
+      "default": 0.16
+    }
+  ],
+  "layers": [
+    {
+      "type": "stroke",
+      "color": "$color2",
+      "alpha": 0.12,
+      "width": 2.4,
+      "step": 5,
+      "displace": "=$amp*sin(s/$wavelength*6.2832-(t-4*$delay)*$speed)*sin(v*3.14159)"
+    },
+    {
+      "type": "stroke",
+      "color": "$color2",
+      "alpha": 0.22,
+      "width": 2.2,
+      "step": 5,
+      "displace": "=$amp*sin(s/$wavelength*6.2832-(t-3*$delay)*$speed)*sin(v*3.14159)"
+    },
+    {
+      "type": "stroke",
+      "color": "#00f0ff",
+      "alpha": 0.35,
+      "width": 2,
+      "step": 5,
+      "displace": "=$amp*sin(s/$wavelength*6.2832-(t-2*$delay)*$speed)*sin(v*3.14159)"
+    },
+    {
+      "type": "stroke",
+      "color": "$color2",
+      "alpha": 0.5,
+      "width": 1.8,
+      "step": 5,
+      "displace": "=$amp*sin(s/$wavelength*6.2832-(t-1*$delay)*$speed)*sin(v*3.14159)"
+    },
+    {
+      "type": "stroke",
+      "color": "$color",
+      "alpha": 0.95,
+      "width": 1.6,
+      "step": 5,
+      "displace": "=$amp*sin(s/$wavelength*6.2832-(t-0*$delay)*$speed)*sin(v*3.14159)",
+      "blur": 8
+    }
+  ],
+  "skin": [
+    {
+      "type": "disc",
+      "color": "#0a0610",
+      "radius": 1
+    },
+    {
+      "type": "ring",
+      "color": "$color2",
+      "radius": 1.0,
+      "width": 0.1,
+      "alpha": 0.4
+    },
+    {
+      "type": "ring",
+      "color": "#00f0ff",
+      "radius": 0.86,
+      "width": 0.1,
+      "alpha": 0.5
+    },
+    {
+      "type": "ring",
+      "color": "$color",
+      "radius": 0.72,
+      "width": 0.12
+    },
+    {
+      "type": "orbit",
+      "color": "$color2",
+      "radius": 0.9,
+      "size": 0.12,
+      "count": 3,
+      "speed": -0.3,
+      "blur": 4
+    },
+    {
+      "type": "disc",
+      "color": "$color",
+      "radius": 0.2
+    }
+  ],
+  "animated": true
+}

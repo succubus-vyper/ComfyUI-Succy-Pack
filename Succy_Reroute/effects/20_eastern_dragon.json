@@ -1,0 +1,161 @@
+{
+  "id": "eastern_dragon",
+  "name": "Eastern Dragon",
+  "icon": "🐲",
+  "order": 200,
+  "description": "A long jade dragon chasing a glowing pearl.",
+  "params": [
+    {
+      "key": "color",
+      "label": "Jade",
+      "type": "color",
+      "default": "#3fd0c9"
+    },
+    {
+      "key": "color2",
+      "label": "Mane",
+      "type": "color",
+      "default": "#f4c542"
+    },
+    {
+      "key": "size",
+      "label": "Thickness",
+      "type": "range",
+      "min": 2,
+      "max": 8,
+      "step": 0.1,
+      "default": 3.8
+    },
+    {
+      "key": "length",
+      "label": "Length",
+      "type": "range",
+      "min": 80,
+      "max": 360,
+      "step": 5,
+      "default": 240
+    },
+    {
+      "key": "speed",
+      "label": "Speed (px/s)",
+      "type": "range",
+      "min": -300,
+      "max": 300,
+      "step": 5,
+      "default": 90
+    },
+    {
+      "key": "amp",
+      "label": "Amplitude",
+      "type": "range",
+      "min": 0,
+      "max": 24,
+      "step": 0.5,
+      "default": 11
+    },
+    {
+      "key": "wavelength",
+      "label": "Wavelength",
+      "type": "range",
+      "min": 30,
+      "max": 200,
+      "step": 2,
+      "default": 90
+    },
+    {
+      "key": "slither",
+      "label": "Slither speed",
+      "type": "range",
+      "min": -8,
+      "max": 8,
+      "step": 0.5,
+      "default": 2.5
+    },
+    {
+      "key": "lead",
+      "label": "Pearl distance",
+      "type": "range",
+      "min": 10,
+      "max": 120,
+      "step": 2,
+      "default": 46
+    }
+  ],
+  "layers": [
+    {
+      "type": "stroke",
+      "color": "$color",
+      "alpha": 0.08,
+      "width": 1.5
+    },
+    {
+      "type": "dots",
+      "color": "$color",
+      "size": "$size",
+      "spacing": "=L+$length+$lead+30",
+      "speed": "$speed",
+      "trail": "$length",
+      "trailSteps": 80,
+      "trailTaper": 0.55,
+      "trailFade": 0.05,
+      "blur": 6,
+      "displace": "=$amp*sin(s/$wavelength*6.2832 - t*$slither)*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "color": "$color2",
+      "alpha": 0.7,
+      "size": "=$size*0.4",
+      "spacing": "=L+$length+$lead+30",
+      "speed": "$speed",
+      "trail": "=$length*0.8",
+      "trailSteps": 64,
+      "trailTaper": 0.55,
+      "trailFade": 0.3,
+      "displace": "=$amp*sin(s/$wavelength*6.2832 - t*$slither)*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "color": "#ffffff",
+      "size": "=$size*0.7",
+      "spacing": "=L+$length+$lead+30",
+      "speed": "$speed",
+      "lead": "$lead",
+      "blur": 16,
+      "displace": "=$amp*sin(s/$wavelength*6.2832 - t*$slither)*sin(v*3.14159)"
+    }
+  ],
+  "skin": [
+    {
+      "type": "glow",
+      "color": "$color2",
+      "radius": 2,
+      "alpha": 0.25
+    },
+    {
+      "type": "disc",
+      "color": "#08171a",
+      "radius": 1
+    },
+    {
+      "type": "ring",
+      "color": "$color",
+      "radius": 1,
+      "width": 0.16
+    },
+    {
+      "type": "orbit",
+      "color": "#ffffff",
+      "radius": 0.6,
+      "size": 0.2,
+      "count": 1,
+      "speed": 0.7,
+      "blur": 6
+    },
+    {
+      "type": "disc",
+      "color": "$color2",
+      "radius": 0.24
+    }
+  ]
+}

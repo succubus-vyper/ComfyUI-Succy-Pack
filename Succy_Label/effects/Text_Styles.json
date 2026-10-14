@@ -1,0 +1,409 @@
+{
+  "version": 1,
+  "family": "text",
+  "effects": [
+    {
+      "id": "plain",
+      "label": "None",
+      "default": true,
+      "tsColors": 0,
+      "frame": [],
+      "tsLabels": {
+        "intensity": "Intensity",
+        "speed": "Speed",
+        "intensityOff": true,
+        "speedOff": true
+      }
+    },
+	
+	
+	
+	
+    {
+      "id": "glitch",
+      "label": "Glitch",
+      "tsColors": 2,
+      "textMult": 1.4,
+      "pseudoMult": 1.4,
+      "tsLabels": {
+        "intensity": "Distortion",
+        "speed": "Glitch Rate",
+        "intensityOff": false,
+        "speedOff": false
+      },
+      "css": "@keyframes sl-glitch-base {\n  0%, 4%, 12%, 45%, 52%, 78%, 84%, 100% { transform: translate(0,0); }\n  5%   { transform: translate(calc(var(--sl-ts-int) * 3px), 0); }\n  8%   { transform: translate(calc(var(--sl-ts-int) * -4px), 0); }\n  46%  { transform: translate(calc(var(--sl-ts-int) * -3px), 0); }\n  49%  { transform: translate(calc(var(--sl-ts-int) * 4px), 0); }\n  79%  { transform: translate(calc(var(--sl-ts-int) * 5px), 0); }\n  82%  { transform: translate(calc(var(--sl-ts-int) * -4px), 0); }\n}\n\n@keyframes sl-glitch-a {\n  0%, 100% { transform: translate(0,0); clip-path: inset(0 0 0 0); opacity: 0; }\n  5%       { transform: translate(calc(var(--sl-ts-int) * -8px), 0); clip-path: inset(18% 0 58% 0); opacity: 1; }\n  9%       { transform: translate(calc(var(--sl-ts-int) * 5px), 0);  clip-path: inset(58% 0 15% 0); opacity: 1; }\n  12%      { transform: translate(0,0); clip-path: inset(0 0 0 0); opacity: 0; }\n  46%      { transform: translate(calc(var(--sl-ts-int) * 6px), 0);  clip-path: inset(35% 0 40% 0); opacity: 1; }\n  50%      { transform: translate(calc(var(--sl-ts-int) * -5px), 0); clip-path: inset(8% 0 75% 0); opacity: 1; }\n  53%      { transform: translate(0,0); clip-path: inset(0 0 0 0); opacity: 0; }\n  79%      { transform: translate(calc(var(--sl-ts-int) * -7px), 0); clip-path: inset(72% 0 5% 0); opacity: 1; }\n  83%      { transform: translate(calc(var(--sl-ts-int) * 8px), 0);  clip-path: inset(5% 0 80% 0); opacity: 1; }\n}\n\n@keyframes sl-glitch-b {\n  0%, 100% { transform: translate(0,0); clip-path: inset(0 0 0 0); opacity: 0; }\n  7%       { transform: translate(calc(var(--sl-ts-int) * 7px), 0);  clip-path: inset(50% 0 30% 0); opacity: 1; }\n  10%      { transform: translate(calc(var(--sl-ts-int) * -6px), 0); clip-path: inset(12% 0 70% 0); opacity: 1; }\n  14%      { transform: translate(0,0); clip-path: inset(0 0 0 0); opacity: 0; }\n  32%      { transform: translate(calc(var(--sl-ts-int) * -8px), 0); clip-path: inset(25% 0 55% 0); opacity: 1; }\n  36%      { transform: translate(calc(var(--sl-ts-int) * 5px), 0);  clip-path: inset(65% 0 20% 0); opacity: 1; }\n  39%      { transform: translate(0,0); clip-path: inset(0 0 0 0); opacity: 0; }\n  70%      { transform: translate(calc(var(--sl-ts-int) * 4px), 0);  clip-path: inset(80% 0 10% 0); opacity: 1; }\n  74%      { transform: translate(calc(var(--sl-ts-int) * -7px), 0); clip-path: inset(0 0 90% 0); opacity: 1; }\n}\n\n[data-text-style=\"glitch\"] .succy-label-text {\n    position: relative;\n    isolation: isolate;\n    animation: sl-glitch-base calc(var(--sl-ts-dur) * 1.4) steps(1, end) infinite;\n    text-shadow:\n        calc(var(--sl-ts-int) * 1.5px) 0 rgba(255, 0, 80, 0.30),\n        calc(var(--sl-ts-int) * -1.5px) 0 rgba(0, 220, 255, 0.30);\n}\n[data-text-style=\"glitch\"] .succy-label-text::before,\n[data-text-style=\"glitch\"] .succy-label-text::after {\n    content: attr(data-text);\n    position: absolute;\n    top: 0; left: 0;\n    width: 100%; height: 100%;\n    pointer-events: none;\n    will-change: transform, clip-path, opacity;\n}\n[data-text-style=\"glitch\"] .succy-label-text::before {\n    color: var(--sl-ts-col);\n    animation: sl-glitch-a calc(var(--sl-ts-dur) * 1.4) steps(1, end) infinite;\n}\n[data-text-style=\"glitch\"] .succy-label-text::after {\n    color: var(--sl-ts-col-b);\n    animation: sl-glitch-b calc(var(--sl-ts-dur) * 1.4) steps(1, end) infinite;\n        animation-delay: calc(var(--sl-ts-dur) * -0.15);}"
+    },
+	
+	
+    {
+      "id": "cyber_fault",
+      "label": "Cyber Fault",
+      "tsColors": 2,
+      "textMult": 1.0,
+      "pseudoMult": 1.0,
+      "tsLabels": {
+        "intensity": "Corruption",
+        "speed": "Fault Rate",
+        "intensityOff": false,
+        "speedOff": false
+      },
+      "css": "@keyframes sl-cf-base {\n  0%, 8%, 20%, 30%, 42%, 58%, 70%, 88%, 100% { transform: translate(0,0); }\n  10%  { transform: translate(calc(var(--sl-ts-int) * 6px), calc(var(--sl-ts-int) * -1px)); }\n  16%  { transform: translate(calc(var(--sl-ts-int) * -8px), 0); }\n  34%  { transform: translate(calc(var(--sl-ts-int) * 5px), calc(var(--sl-ts-int) * 1px)); }\n  44%  { transform: translate(calc(var(--sl-ts-int) * -6px), 0); }\n  60%  { transform: translate(calc(var(--sl-ts-int) * 7px), 0); }\n  74%  { transform: translate(calc(var(--sl-ts-int) * -5px), calc(var(--sl-ts-int) * 1px)); }\n  90%  { transform: translate(calc(var(--sl-ts-int) * 4px), 0); }\n}\n\n@keyframes sl-cf-slice-a {\n  0%, 100% { transform: translate(0,0); clip-path: inset(0 0 0 0); opacity: 0; }\n  8%       { transform: translate(calc(var(--sl-ts-int) * -14px), 0); clip-path: inset(22% 0 48% 0); opacity: 1; }\n  11%      { transform: translate(calc(var(--sl-ts-int) * 12px), 0);  clip-path: inset(72% 0 8% 0); opacity: 1; }\n  14%      { transform: translate(calc(var(--sl-ts-int) * -10px), 0); clip-path: inset(5% 0 78% 0); opacity: 1; }\n  20%      { transform: translate(0,0); clip-path: inset(0 0 0 0); opacity: 0; }\n  32%      { transform: translate(calc(var(--sl-ts-int) * 15px), 0);  clip-path: inset(45% 0 30% 0); opacity: 1; }\n  36%      { transform: translate(calc(var(--sl-ts-int) * -18px), 0); clip-path: inset(15% 0 55% 0); opacity: 1; }\n  42%      { transform: translate(0,0); clip-path: inset(0 0 0 0); opacity: 0; }\n  58%      { transform: translate(calc(var(--sl-ts-int) * -12px), 0); clip-path: inset(60% 0 20% 0); opacity: 1; }\n  62%      { transform: translate(calc(var(--sl-ts-int) * 14px), 0);  clip-path: inset(10% 0 75% 0); opacity: 1; }\n  70%      { transform: translate(0,0); clip-path: inset(0 0 0 0); opacity: 0; }\n  88%      { transform: translate(calc(var(--sl-ts-int) * -16px), 0); clip-path: inset(38% 0 42% 0); opacity: 1; }\n  92%      { transform: translate(calc(var(--sl-ts-int) * 11px), 0);  clip-path: inset(80% 0 5% 0); opacity: 1; }\n}\n\n@keyframes sl-cf-slice-b {\n  0%, 100% { transform: translate(0,0); clip-path: inset(0 0 0 0); opacity: 0; }\n  6%       { transform: translate(calc(var(--sl-ts-int) * 13px), 0);  clip-path: inset(65% 0 18% 0); opacity: 1; }\n  9%       { transform: translate(calc(var(--sl-ts-int) * -11px), 0); clip-path: inset(25% 0 62% 0); opacity: 1; }\n  12%      { transform: translate(0,0); clip-path: inset(0 0 0 0); opacity: 0; }\n  28%      { transform: translate(calc(var(--sl-ts-int) * -17px), 0); clip-path: inset(50% 0 28% 0); opacity: 1; }\n  30%      { transform: translate(calc(var(--sl-ts-int) * 12px), 0);  clip-path: inset(2% 0 88% 0); opacity: 1; }\n  34%      { transform: translate(0,0); clip-path: inset(0 0 0 0); opacity: 0; }\n  60%      { transform: translate(calc(var(--sl-ts-int) * 16px), 0);  clip-path: inset(40% 0 42% 0); opacity: 1; }\n  64%      { transform: translate(calc(var(--sl-ts-int) * -14px), 0); clip-path: inset(85% 0 2% 0); opacity: 1; }\n  68%      { transform: translate(0,0); clip-path: inset(0 0 0 0); opacity: 0; }\n  84%      { transform: translate(calc(var(--sl-ts-int) * -15px), 0); clip-path: inset(12% 0 70% 0); opacity: 1; }\n  87%      { transform: translate(calc(var(--sl-ts-int) * 18px), 0);  clip-path: inset(58% 0 22% 0); opacity: 1; }\n}\n\n[data-text-style=\"cyber_fault\"] .succy-label-text {\n    position: relative;\n    isolation: isolate;\n    animation: sl-cf-base calc(var(--sl-ts-dur) * 1.8) steps(1, end) infinite;\n    text-shadow:\n        calc(var(--sl-ts-int) * 2px) 0 rgba(255, 0, 60, 0.35),\n        calc(var(--sl-ts-int) * -2px) 0 rgba(0, 240, 255, 0.35);\n}\n[data-text-style=\"cyber_fault\"] .succy-label-text::before,\n[data-text-style=\"cyber_fault\"] .succy-label-text::after {\n    content: attr(data-text);\n    position: absolute;\n    top: 0; left: 0;\n    width: 100%; height: 100%;\n    pointer-events: none;\n    will-change: transform, clip-path, opacity;\n    font-weight: inherit;\n}\n[data-text-style=\"cyber_fault\"] .succy-label-text::before {\n    color: var(--sl-ts-col);\n    animation: sl-cf-slice-a calc(var(--sl-ts-dur) * 1.8) steps(1, end) infinite;\n}\n[data-text-style=\"cyber_fault\"] .succy-label-text::after {\n    color: var(--sl-ts-col-b);\n    animation: sl-cf-slice-b calc(var(--sl-ts-dur) * 1.8) steps(1, end) infinite;\n    animation-delay: calc(var(--sl-ts-dur) * -0.35);\n}"
+    },
+	
+	
+    {
+      "id": "vhs",
+      "label": "VHS",
+      "tsColors": 2,
+      "textMult": 1.0,
+      "pseudoMult": 1.0,
+      "tsLabels": {
+        "intensity": "Tracking Jitter",
+        "speed": "Tape Speed",
+        "intensityOff": false,
+        "speedOff": false
+      },
+      "css": "@keyframes sl-vhs-tracking {\n  0%, 100% { transform: translate(0,0); filter: none; }\n  6%       { transform: translate(calc(var(--sl-ts-int) * -3px), 0); filter: hue-rotate(12deg) saturate(1.4); }\n  9%       { transform: translate(0,0); filter: none; }\n  28%      { transform: translate(calc(var(--sl-ts-int) * 4px), 0);  filter: hue-rotate(-8deg); }\n  31%      { transform: translate(0,0); filter: none; }\n  55%      { transform: translate(calc(var(--sl-ts-int) * -5px), 0); filter: hue-rotate(15deg) saturate(1.5); }\n  58%      { transform: translate(0,0); filter: none; }\n  82%      { transform: translate(calc(var(--sl-ts-int) * 3px), 0);  filter: hue-rotate(-10deg); }\n  85%      { transform: translate(0,0); filter: none; }\n}\n\n@keyframes sl-vhs-band {\n  0%   { transform: translateY(-120%); opacity: 0; }\n  8%   { opacity: 1; }\n  60%  { opacity: 1; }\n  68%  { transform: translateY(120%);  opacity: 0; }\n  100% { transform: translateY(120%);  opacity: 0; }\n}\n\n[data-text-style=\"vhs\"] .succy-label-text {\n    position: relative;\n    isolation: isolate;\n    animation: sl-vhs-tracking calc(var(--sl-ts-dur) * 2.2) steps(1, end) infinite;\n    text-shadow:\n        calc(var(--sl-ts-int) * 2px) 0 rgba(255,   0,  80, 0.55),\n        calc(var(--sl-ts-int) * -2px) 0 rgba(  0, 220, 255, 0.55);\n}\n[data-text-style=\"vhs\"] .succy-label-text::before {\n    content: attr(data-text);\n    position: absolute;\n    top: 0; left: 0;\n    width: 100%; height: 100%;\n    pointer-events: none;\n    color: var(--sl-ts-col);\n    mix-blend-mode: screen;\n    clip-path: polygon(0 0, 100% 0, 100% 8%, 0 8%);\n    animation: sl-vhs-band calc(var(--sl-ts-dur) * 2.2) linear infinite;\n    will-change: transform, opacity;\n}\n[data-text-style=\"vhs\"] .succy-label-text::after {\n    content: attr(data-text);\n    position: absolute;\n    top: 0; left: 0;\n    width: 100%; height: 100%;\n    pointer-events: none;\n    color: var(--sl-ts-col-b);\n    mix-blend-mode: screen;\n    clip-path: polygon(0 92%, 100% 92%, 100% 100%, 0 100%);\n    animation: sl-vhs-band calc(var(--sl-ts-dur) * 2.2) linear infinite;\n    animation-delay: calc(var(--sl-ts-dur) * -1.1);\n    will-change: transform, opacity;\n}"
+    },
+	
+	
+	{
+      "id": "chromatic",
+      "label": "Chromatic",
+      "tsColors": 2,
+      "textMult": 1.0,
+      "pseudoMult": 1.0,
+      "tsLabels": {
+        "intensity": "RGB Offset",
+        "speed": "Drift Rate",
+        "intensityOff": false,
+        "speedOff": false
+      },
+      "css": "@keyframes sl-chr-drift {\n  0%, 100% { text-shadow:\n    calc(var(--sl-ts-int) *  3px) 0 0 var(--sl-ts-col),\n    calc(var(--sl-ts-int) * -3px) 0 0 var(--sl-ts-col-b);\n  }\n  25% { text-shadow:\n    calc(var(--sl-ts-int) *  4px) calc(var(--sl-ts-int) * 1px) 0 var(--sl-ts-col),\n    calc(var(--sl-ts-int) * -4px) calc(var(--sl-ts-int) * -1px) 0 var(--sl-ts-col-b);\n  }\n  50% { text-shadow:\n    calc(var(--sl-ts-int) *  2px) calc(var(--sl-ts-int) * 2px) 0 var(--sl-ts-col),\n    calc(var(--sl-ts-int) * -2px) calc(var(--sl-ts-int) * -2px) 0 var(--sl-ts-col-b);\n  }\n  75% { text-shadow:\n    calc(var(--sl-ts-int) *  4px) calc(var(--sl-ts-int) * -1px) 0 var(--sl-ts-col),\n    calc(var(--sl-ts-int) * -4px) calc(var(--sl-ts-int) * 1px) 0 var(--sl-ts-col-b);\n  }\n}\n\n[data-text-style=\"chromatic\"] .succy-label-text {\n    color: var(--sl-font-col);\n    animation: sl-chr-drift var(--sl-ts-dur) ease-in-out infinite;\n    will-change: text-shadow;\n}"
+    },
+
+
+    {
+      "id": "datamosh",
+      "label": "Datamosh",
+      "tsColors": 2,
+      "textMult": 1.0,
+      "pseudoMult": 1.0,
+      "tsLabels": {
+        "intensity": "Block Size",
+        "speed": "Mosh Rate",
+        "intensityOff": false,
+        "speedOff": false
+      },
+      "css": "@keyframes sl-dm-base {\n  0%, 100% { transform: translate(0,0); }\n  12% { transform: translate(calc(var(--sl-ts-int) * -1px), 0); }\n  18% { transform: translate(calc(var(--sl-ts-int) *  2px), 0); }\n  24% { transform: translate(0,0); }\n  52% { transform: translate(calc(var(--sl-ts-int) *  1px), 0); }\n  60% { transform: translate(calc(var(--sl-ts-int) * -2px), 0); }\n  66% { transform: translate(0,0); }\n}\n\n@keyframes sl-dm-block-a {\n  0%, 100% { transform: translate(0,0); clip-path: inset(0 0 0 0); opacity: 0; }\n  12%      { transform: translate(calc(var(--sl-ts-int) * -10px), 0); clip-path: inset(35% 0 55% 0); opacity: 1; }\n  16%      { transform: translate(calc(var(--sl-ts-int) *   9px), 0); clip-path: inset(68% 0 22% 0); opacity: 1; }\n  22%      { transform: translate(0,0); clip-path: inset(0 0 0 0); opacity: 0; }\n  52%      { transform: translate(calc(var(--sl-ts-int) *  11px), 0); clip-path: inset(8% 0 82% 0); opacity: 1; }\n  56%      { transform: translate(calc(var(--sl-ts-int) * -12px), 0); clip-path: inset(72% 0 14% 0); opacity: 1; }\n  62%      { transform: translate(0,0); clip-path: inset(0 0 0 0); opacity: 0; }\n}\n\n@keyframes sl-dm-block-b {\n  0%, 100% { transform: translate(0,0); clip-path: inset(0 0 0 0); opacity: 0; }\n  6%       { transform: translate(calc(var(--sl-ts-int) *   8px), 0); clip-path: inset(48% 0 42% 0); opacity: 1; }\n  10%      { transform: translate(calc(var(--sl-ts-int) * -10px), 0); clip-path: inset(20% 0 68% 0); opacity: 1; }\n  14%      { transform: translate(0,0); clip-path: inset(0 0 0 0); opacity: 0; }\n  40%      { transform: translate(calc(var(--sl-ts-int) * -13px), 0); clip-path: inset(60% 0 26% 0); opacity: 1; }\n  44%      { transform: translate(calc(var(--sl-ts-int) *  10px), 0); clip-path: inset(15% 0 78% 0); opacity: 1; }\n  48%      { transform: translate(0,0); clip-path: inset(0 0 0 0); opacity: 0; }\n  76%      { transform: translate(calc(var(--sl-ts-int) *   7px), 0); clip-path: inset(40% 0 48% 0); opacity: 1; }\n  80%      { transform: translate(calc(var(--sl-ts-int) *  -9px), 0); clip-path: inset(78% 0 10% 0); opacity: 1; }\n  86%      { transform: translate(0,0); clip-path: inset(0 0 0 0); opacity: 0; }\n}\n\n[data-text-style=\"datamosh\"] .succy-label-text {\n    position: relative;\n    isolation: isolate;\n    animation: sl-dm-base calc(var(--sl-ts-dur) * 1.6) steps(1, end) infinite;\n    text-shadow:\n        calc(var(--sl-ts-int) * 1.5px) 0 rgba(255, 0, 80, 0.25),\n        calc(var(--sl-ts-int) * -1.5px) 0 rgba(0, 220, 255, 0.25);\n}\n[data-text-style=\"datamosh\"] .succy-label-text::before,\n[data-text-style=\"datamosh\"] .succy-label-text::after {\n    content: attr(data-text);\n    position: absolute;\n    top: 0; left: 0;\n    width: 100%; height: 100%;\n    pointer-events: none;\n    will-change: transform, clip-path, opacity;\n    font-weight: inherit;\n}\n[data-text-style=\"datamosh\"] .succy-label-text::before {\n    color: var(--sl-ts-col);\n    animation: sl-dm-block-a calc(var(--sl-ts-dur) * 1.6) steps(1, end) infinite;\n}\n[data-text-style=\"datamosh\"] .succy-label-text::after {\n    color: var(--sl-ts-col-b);\n    animation: sl-dm-block-b calc(var(--sl-ts-dur) * 1.6) steps(1, end) infinite;\n        animation-delay: calc(var(--sl-ts-dur) * -0.55);}"
+    },
+
+
+    {
+      "id": "outline",
+      "label": "Outline",
+      "tsColors": 1,
+      "textMult": 1.0,
+      "pseudoMult": 0,
+      "tsLabels": { "intensity": "Stroke Width", "speed": "Pulse Rate", "intensityOff": false, "speedOff": false },
+      "css": "@keyframes sl-ol-pulse {\n  0%, 100% { -webkit-text-stroke-width: calc(0.5px + 2.5px * var(--sl-ts-int)); }\n  50%      { -webkit-text-stroke-width: calc(0.5px + 4.5px * var(--sl-ts-int)); }\n}\n[data-text-style=\"outline\"] .succy-label-text {\n    color: transparent;\n    -webkit-text-stroke: calc(0.5px + 3px * var(--sl-ts-int)) var(--sl-ts-col);\n    paint-order: stroke fill;\n    animation: sl-ol-pulse var(--sl-ts-dur) ease-in-out infinite;\n}"
+    },
+
+
+    {
+      "id": "outline_double",
+      "label": "Outline Double",
+      "tsColors": 2,
+      "textMult": 1.0,
+      "pseudoMult": 0,
+      "tsLabels": { "intensity": "Stroke Width", "speed": "Pulse Rate", "intensityOff": false, "speedOff": false },
+      "css": "@keyframes sl-old-pulse {\n  0%, 100% { filter: drop-shadow(0 0 calc(2px + 6px * var(--sl-ts-int)) var(--sl-ts-col-b)); }\n  50%      { filter: drop-shadow(0 0 calc(6px + 18px * var(--sl-ts-int)) var(--sl-ts-col-b)); }\n}\n[data-text-style=\"outline_double\"] .succy-label-text {\n    color: var(--sl-font-col);\n    -webkit-text-stroke: calc(0.5px + 2px * var(--sl-ts-int)) var(--sl-ts-col);\n    paint-order: stroke fill;\n    animation: sl-old-pulse var(--sl-ts-dur) ease-in-out infinite;\n}"
+    },
+
+
+    {
+      "id": "glow",
+      "label": "Glow",
+      "tsColors": 1,
+      "textMult": 1.0,
+      "pseudoMult": 0,
+      "tsLabels": { "intensity": "Brightness", "speed": "Pulse Rate", "intensityOff": false, "speedOff": false },
+      "css": "@keyframes sl-glw-pulse {\n  0%, 100% { text-shadow:\n    0 0 calc(4px + 15px * var(--sl-ts-int)) var(--sl-ts-col),\n    0 0 calc(8px + 30px * var(--sl-ts-int)) var(--sl-ts-col); }\n  50%      { text-shadow:\n    0 0 calc(6px + 25px * var(--sl-ts-int)) var(--sl-ts-col),\n    0 0 calc(12px + 50px * var(--sl-ts-int)) var(--sl-ts-col); }\n}\n[data-text-style=\"glow\"] .succy-label-text {\n    animation: sl-glw-pulse var(--sl-ts-dur) ease-in-out infinite;\n}"
+    },
+
+
+    {
+      "id": "neon",
+      "label": "Neon",
+      "tsColors": 2,
+      "textMult": 1.0,
+      "pseudoMult": 0,
+      "tsLabels": { "intensity": "Brightness", "speed": "Pulse Rate", "intensityOff": false, "speedOff": false },
+      "css": "@keyframes sl-nn-pulse {\n  0%, 100% { text-shadow:\n    0 0 calc(4px + 10px * var(--sl-ts-int)) var(--sl-ts-col),\n    0 0 calc(8px + 20px * var(--sl-ts-int)) var(--sl-ts-col-b); }\n  50%      { text-shadow:\n    0 0 calc(8px + 20px * var(--sl-ts-int)) var(--sl-ts-col),\n    0 0 calc(16px + 40px * var(--sl-ts-int)) var(--sl-ts-col-b); }\n}\n[data-text-style=\"neon\"] .succy-label-text {\n    color: var(--sl-font-col);\n    animation: sl-nn-pulse var(--sl-ts-dur) ease-in-out infinite;\n}"
+    },
+
+
+    {
+      "id": "neon_flicker",
+      "label": "Neon Flicker",
+      "tsColors": 2,
+      "textMult": 1.0,
+      "pseudoMult": 0,
+      "tsLabels": { "intensity": "Brightness", "speed": "Flicker Rate", "intensityOff": false, "speedOff": false },
+      "css": "@keyframes sl-nf-anim {\n  0%, 18%, 22%, 25%, 53%, 57%, 100% {\n    opacity: 1;\n    text-shadow: 0 0 calc(4px + 20px * var(--sl-ts-int)) var(--sl-ts-col),\n                 0 0 calc(8px + 40px * var(--sl-ts-int)) var(--sl-ts-col-b);\n  }\n  20%, 24%, 55% { opacity: 0.4; text-shadow: none; }\n}\n[data-text-style=\"neon_flicker\"] .succy-label-text {\n    color: var(--sl-font-col);\n    animation: sl-nf-anim var(--sl-ts-dur) infinite;\n}"
+    },
+
+
+    {
+      "id": "shadow",
+      "label": "Shadow",
+      "tsColors": 1,
+      "textMult": 1.0,
+      "pseudoMult": 0,
+      "tsLabels": { "intensity": "Shadow Depth", "speed": "Orbit Rate", "intensityOff": false, "speedOff": false },
+      "css": "@keyframes sl-sh-orbit {\n  0%   { text-shadow: calc( 2px +  8px * var(--sl-ts-int)) calc( 2px +  8px * var(--sl-ts-int)) calc(2px +  8px * var(--sl-ts-int)) var(--sl-ts-col); }\n  25%  { text-shadow: calc(-2px -  8px * var(--sl-ts-int)) calc( 2px +  8px * var(--sl-ts-int)) calc(2px +  8px * var(--sl-ts-int)) var(--sl-ts-col); }\n  50%  { text-shadow: calc(-2px -  8px * var(--sl-ts-int)) calc(-2px -  8px * var(--sl-ts-int)) calc(2px +  8px * var(--sl-ts-int)) var(--sl-ts-col); }\n  75%  { text-shadow: calc( 2px +  8px * var(--sl-ts-int)) calc(-2px -  8px * var(--sl-ts-int)) calc(2px +  8px * var(--sl-ts-int)) var(--sl-ts-col); }\n  100% { text-shadow: calc( 2px +  8px * var(--sl-ts-int)) calc( 2px +  8px * var(--sl-ts-int)) calc(2px +  8px * var(--sl-ts-int)) var(--sl-ts-col); }\n}\n[data-text-style=\"shadow\"] .succy-label-text {\n    animation: sl-sh-orbit var(--sl-ts-dur) linear infinite;\n}"
+    },
+
+
+    {
+      "id": "3d",
+      "label": "3D",
+      "tsColors": 1,
+      "textMult": 1.0,
+      "pseudoMult": 0,
+      "tsLabels": { "intensity": "Extrusion Depth", "speed": "Shift Rate", "intensityOff": false, "speedOff": false },
+      "css": "@keyframes sl-3d-shift {\n  0%, 100% { text-shadow:\n    calc(var(--sl-ts-int) * 1px) calc(var(--sl-ts-int) * 1px) 0 var(--sl-ts-col),\n    calc(var(--sl-ts-int) * 2px) calc(var(--sl-ts-int) * 2px) 0 var(--sl-ts-col),\n    calc(var(--sl-ts-int) * 3px) calc(var(--sl-ts-int) * 3px) 0 var(--sl-ts-col),\n    calc(var(--sl-ts-int) * 4px) calc(var(--sl-ts-int) * 4px) calc(var(--sl-ts-int) * 6px) var(--sl-ts-col); }\n  50%      { text-shadow:\n    calc(var(--sl-ts-int) * 2px) calc(var(--sl-ts-int) * 2px) 0 var(--sl-ts-col),\n    calc(var(--sl-ts-int) * 4px) calc(var(--sl-ts-int) * 4px) 0 var(--sl-ts-col),\n    calc(var(--sl-ts-int) * 6px) calc(var(--sl-ts-int) * 6px) 0 var(--sl-ts-col),\n    calc(var(--sl-ts-int) * 8px) calc(var(--sl-ts-int) * 8px) calc(var(--sl-ts-int) * 12px) var(--sl-ts-col); }\n}\n[data-text-style=\"3d\"] .succy-label-text {\n    animation: sl-3d-shift var(--sl-ts-dur) ease-in-out infinite;\n}"
+    },
+
+
+    {
+      "id": "inset",
+      "label": "Inset",
+      "tsColors": 2,
+      "textMult": 1.0,
+      "pseudoMult": 0,
+      "tsLabels": { "intensity": "Relief Depth", "speed": "Shift Rate", "intensityOff": false, "speedOff": false },
+      "css": "@keyframes sl-ins-shift {\n  0%, 100% { text-shadow:\n    calc(-1px - 1px * var(--sl-ts-int)) calc(-1px - 1px * var(--sl-ts-int)) 1px var(--sl-ts-col),\n    calc( 1px + 1px * var(--sl-ts-int)) calc( 1px + 1px * var(--sl-ts-int)) 2px var(--sl-ts-col-b); }\n  50%      { text-shadow:\n    calc(-2px - 2px * var(--sl-ts-int)) calc(-2px - 2px * var(--sl-ts-int)) 2px var(--sl-ts-col),\n    calc( 2px + 2px * var(--sl-ts-int)) calc( 2px + 2px * var(--sl-ts-int)) 3px var(--sl-ts-col-b); }\n}\n[data-text-style=\"inset\"] .succy-label-text {\n    color: var(--sl-font-col);\n    animation: sl-ins-shift var(--sl-ts-dur) ease-in-out infinite;\n}"
+    },
+
+
+    {
+      "id": "emboss",
+      "label": "Emboss",
+      "tsColors": 2,
+      "textMult": 1.0,
+      "pseudoMult": 0,
+      "tsLabels": { "intensity": "Relief Depth", "speed": "Shift Rate", "intensityOff": false, "speedOff": false },
+      "css": "@keyframes sl-emb-shift {\n  0%, 100% { text-shadow:\n    calc(1px + 2px * var(--sl-ts-int)) calc(1px + 2px * var(--sl-ts-int)) 0 var(--sl-ts-col),\n    calc(-1px - 2px * var(--sl-ts-int)) calc(-1px - 2px * var(--sl-ts-int)) 0 var(--sl-ts-col-b); }\n  50%      { text-shadow:\n    calc(2px + 3px * var(--sl-ts-int)) calc(2px + 3px * var(--sl-ts-int)) 0 var(--sl-ts-col),\n    calc(-2px - 3px * var(--sl-ts-int)) calc(-2px - 3px * var(--sl-ts-int)) 0 var(--sl-ts-col-b); }\n}\n[data-text-style=\"emboss\"] .succy-label-text {\n    color: var(--sl-font-col);\n        animation: sl-emb-shift var(--sl-ts-dur) ease-in-out infinite;\n}"
+    },
+
+
+    {
+      "id": "shimmer",
+      "label": "Shimmer",
+      "tsColors": 1,
+      "textMult": 1.0,
+      "pseudoMult": 0,
+      "tsLabels": { "intensity": "Shimmer Width", "speed": "Sweep Rate", "intensityOff": false, "speedOff": false },
+      "css": "@keyframes sl-shimmer-anim {\n  0%   { background-position: -200% center; }\n  100% { background-position: 200% center; }\n}\n[data-text-style=\"shimmer\"] .succy-label-text {\n    background: linear-gradient(90deg,\n        var(--sl-font-col) 0%,\n        var(--sl-ts-col) 50%,\n        var(--sl-font-col) 100%);\n    background-size: calc(150% + var(--sl-ts-int) * 150%) auto;\n    -webkit-background-clip: text;\n    background-clip: text;\n    -webkit-text-fill-color: transparent;\n    color: transparent;\n    animation: sl-shimmer-anim var(--sl-ts-dur) linear infinite;\n}"
+    },
+
+
+    {
+      "id": "float",
+      "label": "Float",
+      "tsColors": 0,
+      "textMult": 1.0,
+      "pseudoMult": 0,
+      "tsLabels": { "intensity": "Float Height", "speed": "Motion Rate", "intensityOff": false, "speedOff": false },
+      "css": "@keyframes sl-float-anim {\n  0%, 100% { transform: translateY(0); }\n  50%      { transform: translateY(calc(var(--sl-ts-int) * -8px)); }\n}\n[data-text-style=\"float\"] .succy-label-text {\n    display: inline-block;\n    animation: sl-float-anim var(--sl-ts-dur) ease-in-out infinite;\n}"
+    },
+
+
+    {
+      "id": "rise",
+      "label": "Rise",
+      "tsColors": 0,
+      "textMult": 1.0,
+      "pseudoMult": 0,
+      "tsLabels": { "intensity": "Rise Height", "speed": "Motion Rate", "intensityOff": false, "speedOff": false },
+      "css": "@keyframes sl-rise-anim {\n  0%, 100% { transform: translateY(0); }\n  50%      { transform: translateY(calc(var(--sl-ts-int) * -18px)); }\n}\n[data-text-style=\"rise\"] .succy-label-text {\n    display: inline-block;\n    animation: sl-rise-anim var(--sl-ts-dur) ease-out infinite;\n}"
+    },
+
+
+    {
+      "id": "sink",
+      "label": "Sink",
+      "tsColors": 0,
+      "textMult": 1.0,
+      "pseudoMult": 0,
+      "tsLabels": { "intensity": "Sink Depth", "speed": "Motion Rate", "intensityOff": false, "speedOff": false },
+      "css": "@keyframes sl-sink-anim {\n  0%, 100% { transform: translateY(0); }\n  50%      { transform: translateY(calc(var(--sl-ts-int) * 18px)); }\n}\n[data-text-style=\"sink\"] .succy-label-text {\n    display: inline-block;\n    animation: sl-sink-anim var(--sl-ts-dur) ease-in infinite;\n}"
+    },
+
+
+    {
+      "id": "pulse",
+      "label": "Pulse",
+      "tsColors": 0,
+      "textMult": 1.0,
+      "pseudoMult": 0,
+      "tsLabels": { "intensity": "Scale", "speed": "Pulse Rate", "intensityOff": false, "speedOff": false },
+      "css": "@keyframes sl-pulse-anim {\n  0%, 100% { transform: scale(1); }\n  50%      { transform: scale(calc(1 + var(--sl-ts-int) * 0.12)); }\n}\n[data-text-style=\"pulse\"] .succy-label-text {\n    display: inline-block;\n    transform-origin: center;\n    animation: sl-pulse-anim var(--sl-ts-dur) ease-in-out infinite;\n}"
+    },
+
+
+    {
+      "id": "bounce",
+      "label": "Bounce",
+      "tsColors": 0,
+      "textMult": 1.0,
+      "pseudoMult": 0,
+      "tsLabels": { "intensity": "Bounce Height", "speed": "Motion Rate", "intensityOff": false, "speedOff": false },
+      "css": "@keyframes sl-bounce-anim {\n  0%, 20%, 50%, 80%, 100% { transform: translateY(0); }\n  40% { transform: translateY(calc(var(--sl-ts-int) * -18px)); }\n  60% { transform: translateY(calc(var(--sl-ts-int) * -8px)); }\n}\n[data-text-style=\"bounce\"] .succy-label-text {\n    display: inline-block;\n    animation: sl-bounce-anim var(--sl-ts-dur) cubic-bezier(0.28, 0.84, 0.42, 1) infinite;\n}"
+    },
+
+
+    {
+      "id": "rotate_slow",
+      "label": "Rotate Slow",
+      "tsColors": 0,
+      "textMult": 1.0,
+      "pseudoMult": 0,
+      "tsLabels": { "intensity": "N/A", "speed": "Rotation Rate", "intensityOff": true, "speedOff": false },
+      "css": "@keyframes sl-rot-anim {\n  from { transform: rotate(0deg); }\n  to   { transform: rotate(360deg); }\n}\n[data-text-style=\"rotate_slow\"] .succy-label-text {\n    display: inline-block;\n    transform-origin: center;\n    animation: sl-rot-anim var(--sl-ts-dur) linear infinite;\n}"
+    },
+
+
+    {
+      "id": "skew_anim",
+      "label": "Skew",
+      "tsColors": 0,
+      "textMult": 1.0,
+      "pseudoMult": 0,
+      "tsLabels": { "intensity": "Skew Amount", "speed": "Skew Rate", "intensityOff": false, "speedOff": false },
+      "css": "@keyframes sl-skew-anim {\n  0%, 100% { transform: skewX(calc(var(--sl-ts-int) * -15deg)); }\n  50%      { transform: skewX(calc(var(--sl-ts-int) * 15deg)); }\n}\n[data-text-style=\"skew_anim\"] .succy-label-text {\n    display: inline-block;\n    transform-origin: center;\n    animation: sl-skew-anim var(--sl-ts-dur) ease-in-out infinite;\n}"
+    },
+
+
+    {
+      "id": "shiver",
+      "label": "Shiver",
+      "tsColors": 0,
+      "textMult": 1.0,
+      "pseudoMult": 0,
+      "tsLabels": { "intensity": "Shake Amount", "speed": "Shake Rate", "intensityOff": false, "speedOff": false },
+      "css": "@keyframes sl-shiver-anim {\n  0%, 100% { transform: translate(0, 0); }\n  25%      { transform: translate(calc(var(--sl-ts-int) * -2px), calc(var(--sl-ts-int) * 2px)); }\n  50%      { transform: translate(calc(var(--sl-ts-int) * 2px), calc(var(--sl-ts-int) * -2px)); }\n  75%      { transform: translate(calc(var(--sl-ts-int) * -2px), calc(var(--sl-ts-int) * -2px)); }\n}\n[data-text-style=\"shiver\"] .succy-label-text {\n    display: inline-block;\n    animation: sl-shiver-anim calc(var(--sl-ts-dur) * 0.4) linear infinite;\n}"
+    },
+
+
+    {
+      "id": "ghost",
+      "label": "Ghost",
+      "tsColors": 1,
+      "textMult": 1.0,
+      "pseudoMult": 0,
+      "tsLabels": { "intensity": "Drift Amount", "speed": "Ghost Rate", "intensityOff": false, "speedOff": false },
+      "css": "@keyframes sl-ghost-anim {\n  0%, 100% { filter: blur(0px); opacity: 1; transform: translateY(0) scale(1); }\n  50%      { filter: blur(calc(var(--sl-ts-int) * 4px)); opacity: 0.5; transform: translateY(calc(var(--sl-ts-int) * -5px)) scale(1.02); }\n}\n[data-text-style=\"ghost\"] .succy-label-text {\n    color: var(--sl-font-col);\n    text-shadow: 0 0 calc(var(--sl-ts-int) * 15px) var(--sl-ts-col);\n        animation: sl-ghost-anim var(--sl-ts-dur) ease-in-out infinite;\n}"
+    },
+
+
+    {
+      "id": "focus_blur",
+      "label": "Focus Blur",
+      "tsColors": 0,
+      "textMult": 1.0,
+      "pseudoMult": 0,
+      "tsLabels": { "intensity": "Blur Amount", "speed": "Focus Rate", "intensityOff": false, "speedOff": false },
+      "css": "@keyframes sl-fb-anim {\n  0%, 100% { filter: blur(0px); }\n  50%      { filter: blur(calc(var(--sl-ts-int) * 5px)); }\n}\n[data-text-style=\"focus_blur\"] .succy-label-text {\n    animation: sl-fb-anim var(--sl-ts-dur) ease-in-out infinite;\n}"
+    },
+
+
+    {
+      "id": "scanline",
+      "label": "Scanline",
+      "tsColors": 1,
+      "textMult": 1.0,
+      "pseudoMult": 0,
+      "tsLabels": { "intensity": "Line Thickness", "speed": "Scroll Rate", "intensityOff": false, "speedOff": false },
+      "css": "@keyframes sl-scl-scroll {\n  0%   { background-position: 0 0; }\n  100% { background-position: 0 calc(-20px - var(--sl-ts-int) * 30px); }\n}\n[data-text-style=\"scanline\"] .succy-label-text {\n    background: repeating-linear-gradient(\n        to bottom,\n        transparent 0 calc(2px + var(--sl-ts-int) * 3px),\n        var(--sl-ts-col) calc(2px + var(--sl-ts-int) * 3px) calc(4px + var(--sl-ts-int) * 5px)\n    );\n    -webkit-background-clip: text;\n    background-clip: text;\n    -webkit-text-fill-color: transparent;\n    color: transparent;\n    animation: sl-scl-scroll var(--sl-ts-dur) linear infinite;\n}"
+    },
+
+
+    {
+      "id": "hologram",
+      "label": "Hologram",
+      "tsColors": 2,
+      "textMult": 1.0,
+      "pseudoMult": 0,
+      "tsLabels": { "intensity": "Opacity", "speed": "Flicker Rate", "intensityOff": false, "speedOff": false },
+      "css": "@keyframes sl-holo-flicker {\n  0%, 100% { opacity: calc(0.35 + 0.45 * var(--sl-ts-int)); }\n  4%       { opacity: calc(0.05 + 0.15 * var(--sl-ts-int)); }\n  8%       { opacity: calc(0.35 + 0.45 * var(--sl-ts-int)); }\n  12%      { opacity: calc(0.55 + 0.40 * var(--sl-ts-int)); }\n  50%      { opacity: calc(0.30 + 0.50 * var(--sl-ts-int)); }\n  52%      { opacity: calc(0.05 + 0.10 * var(--sl-ts-int)); }\n  54%      { opacity: calc(0.30 + 0.50 * var(--sl-ts-int)); }\n}\n[data-text-style=\"hologram\"] .succy-label-text {\n    mix-blend-mode: screen;\n    color: var(--sl-font-col);\n    text-shadow:\n        0 0 calc(4px + 8px * var(--sl-ts-int)) var(--sl-ts-col),\n        0 0 calc(10px + 22px * var(--sl-ts-int)) var(--sl-ts-col-b);\n    animation: sl-holo-flicker var(--sl-ts-dur) steps(1, end) infinite;\n}"
+    },
+
+
+    {
+      "id": "overlay",
+      "label": "Overlay",
+      "tsColors": 0,
+      "textMult": 1.0,
+      "pseudoMult": 0,
+      "tsLabels": { "intensity": "Pulse Amount", "speed": "Pulse Rate", "intensityOff": false, "speedOff": false },
+      "css": "@keyframes sl-ov-pulse {\n  0%, 100% { opacity: calc(0.65 + 0.35 * var(--sl-ts-int)); }\n  50%      { opacity: calc(0.35 + 0.35 * var(--sl-ts-int)); }\n}\n[data-text-style=\"overlay\"] .succy-label-text {\n    mix-blend-mode: overlay;\n    color: var(--sl-font-col);\n    animation: sl-ov-pulse var(--sl-ts-dur) ease-in-out infinite;\n}"
+    },
+
+
+    {
+      "id": "fire",
+      "label": "Fire",
+      "tsColors": 2,
+      "textMult": 1.0,
+      "pseudoMult": 0,
+      "tsLabels": { "intensity": "Flame Height", "speed": "Flicker Rate", "intensityOff": false, "speedOff": false },
+      "css": "@keyframes sl-fire-flicker {\n  0%, 100% { filter: drop-shadow(0 0 calc(6px + 14px * var(--sl-ts-int)) var(--sl-ts-col-b)) brightness(1); }\n  33%      { filter: drop-shadow(0 0 calc(10px + 22px * var(--sl-ts-int)) var(--sl-ts-col-b)) brightness(1.15); }\n  66%      { filter: drop-shadow(0 0 calc(7px + 16px * var(--sl-ts-int)) var(--sl-ts-col-b)) brightness(0.95); }\n}\n[data-text-style=\"fire\"] .succy-label-text {\n    background: linear-gradient(to top,\n        var(--sl-font-col) 0%,\n        var(--sl-font-col) 20%,\n        var(--sl-ts-col) 55%,\n        var(--sl-ts-col-b) 85%,\n        transparent 100%);\n    -webkit-background-clip: text;\n    background-clip: text;\n    -webkit-text-fill-color: transparent;\n    color: transparent;\n    animation: sl-fire-flicker calc(var(--sl-ts-dur) * 0.28) ease-in-out infinite;\n}"
+    },
+
+
+    {
+      "id": "flame",
+      "label": "Flame",
+      "tsColors": 2,
+      "textMult": 1.0,
+      "pseudoMult": 1.6,
+      "tsLabels": { "intensity": "Flame Height", "speed": "Flicker Rate", "intensityOff": false, "speedOff": false },
+      "css": "@keyframes sl-flame-flicker {\n  0%, 100% { filter: drop-shadow(0 0 calc(8px + 18px * var(--sl-ts-int)) var(--sl-ts-col-b)) brightness(1); }\n  25%      { filter: drop-shadow(0 0 calc(12px + 26px * var(--sl-ts-int)) var(--sl-ts-col-b)) brightness(1.20); }\n  50%      { filter: drop-shadow(0 0 calc(6px + 14px * var(--sl-ts-int)) var(--sl-ts-col-b)) brightness(0.95); }\n  75%      { filter: drop-shadow(0 0 calc(14px + 28px * var(--sl-ts-int)) var(--sl-ts-col-b)) brightness(1.15); }\n}\n@keyframes sl-flame-rise {\n  0%, 100% { transform: translateY(0) scaleY(1); opacity: 0.9; filter: blur(2px); }\n  50%      { transform: translateY(calc(var(--sl-ts-int) * -4px)) scaleY(1.08); opacity: 0.6; filter: blur(4px); }\n}\n[data-text-style=\"flame\"] .succy-label-text {\n    position: relative;\n    isolation: isolate;\n    background: linear-gradient(to top,\n        var(--sl-font-col) 0%,\n        var(--sl-font-col) 15%,\n        var(--sl-ts-col) 45%,\n        var(--sl-ts-col-b) 75%,\n        var(--sl-ts-col-b) 90%,\n        transparent 100%);\n    -webkit-background-clip: text;\n    background-clip: text;\n    -webkit-text-fill-color: transparent;\n    color: transparent;\n    animation: sl-flame-flicker calc(var(--sl-ts-dur) * 0.22) ease-in-out infinite;\n}\n[data-text-style=\"flame\"] .succy-label-text::before {\n    content: attr(data-text);\n    position: absolute;\n    top: 0; left: 0;\n    width: 100%; height: 100%;\n    pointer-events: none;\n    background: linear-gradient(to top,\n        var(--sl-ts-col) 0%,\n        var(--sl-ts-col-b) 50%,\n        transparent 90%);\n    -webkit-background-clip: text;\n    background-clip: text;\n    -webkit-text-fill-color: transparent;\n    color: transparent;\n    transform-origin: center bottom;\n    animation: sl-flame-rise calc(var(--sl-ts-dur) * 0.22) ease-in-out infinite;\n}"
+    },
+
+
+    {
+      "id": "smoke",
+      "label": "Smoke",
+      "tsColors": 2,
+      "textMult": 1.0,
+      "pseudoMult": 0,
+      "tsLabels": { "intensity": "Smoke Density", "speed": "Drift Rate", "intensityOff": false, "speedOff": false },
+      "css": "@keyframes sl-smoke-anim {\n  0%, 100% { text-shadow:\n    0 0 calc(5px + 15px * var(--sl-ts-int)) var(--sl-ts-col),\n    0 0 calc(10px + 30px * var(--sl-ts-int)) var(--sl-ts-col-b),\n    2px -2px calc(8px + 20px * var(--sl-ts-int)) var(--sl-ts-col-b);\n    opacity: 1; }\n  50%      { text-shadow:\n    0 0 calc(8px + 20px * var(--sl-ts-int)) var(--sl-ts-col),\n    4px -6px calc(15px + 35px * var(--sl-ts-int)) var(--sl-ts-col-b),\n    -2px -4px calc(12px + 30px * var(--sl-ts-int)) var(--sl-ts-col-b);\n    opacity: 0.85; }\n}\n[data-text-style=\"smoke\"] .succy-label-text {\n    color: var(--sl-font-col);\n    animation: sl-smoke-anim var(--sl-ts-dur) ease-in-out infinite;\n}"
+    },
+
+
+    {
+      "id": "electric",
+      "label": "Electric",
+      "tsColors": 2,
+      "textMult": 1.0,
+      "pseudoMult": 1.0,
+      "tsLabels": { "intensity": "Bolt Glow", "speed": "Bolt Rate", "intensityOff": false, "speedOff": false },
+      "css": "@keyframes sl-el-anim {\n  0%, 100% { text-shadow:\n    0 0 calc(3px + 10px * var(--sl-ts-int)) var(--sl-ts-col),\n    0 0 calc(6px + 20px * var(--sl-ts-int)) var(--sl-ts-col);\n    transform: translate(0, 0); }\n  14% { text-shadow:\n    -4px 0 calc(5px + 15px * var(--sl-ts-int)) var(--sl-ts-col-b),\n     4px 0 calc(7px + 24px * var(--sl-ts-int)) var(--sl-ts-col);\n    transform: translate(-1px, 0); }\n  22% { text-shadow:\n     4px 0 calc(5px + 15px * var(--sl-ts-int)) var(--sl-ts-col-b),\n    -4px 0 calc(7px + 24px * var(--sl-ts-int)) var(--sl-ts-col);\n    transform: translate(1px, 0); }\n  38% { text-shadow:\n    0 -4px calc(5px + 15px * var(--sl-ts-int)) var(--sl-ts-col-b),\n    0  4px calc(7px + 24px * var(--sl-ts-int)) var(--sl-ts-col);\n    transform: translate(0, -1px); }\n  54% { text-shadow:\n    0  4px calc(5px + 15px * var(--sl-ts-int)) var(--sl-ts-col-b),\n    0 -4px calc(7px + 24px * var(--sl-ts-int)) var(--sl-ts-col);\n    transform: translate(0, 1px); }\n  70% { text-shadow:\n    -3px -3px calc(5px + 15px * var(--sl-ts-int)) var(--sl-ts-col-b),\n     3px  3px calc(7px + 24px * var(--sl-ts-int)) var(--sl-ts-col);\n    transform: translate(-1px, -1px); }\n}\n@keyframes sl-el-pulse {\n  0%, 100% { opacity: 0.7; }\n  50%      { opacity: 1; }\n}\n[data-text-style=\"electric\"] .succy-label-text {\n    position: relative;\n    isolation: isolate;\n    color: var(--sl-font-col);\n    animation: sl-el-anim calc(var(--sl-ts-dur) * 0.35) steps(1, end) infinite;\n}\n[data-text-style=\"electric\"] .succy-label-text::before {\n    content: attr(data-text);\n    position: absolute;\n    top: 0; left: 0;\n    width: 100%; height: 100%;\n    pointer-events: none;\n    color: transparent;\n    text-shadow:\n        0 0 calc(12px + 24px * var(--sl-ts-int)) var(--sl-ts-col),\n        0 0 calc(24px + 48px * var(--sl-ts-int)) var(--sl-ts-col-b);\n    mix-blend-mode: screen;\n    animation: sl-el-pulse calc(var(--sl-ts-dur) * 0.5) ease-in-out infinite;\n}"
+    },
+
+
+    {
+      "id": "typewriter",
+      "label": "Typewriter",
+      "tsColors": 2,
+      "textMult": 1.0,
+      "pseudoMult": 0,
+      "tsLabels": { "intensity": "Glow Amount", "speed": "Typing Rate", "intensityOff": false, "speedOff": false },
+      "css": "@keyframes sl-tw-type {\n  from { width: 0; }\n  to   { width: 100%; }\n}\n@keyframes sl-tw-glow {\n  0%, 49%   { text-shadow: 0 0 calc(6px + 18px * var(--sl-ts-int)) var(--sl-ts-col-b); }\n  50%, 100% { text-shadow: 0 0 2px var(--sl-ts-col-b); }\n}\n[data-text-style=\"typewriter\"] .succy-label-text {\n    display: inline-block;\n    overflow: hidden;\n    white-space: nowrap;\n    color: var(--sl-font-col);\n    border-right: 2px solid var(--sl-ts-col);\n    animation:\n      sl-tw-type var(--sl-ts-dur) steps(40) infinite alternate,\n      sl-tw-glow calc(var(--sl-ts-dur) * 0.15) step-end infinite;\n}"
+    }
+  ]
+}

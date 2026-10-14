@@ -1,0 +1,120 @@
+{
+  "id": "zipper",
+  "name": "Zipper",
+  "icon": "🤐",
+  "order": 370,
+  "description": "Two rows of teeth that interlock behind a sliding zipper pull.",
+  "params": [
+    {
+      "key": "color",
+      "label": "Teeth A",
+      "type": "color",
+      "default": "#c9ced6"
+    },
+    {
+      "key": "color2",
+      "label": "Teeth B",
+      "type": "color",
+      "default": "#7d8794"
+    },
+    {
+      "key": "pull",
+      "label": "Slider",
+      "type": "color",
+      "default": "#ffcf4d"
+    },
+    {
+      "key": "width",
+      "label": "Teeth size",
+      "type": "range",
+      "min": 2,
+      "max": 8,
+      "step": 0.5,
+      "default": 4.5
+    },
+    {
+      "key": "speed",
+      "label": "Speed (px/s)",
+      "type": "range",
+      "min": 30,
+      "max": 300,
+      "step": 5,
+      "default": 90
+    }
+  ],
+  "layers": [
+    {
+      "type": "stroke",
+      "color": "#000000",
+      "alpha": 0.3,
+      "width": "=$width*2.2",
+      "blur": 3
+    },
+    {
+      "type": "stroke",
+      "color": "$color",
+      "width": "$width",
+      "step": 4,
+      "cap": "butt",
+      "dash": [
+        6,
+        8
+      ],
+      "displace": "=(1)*(2.4+3.4*clamp((s-((t*$speed)%(L+80)))/36,0,1))*sin(v*3.14159)"
+    },
+    {
+      "type": "stroke",
+      "color": "$color2",
+      "width": "$width",
+      "step": 4,
+      "cap": "butt",
+      "dash": [
+        0.01,
+        7,
+        6,
+        0.99
+      ],
+      "displace": "=(-1)*(2.4+3.4*clamp((s-((t*$speed)%(L+80)))/36,0,1))*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "shape": "square",
+      "color": "$pull",
+      "size": "=$width*1.15",
+      "count": 1,
+      "spacing": "=L+80",
+      "speed": "$speed",
+      "blur": 5
+    }
+  ],
+  "skin": [
+    {
+      "type": "disc",
+      "color": "#16181c",
+      "radius": 1
+    },
+    {
+      "type": "ring",
+      "color": "$color2",
+      "radius": 1,
+      "width": 0.16,
+      "dash": [
+        0.18,
+        0.12
+      ],
+      "speed": 0.1
+    },
+    {
+      "type": "disc",
+      "color": "$pull",
+      "radius": 0.3
+    },
+    {
+      "type": "ring",
+      "color": "#16181c",
+      "radius": 0.14,
+      "width": 0.1
+    }
+  ],
+  "animated": true
+}

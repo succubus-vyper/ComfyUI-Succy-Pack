@@ -1,0 +1,139 @@
+{
+  "id": "data_stream",
+  "name": "Data Stream",
+  "icon": "💾",
+  "order": 300,
+  "description": "Three lanes of green data streaks flowing at different speeds.",
+  "params": [
+    {
+      "key": "color",
+      "label": "Lane A",
+      "type": "color",
+      "default": "#4dff88"
+    },
+    {
+      "key": "color2",
+      "label": "Lane B",
+      "type": "color",
+      "default": "#c8ffd9"
+    },
+    {
+      "key": "size",
+      "label": "Size",
+      "type": "range",
+      "min": 1,
+      "max": 4,
+      "step": 0.1,
+      "default": 1.8
+    },
+    {
+      "key": "speed",
+      "label": "Speed (px/s)",
+      "type": "range",
+      "min": -500,
+      "max": 500,
+      "step": 10,
+      "default": 180
+    },
+    {
+      "key": "lanes",
+      "label": "Spacing",
+      "type": "range",
+      "min": 8,
+      "max": 60,
+      "step": 1,
+      "default": 16
+    },
+    {
+      "key": "glow",
+      "label": "Glow",
+      "type": "range",
+      "min": 0,
+      "max": 20,
+      "step": 1,
+      "default": 8
+    }
+  ],
+  "layers": [
+    {
+      "type": "stroke",
+      "color": "$color",
+      "alpha": 0.1,
+      "width": 1
+    },
+    {
+      "type": "dots",
+      "shape": "square",
+      "color": "$color",
+      "size": "$size",
+      "spacing": "$lanes",
+      "speed": "$speed",
+      "trail": 32,
+      "trailSteps": 8,
+      "trailTaper": 0.8,
+      "trailFade": 1,
+      "blur": "$glow"
+    },
+    {
+      "type": "dots",
+      "shape": "square",
+      "color": "$color2",
+      "alpha": 0.7,
+      "size": "=$size*0.8",
+      "spacing": "=$lanes*1.7",
+      "speed": "=$speed*1.35",
+      "offset": 5,
+      "trail": 26,
+      "trailSteps": 8,
+      "trailTaper": 0.8,
+      "trailFade": 1,
+      "blur": "=$glow*0.6"
+    },
+    {
+      "type": "dots",
+      "shape": "square",
+      "color": "$color",
+      "alpha": 0.5,
+      "size": "=$size*0.7",
+      "spacing": "=$lanes*2.3",
+      "speed": "=$speed*0.7",
+      "offset": -5,
+      "trail": 20,
+      "trailSteps": 6,
+      "trailTaper": 0.8,
+      "trailFade": 1
+    }
+  ],
+  "skin": [
+    {
+      "type": "disc",
+      "color": "#06120a",
+      "radius": 1
+    },
+    {
+      "type": "ring",
+      "color": "$color",
+      "radius": 1,
+      "width": 0.14,
+      "dash": [
+        0.2,
+        0.2
+      ],
+      "speed": -0.5
+    },
+    {
+      "type": "orbit",
+      "color": "$color2",
+      "radius": 0.55,
+      "size": 0.13,
+      "count": 4,
+      "speed": 0.8,
+      "blur": 4
+    },
+    {
+      "type": "disc",
+      "color": "$color",
+      "radius": 0.18
+    }
+  ]
+}

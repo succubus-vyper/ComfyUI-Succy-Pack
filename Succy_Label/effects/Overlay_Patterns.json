@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "family": "overlay_pattern",
+  "effects": [
+    { "id": "none",             "label": "None",             "default": true, "css": "", "size": "", "position": "", "blendMode": "normal", "tile": 1 },
+
+    { "id": "display",          "label": "Display",          "css": "repeating-linear-gradient(90deg, {{color}} 0 1px, transparent 1px 2px, {{color_b}} 2px 3px, transparent 3px 4px)", "size": "100% 100%", "position": "0 0", "blendMode": "screen", "tile": 4 },
+    { "id": "display_grid",     "label": "Display Grid",     "css": "repeating-linear-gradient(90deg, {{color}} 0 1px, transparent 1px 3px), repeating-linear-gradient(0deg, {{color_b}} 0 1px, transparent 1px 3px)", "size": "100% 100%", "position": "0 0", "blendMode": "screen", "tile": 3 },
+    { "id": "display_soft",     "label": "Display Soft",     "css": "repeating-linear-gradient(90deg, {{color}} 0 1px, transparent 1px 3px, {{color_b}} 3px 4px, transparent 4px 6px)", "size": "100% 100%", "position": "0 0", "blendMode": "screen", "tile": 6 },
+
+    { "id": "glass",            "label": "Glass",            "css": "linear-gradient({{color}}, {{color}})", "size": "100% 100%", "position": "0 0", "blendMode": "screen", "tile": 4 },
+
+
+    { "id": "dots",             "label": "Dots",             "css": "radial-gradient({{color}} 1.2px, transparent 1.6px)", "size": "14px 14px", "position": "0 0", "blendMode": "normal", "tile": 14 },
+    { "id": "dots_dense",       "label": "Dots Dense",       "css": "radial-gradient({{color}} 0.9px, transparent 1.2px)", "size": "8px 8px",   "position": "0 0", "blendMode": "normal", "tile": 8 },
+    { "id": "dots_duo",         "label": "Dots Duo",         "css": "radial-gradient({{color}} 1.4px, transparent 1.8px), radial-gradient({{color_b}} 1.4px, transparent 1.8px)", "size": "20px 20px", "position": "0 0, 10px 10px", "blendMode": "normal", "tile": 20 },
+
+    { "id": "grid",             "label": "Grid",             "css": "linear-gradient({{color}} 1px, transparent 1px), linear-gradient(90deg, {{color}} 1px, transparent 1px)", "size": "20px 20px", "position": "0 0", "blendMode": "normal", "tile": 20 },
+    { "id": "grid_bold",        "label": "Grid Bold",        "css": "linear-gradient({{color}} 2px, transparent 2px), linear-gradient(90deg, {{color}} 2px, transparent 2px)", "size": "32px 32px", "position": "0 0", "blendMode": "normal", "tile": 32 },
+    { "id": "grid_dots",        "label": "Grid + Dots",      "css": "linear-gradient({{color}} 1px, transparent 1px), linear-gradient(90deg, {{color}} 1px, transparent 1px), radial-gradient({{color_b}} 1.5px, transparent 1.5px)", "size": "20px 20px, 20px 20px, 20px 20px", "position": "0 0, 0 0, 10px 10px", "blendMode": "normal", "tile": 20 },
+
+    { "id": "scanlines",        "label": "Scanlines",        "css": "repeating-linear-gradient(0deg, {{color}} 0 1px, transparent 1px 4px)", "size": "100% 100%", "position": "0 0", "blendMode": "normal", "tile": 4 },
+    { "id": "scanlines_dense",  "label": "Scanlines Dense",  "css": "repeating-linear-gradient(0deg, {{color}} 0 1px, transparent 1px 2px)", "size": "100% 100%", "position": "0 0", "blendMode": "normal", "tile": 2 },
+    { "id": "lines_v",          "label": "Lines V",          "css": "repeating-linear-gradient(90deg, {{color}} 0 1px, transparent 1px 8px)", "size": "100% 100%", "position": "0 0", "blendMode": "normal", "tile": 8 },
+
+    { "id": "diagonal",         "label": "Diagonal",         "css": "repeating-linear-gradient(45deg, {{color}} 0 1px, transparent 1px 7.071px)",  "size": "100% 100%", "position": "0 0", "blendMode": "normal", "tile": 10 },
+    { "id": "diagonal_rev",     "label": "Diagonal Rev",     "css": "repeating-linear-gradient(-45deg, {{color}} 0 1px, transparent 1px 7.071px)", "size": "100% 100%", "position": "0 0", "blendMode": "normal", "tile": 10 },
+    { "id": "crosshatch",       "label": "Crosshatch",       "css": "repeating-linear-gradient(45deg, {{color}} 0 1px, transparent 1px 7.071px), repeating-linear-gradient(-45deg, {{color_b}} 0 1px, transparent 1px 7.071px)", "size": "100% 100%", "position": "0 0", "blendMode": "normal", "tile": 10 },
+
+    { "id": "checker",          "label": "Checker",          "css": "conic-gradient({{color}} 25%, transparent 25% 50%, {{color_b}} 50% 75%, transparent 75%)", "size": "20px 20px", "position": "0 0", "blendMode": "normal", "tile": 20 },
+    { "id": "triangles",        "label": "Triangles",        "css": "linear-gradient(45deg, {{color}} 25%, transparent 25% 75%, {{color}} 75%), linear-gradient(45deg, {{color_b}} 25%, transparent 25% 75%, {{color_b}} 75%)", "size": "16px 16px", "position": "0 0, 8px 8px", "blendMode": "normal", "tile": 16 },
+    { "id": "zigzag",           "label": "Zigzag",           "css": "linear-gradient(135deg, {{color}} 25%, transparent 25%), linear-gradient(225deg, {{color}} 25%, transparent 25%), linear-gradient(315deg, {{color_b}} 25%, transparent 25%), linear-gradient(45deg, {{color_b}} 25%, transparent 25%)", "size": "20px 20px", "position": "-10px 0, -10px 0, 0 0, 0 0", "blendMode": "normal", "tile": 20 },
+    { "id": "waves",            "label": "Waves",            "css": "radial-gradient(circle at 50% 100%, transparent 30%, {{color}} 30% 34%, transparent 34% 100%), radial-gradient(circle at 50% 0%, transparent 30%, {{color_b}} 30% 34%, transparent 34% 100%)", "size": "24px 12px", "position": "0 0, 12px 6px", "blendMode": "normal", "tile": 24 },
+
+    { "id": "carbon",           "label": "Carbon",           "css": "linear-gradient(27deg, {{color}} 5px, transparent 5px), linear-gradient(207deg, {{color}} 5px, transparent 5px), linear-gradient(27deg, {{color_b}} 5px, transparent 5px), linear-gradient(207deg, {{color_b}} 5px, transparent 5px)", "size": "10px 10px", "position": "0 0, 5px 5px, 5px 5px, 10px 10px", "blendMode": "normal", "tile": 10 },
+    { "id": "confetti",         "label": "Confetti",         "css": "radial-gradient({{color}} 3px, transparent 3.2px), radial-gradient({{color_b}} 2px, transparent 2.2px), radial-gradient({{color}} 4px, transparent 4.2px), radial-gradient({{color_b}} 2.5px, transparent 2.7px), radial-gradient({{color}} 3.5px, transparent 3.7px)", "size": "40px 40px", "position": "5px 8px, 22px 5px, 15px 25px, 32px 30px, 8px 34px", "blendMode": "normal", "tile": 40 }
+  ]
+}

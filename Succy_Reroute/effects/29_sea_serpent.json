@@ -1,0 +1,184 @@
+{
+  "id": "sea_serpent",
+  "name": "Sea Serpent",
+  "icon": "🌊",
+  "order": 290,
+  "description": "A deep-sea serpent with a pale belly, glowing eyes and rising bubbles.",
+  "params": [
+    {
+      "key": "color",
+      "label": "Body",
+      "type": "color",
+      "default": "#2bc4d8"
+    },
+    {
+      "key": "color2",
+      "label": "Belly",
+      "type": "color",
+      "default": "#bff6ff"
+    },
+    {
+      "key": "size",
+      "label": "Thickness",
+      "type": "range",
+      "min": 1.5,
+      "max": 7,
+      "step": 0.1,
+      "default": 3.6
+    },
+    {
+      "key": "length",
+      "label": "Length",
+      "type": "range",
+      "min": 60,
+      "max": 340,
+      "step": 5,
+      "default": 210
+    },
+    {
+      "key": "speed",
+      "label": "Speed (px/s)",
+      "type": "range",
+      "min": -300,
+      "max": 300,
+      "step": 5,
+      "default": 85
+    },
+    {
+      "key": "amp",
+      "label": "Amplitude",
+      "type": "range",
+      "min": 0,
+      "max": 24,
+      "step": 0.5,
+      "default": 12
+    },
+    {
+      "key": "wavelength",
+      "label": "Wavelength",
+      "type": "range",
+      "min": 30,
+      "max": 200,
+      "step": 2,
+      "default": 95
+    },
+    {
+      "key": "slither",
+      "label": "Slither speed",
+      "type": "range",
+      "min": -8,
+      "max": 8,
+      "step": 0.5,
+      "default": 3
+    },
+    {
+      "key": "bubbles",
+      "label": "Bubble spacing",
+      "type": "range",
+      "min": 10,
+      "max": 60,
+      "step": 2,
+      "default": 20
+    }
+  ],
+  "layers": [
+    {
+      "type": "stroke",
+      "color": "$color",
+      "alpha": 0.1,
+      "width": 1.5
+    },
+    {
+      "type": "dots",
+      "color": "$color",
+      "size": "$size",
+      "spacing": "=L+$length+40",
+      "speed": "$speed",
+      "trail": "$length",
+      "trailSteps": 60,
+      "trailTaper": 0.6,
+      "trailFade": 0.1,
+      "blur": 6,
+      "displace": "=$amp*sin(s/$wavelength*6.2832 - t*$slither)*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "color": "$color2",
+      "alpha": 0.35,
+      "size": "=$size*0.42",
+      "spacing": "=L+$length+40",
+      "speed": "$speed",
+      "trail": "=$length*0.9",
+      "trailSteps": 60,
+      "trailTaper": 0.6,
+      "trailFade": 0.3,
+      "displace": "=$amp*sin(s/$wavelength*6.2832 - t*$slither)*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "shape": "circle",
+      "color": "$color2",
+      "alpha": 0.7,
+      "size": "=0.8+1.4*rnd(i*4.1)",
+      "spacing": "$bubbles",
+      "speed": "=$speed*0.7",
+      "blur": 6,
+      "displace": "=(-12*fract(t*0.5+i*0.31))*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "color": "#ffe14a",
+      "size": "=$size*0.26",
+      "spacing": "=L+$length+40",
+      "speed": "$speed",
+      "offset": "=$size*0.55",
+      "blur": 6,
+      "displace": "=$amp*sin(s/$wavelength*6.2832 - t*$slither)*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "color": "#ffe14a",
+      "size": "=$size*0.26",
+      "spacing": "=L+$length+40",
+      "speed": "$speed",
+      "offset": "=-$size*0.55",
+      "blur": 6,
+      "displace": "=$amp*sin(s/$wavelength*6.2832 - t*$slither)*sin(v*3.14159)"
+    }
+  ],
+  "skin": [
+    {
+      "type": "disc",
+      "color": "#06141a",
+      "radius": 1
+    },
+    {
+      "type": "pulse",
+      "color": "$color",
+      "from": 0.5,
+      "to": 1.8,
+      "period": 2.2,
+      "width": 0.1
+    },
+    {
+      "type": "ring",
+      "color": "$color",
+      "radius": 1,
+      "width": 0.16
+    },
+    {
+      "type": "orbit",
+      "color": "$color2",
+      "radius": 0.55,
+      "size": 0.13,
+      "count": 3,
+      "speed": -0.35,
+      "blur": 4
+    },
+    {
+      "type": "disc",
+      "color": "$color",
+      "radius": 0.22
+    }
+  ]
+}

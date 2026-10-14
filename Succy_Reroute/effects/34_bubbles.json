@@ -1,0 +1,115 @@
+{
+  "id": "bubbles",
+  "name": "Bubbles",
+  "icon": "🫧",
+  "order": 340,
+  "description": "Translucent bubbles of different sizes wobbling along an aquamarine wire.",
+  "params": [
+    {
+      "key": "color",
+      "label": "Water",
+      "type": "color",
+      "default": "#7fe9ff"
+    },
+    {
+      "key": "count",
+      "label": "Amount",
+      "type": "range",
+      "min": 4,
+      "max": 16,
+      "step": 1,
+      "default": 11
+    },
+    {
+      "key": "size",
+      "label": "Max size",
+      "type": "range",
+      "min": 2,
+      "max": 9,
+      "step": 0.5,
+      "default": 5
+    },
+    {
+      "key": "wobble",
+      "label": "Wobble",
+      "type": "range",
+      "min": 0,
+      "max": 20,
+      "step": 1,
+      "default": 7
+    },
+    {
+      "key": "speed",
+      "label": "Speed (px/s)",
+      "type": "range",
+      "min": -200,
+      "max": 200,
+      "step": 5,
+      "default": 45
+    }
+  ],
+  "layers": [
+    {
+      "type": "stroke",
+      "color": "$color",
+      "alpha": 0.16,
+      "width": 3,
+      "blur": 6
+    },
+    {
+      "type": "stroke",
+      "color": "$color",
+      "alpha": 0.35,
+      "width": 1.2
+    },
+    {
+      "type": "dots",
+      "color": "$color",
+      "count": "$count",
+      "size": "=0.35*$size+0.65*$size*rnd(i*3.7)",
+      "speed": "$speed",
+      "alpha": 0.2,
+      "blur": 0,
+      "displace": "=$wobble*sin(t*(1.2+rnd(i))*1.8+i*1.9)*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "color": "#ffffff",
+      "count": "$count",
+      "size": "=(0.35*$size+0.65*$size*rnd(i*3.7))*0.28",
+      "speed": "$speed",
+      "alpha": 0.85,
+      "offset": "=-(0.35*$size+0.65*$size*rnd(i*3.7))*0.38",
+      "displace": "=$wobble*sin(t*(1.2+rnd(i))*1.8+i*1.9)*sin(v*3.14159)"
+    }
+  ],
+  "skin": [
+    {
+      "type": "disc",
+      "color": "#06222b",
+      "radius": 1
+    },
+    {
+      "type": "ring",
+      "color": "$color",
+      "radius": 1,
+      "width": 0.12
+    },
+    {
+      "type": "orbit",
+      "color": "#ffffff",
+      "radius": 0.5,
+      "size": 0.16,
+      "count": 3,
+      "speed": 0.25,
+      "blur": 4
+    },
+    {
+      "type": "disc",
+      "color": "$color",
+      "radius": 0.2,
+      "alpha": 0.7
+    }
+  ],
+  "animated": true
+}

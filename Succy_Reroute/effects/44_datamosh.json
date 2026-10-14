@@ -1,0 +1,97 @@
+{
+  "id": "datamosh",
+  "name": "Datamosh Lanes",
+  "icon": "🟪",
+  "order": 440,
+  "description": "Corrupted video blocks sliding in three lanes, smeared forward like a broken compression stream.",
+  "params": [
+    {
+      "key": "color",
+      "label": "Block A",
+      "type": "color",
+      "default": "#ff2bd6"
+    },
+    {
+      "key": "color2",
+      "label": "Block B",
+      "type": "color",
+      "default": "#00f0ff"
+    },
+    {
+      "key": "size",
+      "label": "Block size",
+      "type": "range",
+      "min": 1.5,
+      "max": 6,
+      "step": 0.5,
+      "default": 3
+    },
+    {
+      "key": "smear",
+      "label": "Smear (px)",
+      "type": "range",
+      "min": 10,
+      "max": 120,
+      "step": 5,
+      "default": 70
+    },
+    {
+      "key": "speed",
+      "label": "Speed (px/s)",
+      "type": "range",
+      "min": -400,
+      "max": 400,
+      "step": 5,
+      "default": 140
+    }
+  ],
+  "layers": [
+    {
+      "type": "stroke",
+      "color": "$color2",
+      "alpha": 0.1,
+      "width": 1
+    },
+    {
+      "type": "dots",
+      "shape": "square",
+      "color": "=(i%2)?$color:$color2",
+      "size": "=$size*(0.7+0.6*rnd(i*1.9))",
+      "spacing": 24,
+      "speed": "$speed",
+      "trail": "$smear",
+      "trailSteps": 6,
+      "trailTaper": 0,
+      "trailFade": 0.85,
+      "composite": "lighter",
+      "alpha": "=0.55+0.45*(rnd(floor(t*10)+i)>0.5?1:0)",
+      "displace": "=floor(rnd(i*3.3+floor(t*4))*3-1)*7*sin(v*3.14159)"
+    }
+  ],
+  "skin": [
+    {
+      "type": "disc",
+      "color": "#0b0612",
+      "radius": 1
+    },
+    {
+      "type": "ring",
+      "color": "$color",
+      "radius": 1,
+      "width": 0.14,
+      "alpha": 0.8
+    },
+    {
+      "type": "disc",
+      "color": "$color2",
+      "radius": 0.3,
+      "alpha": 0.7
+    },
+    {
+      "type": "disc",
+      "color": "$color",
+      "radius": "=0.14+0.2*(rnd(floor(t*7))>0.5?1:0)"
+    }
+  ],
+  "animated": true
+}

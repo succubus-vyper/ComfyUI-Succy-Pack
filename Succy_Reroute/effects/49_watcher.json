@@ -1,0 +1,136 @@
+{
+  "id": "watcher",
+  "name": "Watcher",
+  "icon": "👁",
+  "order": 490,
+  "description": "Red surveillance eyes that drift along the wire, look around and blink, wrapped in targeting brackets.",
+  "params": [
+    {
+      "key": "color",
+      "label": "Eyes",
+      "type": "color",
+      "default": "#ff2a2a"
+    },
+    {
+      "key": "size",
+      "label": "Eye size",
+      "type": "range",
+      "min": 1,
+      "max": 4,
+      "step": 0.1,
+      "default": 1.9
+    },
+    {
+      "key": "spacing",
+      "label": "Spacing",
+      "type": "range",
+      "min": 60,
+      "max": 260,
+      "step": 5,
+      "default": 130
+    },
+    {
+      "key": "speed",
+      "label": "Drift (px/s)",
+      "type": "range",
+      "min": -80,
+      "max": 80,
+      "step": 1,
+      "default": 12
+    }
+  ],
+  "layers": [
+    {
+      "type": "stroke",
+      "color": "$color",
+      "alpha": 0.35,
+      "width": 1,
+      "dash": [
+        3,
+        6
+      ],
+      "dashSpeed": -10
+    },
+    {
+      "type": "dots",
+      "shape": "chevron",
+      "color": "$color",
+      "size": "=$size*1.8",
+      "spacing": "$spacing",
+      "speed": "$speed",
+      "alpha": 0.55,
+      "displace": "=11*sin(t*0.9+i*2.1)*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "color": "$color",
+      "size": "$size",
+      "spacing": "$spacing",
+      "speed": "$speed",
+      "offset": "=-$size*1.9",
+      "blur": 5,
+      "composite": "lighter",
+      "alpha": "=(fract(t*0.33+rnd(i)*3)<0.06)?0:1",
+      "displace": "=11*sin(t*0.9+i*2.1)*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "color": "$color",
+      "size": "$size",
+      "spacing": "$spacing",
+      "speed": "$speed",
+      "offset": "=$size*1.9",
+      "blur": 5,
+      "composite": "lighter",
+      "alpha": "=(fract(t*0.33+rnd(i)*3)<0.06)?0:1",
+      "displace": "=11*sin(t*0.9+i*2.1)*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "color": "#ffffff",
+      "size": "=$size*0.35",
+      "spacing": "$spacing",
+      "speed": "$speed",
+      "offset": "=-$size*1.9",
+      "alpha": "=(fract(t*0.33+rnd(i)*3)<0.06)?0:1",
+      "displace": "=11*sin(t*0.9+i*2.1)*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "color": "#ffffff",
+      "size": "=$size*0.35",
+      "spacing": "$spacing",
+      "speed": "$speed",
+      "offset": "=$size*1.9",
+      "alpha": "=(fract(t*0.33+rnd(i)*3)<0.06)?0:1",
+      "displace": "=11*sin(t*0.9+i*2.1)*sin(v*3.14159)"
+    }
+  ],
+  "skin": [
+    {
+      "type": "disc",
+      "color": "#150505",
+      "radius": 1
+    },
+    {
+      "type": "ring",
+      "color": "$color",
+      "radius": 1,
+      "width": 0.12
+    },
+    {
+      "type": "ring",
+      "color": "$color",
+      "radius": 0.58,
+      "width": 0.1,
+      "alpha": 0.7
+    },
+    {
+      "type": "disc",
+      "color": "$color",
+      "radius": "=(fract(t*0.4)<0.07)?0.05:0.3",
+      "blur": 8
+    }
+  ],
+  "animated": true
+}

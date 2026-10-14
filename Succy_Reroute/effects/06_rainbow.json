@@ -1,0 +1,22 @@
+{
+  "id": "rainbow",
+  "name": "Rainbow",
+  "icon": "🌈",
+  "order": 60,
+  "description": "Animated rainbow gradient running along the wire.",
+  "params": [
+    { "key": "width", "label": "Width", "type": "range", "min": 1, "max": 10, "step": 0.5, "default": 3.5 },
+    { "key": "speed", "label": "Speed", "type": "range", "min": -3, "max": 3, "step": 0.1, "default": 0.6 },
+    { "key": "scale", "label": "Color cycles", "type": "range", "min": 0.2, "max": 4, "step": 0.1, "default": 1 },
+    { "key": "glow", "label": "Glow", "type": "range", "min": 0, "max": 20, "step": 1, "default": 6 }
+  ],
+  "layers": [
+    { "type": "stroke", "perSegment": true, "step": 4, "width": "$width", "blur": "$glow",
+      "color": "=hsl(u*360*$scale - t*$speed*360, 90, 62)" }
+  ],
+  "skin": [
+    { "type": "disc", "color": "#14151a", "radius": 1 },
+    { "type": "ring", "color": "=hsl(t*$speed*360, 90, 62)", "radius": 1, "width": 0.2 },
+    { "type": "disc", "color": "=hsl(t*$speed*360+180, 90, 62)", "radius": 0.4 }
+  ]
+}

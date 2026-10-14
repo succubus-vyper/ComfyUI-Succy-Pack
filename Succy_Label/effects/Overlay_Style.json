@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "family": "overlay_style",
+  "effects": [
+    { "id": "none",         "label": "None",         "default": true, "keyframe": "", "css": "" },
+
+    { "id": "display_glitch", "label": "Display Glitch", "keyframe": "sl-pat-dg-base",
+      "css": "@keyframes sl-pat-dg-base {\n  0%, 100% { transform: translate3d(0,0,0); filter: none; }\n  4%       { transform: translate3d(-2px, 1px, 0); filter: hue-rotate(20deg) saturate(1.4); }\n  8%       { transform: translate3d(0,0,0); filter: none; }\n  42%      { transform: translate3d(3px, -1px, 0); filter: hue-rotate(-15deg); }\n  46%      { transform: translate3d(0,0,0); filter: none; }\n  78%      { transform: translate3d(-3px, 0, 0); filter: hue-rotate(25deg); }\n  82%      { transform: translate3d(0,0,0); filter: none; }\n}\n@keyframes sl-pat-dg-slice-a {\n  0%, 100% { transform: translate3d(0,0,0); clip-path: inset(0 0 0 0); opacity: 0; }\n  4%       { transform: translate3d(-10px, 0, 0); clip-path: inset(20% 0 55% 0); opacity: 0.9; }\n  9%       { transform: translate3d(8px, 0, 0);  clip-path: inset(60% 0 15% 0); opacity: 0.9; }\n  13%      { transform: translate3d(0,0,0); clip-path: inset(0 0 0 0); opacity: 0; }\n  42%      { transform: translate3d(12px, 0, 0); clip-path: inset(35% 0 40% 0); opacity: 0.9; }\n  46%      { transform: translate3d(0,0,0); clip-path: inset(0 0 0 0); opacity: 0; }\n  78%      { transform: translate3d(-14px, 0, 0); clip-path: inset(70% 0 10% 0); opacity: 0.9; }\n  83%      { transform: translate3d(0,0,0); clip-path: inset(0 0 0 0); opacity: 0; }\n}\n@keyframes sl-pat-dg-slice-b {\n  0%, 100% { transform: translate3d(0,0,0); clip-path: inset(0 0 0 0); opacity: 0; }\n  6%       { transform: translate3d(11px, 0, 0); clip-path: inset(50% 0 30% 0); opacity: 0.85; }\n  10%      { transform: translate3d(-9px, 0, 0); clip-path: inset(15% 0 70% 0); opacity: 0.85; }\n  14%      { transform: translate3d(0,0,0); clip-path: inset(0 0 0 0); opacity: 0; }\n  40%      { transform: translate3d(-13px, 0, 0); clip-path: inset(65% 0 20% 0); opacity: 0.85; }\n  44%      { transform: translate3d(0,0,0); clip-path: inset(0 0 0 0); opacity: 0; }\n  76%      { transform: translate3d(10px, 0, 0); clip-path: inset(25% 0 60% 0); opacity: 0.85; }\n  80%      { transform: translate3d(0,0,0); clip-path: inset(0 0 0 0); opacity: 0; }\n}\n.succy-label-pattern-inner[data-pattern-anim=\"display_glitch\"]::before {\n    opacity: 0;\n    filter: hue-rotate(160deg) saturate(2.2);\n    mix-blend-mode: screen;\n    animation: sl-pat-dg-slice-a calc(var(--sl-pat-dur, 2s) * 1.6) steps(1, end) infinite !important;\n}\n.succy-label-pattern-inner[data-pattern-anim=\"display_glitch\"]::after {\n    opacity: 0;\n    filter: hue-rotate(280deg) saturate(2.2);\n    mix-blend-mode: screen;\n    animation: sl-pat-dg-slice-b calc(var(--sl-pat-dur, 2s) * 1.9) steps(1, end) infinite !important;\n}" },
+
+    { "id": "display_glitch_v2", "label": "Display Glitch V2", "keyframe": "sl-pat-gg-base",
+      "css": "@keyframes sl-pat-gg-base {\n  0%, 100% { transform: translate3d(0,0,0); filter: none; }\n  8%       { transform: translate3d(-2px, 0, 0); filter: hue-rotate(15deg) saturate(1.4); }\n  9%       { transform: translate3d(0,0,0); filter: none; }\n  47%      { transform: translate3d(3px, 0, 0); filter: hue-rotate(-12deg); }\n  48%      { transform: translate3d(0,0,0); filter: none; }\n  81%      { transform: translate3d(-3px, 0, 0); filter: hue-rotate(20deg) saturate(1.6); }\n  82%      { transform: translate3d(0,0,0); filter: none; }\n}\n@keyframes sl-pat-gg-slice-a {\n  0%, 100% { transform: translate3d(0,0,0); clip-path: inset(0 0 0 0); opacity: 0; }\n  7%       { transform: translate3d(-24px, 0, 0); clip-path: inset(22% 0 55% 0); opacity: 1; }\n  11%      { transform: translate3d(20px, 0, 0);  clip-path: inset(58% 0 18% 0); opacity: 1; }\n  14%      { transform: translate3d(0,0,0); clip-path: inset(0 0 0 0); opacity: 0; }\n  46%      { transform: translate3d(22px, 0, 0);  clip-path: inset(35% 0 40% 0); opacity: 1; }\n  49%      { transform: translate3d(0,0,0); clip-path: inset(0 0 0 0); opacity: 0; }\n  78%      { transform: translate3d(-26px, 0, 0); clip-path: inset(70% 0 12% 0); opacity: 1; }\n  82%      { transform: translate3d(0,0,0); clip-path: inset(0 0 0 0); opacity: 0; }\n}\n@keyframes sl-pat-gg-slice-b {\n  0%, 100% { transform: translate3d(0,0,0); clip-path: inset(0 0 0 0); opacity: 0; }\n  5%       { transform: translate3d(20px, 0, 0);  clip-path: inset(50% 0 32% 0); opacity: 1; }\n  9%       { transform: translate3d(-17px, 0, 0); clip-path: inset(14% 0 72% 0); opacity: 1; }\n  12%      { transform: translate3d(0,0,0); clip-path: inset(0 0 0 0); opacity: 0; }\n  44%      { transform: translate3d(-24px, 0, 0); clip-path: inset(65% 0 22% 0); opacity: 1; }\n  47%      { transform: translate3d(0,0,0); clip-path: inset(0 0 0 0); opacity: 0; }\n  76%      { transform: translate3d(18px, 0, 0);  clip-path: inset(28% 0 58% 0); opacity: 1; }\n  80%      { transform: translate3d(0,0,0); clip-path: inset(0 0 0 0); opacity: 0; }\n}\n.succy-label-pattern-inner[data-pattern-anim=\"display_glitch_v2\"]::before {\n    opacity: 0;\n    mix-blend-mode: difference;\n    animation: sl-pat-gg-slice-a 3.4s steps(1, end) infinite !important;\n}\n.succy-label-pattern-inner[data-pattern-anim=\"display_glitch_v2\"]::after {\n    opacity: 0;\n    mix-blend-mode: difference;\n    filter: hue-rotate(180deg) saturate(1.8);\n    animation: sl-pat-gg-slice-b 4.1s steps(1, end) infinite !important;\n}" },
+
+
+    { "id": "scroll_left",  "label": "Scroll ← Left",  "keyframe": "sl-pat-scroll-left",
+      "css": "@keyframes sl-pat-scroll-left { from { transform: translate3d(0,0,0); } to { transform: translate3d(var(--sl-pat-tx, -10px), 0, 0); } }" },
+
+    { "id": "scroll_right", "label": "Scroll → Right", "keyframe": "sl-pat-scroll-right",
+      "css": "@keyframes sl-pat-scroll-right { from { transform: translate3d(var(--sl-pat-tx, -10px), 0, 0); } to { transform: translate3d(0,0,0); } }" },
+
+    { "id": "scroll_up",    "label": "Scroll ↑ Up",    "keyframe": "sl-pat-scroll-up",
+      "css": "@keyframes sl-pat-scroll-up { from { transform: translate3d(0,0,0); } to { transform: translate3d(0, var(--sl-pat-ty, -10px), 0); } }" },
+
+    { "id": "scroll_down",  "label": "Scroll ↓ Down",  "keyframe": "sl-pat-scroll-down",
+      "css": "@keyframes sl-pat-scroll-down { from { transform: translate3d(0, var(--sl-pat-ty, -10px), 0); } to { transform: translate3d(0,0,0); } }" },
+
+    { "id": "scroll_ne",    "label": "Scroll ↗ NE",    "keyframe": "sl-pat-scroll-ne",
+      "css": "@keyframes sl-pat-scroll-ne { from { transform: translate3d(var(--sl-pat-tx, -10px), 0, 0); } to { transform: translate3d(0, var(--sl-pat-ty, -10px), 0); } }" },
+
+    { "id": "scroll_nw",    "label": "Scroll ↖ NW",    "keyframe": "sl-pat-scroll-nw",
+      "css": "@keyframes sl-pat-scroll-nw { from { transform: translate3d(0,0,0); } to { transform: translate3d(var(--sl-pat-tx, -10px), var(--sl-pat-ty, -10px), 0); } }" },
+
+    { "id": "scroll_se",    "label": "Scroll ↘ SE",    "keyframe": "sl-pat-scroll-se",
+      "css": "@keyframes sl-pat-scroll-se { from { transform: translate3d(var(--sl-pat-tx, -10px), var(--sl-pat-ty, -10px), 0); } to { transform: translate3d(0,0,0); } }" },
+
+    { "id": "scroll_sw",    "label": "Scroll ↙ SW",    "keyframe": "sl-pat-scroll-sw",
+      "css": "@keyframes sl-pat-scroll-sw { from { transform: translate3d(0, var(--sl-pat-ty, -10px), 0); } to { transform: translate3d(var(--sl-pat-tx, -10px), 0, 0); } }" },
+
+    { "id": "pulse",        "label": "Pulse",        "keyframe": "sl-pat-pulse",
+      "css": "@keyframes sl-pat-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }" },
+
+    { "id": "breathe",      "label": "Breathe",      "keyframe": "sl-pat-breathe",
+      "css": "@keyframes sl-pat-breathe { 0%, 100% { opacity: 1; transform: scale(1); } 40% { opacity: 0.55; transform: scale(1.035); } 70% { opacity: 0.75; transform: scale(1.012); } }" },
+
+    { "id": "flicker",      "label": "Flicker",      "keyframe": "sl-pat-flicker",
+      "css": "@keyframes sl-pat-flicker { 0%, 18%, 22%, 25%, 53%, 57%, 100% { opacity: 1; } 20%, 24%, 55% { opacity: 0.15; } }" },
+
+    { "id": "zoom",         "label": "Zoom",         "keyframe": "sl-pat-zoom",
+      "css": "@keyframes sl-pat-zoom { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.15); } }" },
+
+    { "id": "drift",        "label": "Drift",        "keyframe": "sl-pat-drift",
+      "css": "@keyframes sl-pat-drift { 0%, 100% { transform: translate3d(0,0,0); } 25% { transform: translate3d(-6px,-3px,0); } 50% { transform: translate3d(-10px,2px,0); } 75% { transform: translate3d(-4px,5px,0); } }" },
+
+    { "id": "glass_shine",  "label": "Glass Shine",  "keyframe": "sl-pat-glass",
+      "css": "@keyframes sl-pat-glass { 0%, 100% { filter: brightness(1) contrast(1); } 50% { filter: brightness(1.25) contrast(1.08); } }" }
+  ]
+}

@@ -1,0 +1,173 @@
+{
+  "id": "shadow_drake",
+  "name": "Shadow Drake",
+  "icon": "🌑",
+  "order": 260,
+  "description": "A dark drake wrapped in a violet aura, with magenta eyes and curling smoke.",
+  "params": [
+    {
+      "key": "color",
+      "label": "Aura",
+      "type": "color",
+      "default": "#8a4dff"
+    },
+    {
+      "key": "eyes",
+      "label": "Eyes",
+      "type": "color",
+      "default": "#ff3df0"
+    },
+    {
+      "key": "size",
+      "label": "Thickness",
+      "type": "range",
+      "min": 1.5,
+      "max": 7,
+      "step": 0.1,
+      "default": 3.6
+    },
+    {
+      "key": "length",
+      "label": "Length",
+      "type": "range",
+      "min": 60,
+      "max": 340,
+      "step": 5,
+      "default": 190
+    },
+    {
+      "key": "speed",
+      "label": "Speed (px/s)",
+      "type": "range",
+      "min": -300,
+      "max": 300,
+      "step": 5,
+      "default": 110
+    },
+    {
+      "key": "amp",
+      "label": "Amplitude",
+      "type": "range",
+      "min": 0,
+      "max": 20,
+      "step": 0.5,
+      "default": 9
+    },
+    {
+      "key": "wavelength",
+      "label": "Wavelength",
+      "type": "range",
+      "min": 25,
+      "max": 160,
+      "step": 2,
+      "default": 70
+    }
+  ],
+  "layers": [
+    {
+      "type": "dots",
+      "color": "$color",
+      "alpha": 0.28,
+      "size": "=$size*2.3",
+      "spacing": "=L+$length+40",
+      "speed": "$speed",
+      "trail": "$length",
+      "trailSteps": 56,
+      "trailTaper": 0.8,
+      "trailFade": 0.5,
+      "blur": 22,
+      "composite": "lighter",
+      "displace": "=$amp*sin(s/$wavelength*6.2832 - t*2)*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "color": "#150826",
+      "size": "$size",
+      "spacing": "=L+$length+40",
+      "speed": "$speed",
+      "trail": "$length",
+      "trailSteps": 56,
+      "trailTaper": 0.7,
+      "trailFade": 0.1,
+      "displace": "=$amp*sin(s/$wavelength*6.2832 - t*2)*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "color": "$color",
+      "alpha": 0.7,
+      "size": "=$size*0.22",
+      "spacing": "=L+$length+40",
+      "speed": "$speed",
+      "trail": "=$length*0.8",
+      "trailSteps": 56,
+      "trailTaper": 0.7,
+      "trailFade": 0.5,
+      "offset": "=-$size*0.55",
+      "displace": "=$amp*sin(s/$wavelength*6.2832 - t*2)*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "color": "#3a2a55",
+      "alpha": "=0.55*(1-fract(t*0.6+i*0.29))",
+      "size": 1.8,
+      "spacing": "=$length*0.35+14",
+      "speed": "=$speed*0.8",
+      "blur": 10,
+      "displace": "=(-14*fract(t*0.6+i*0.29))*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "color": "$eyes",
+      "size": "=$size*0.26",
+      "spacing": "=L+$length+40",
+      "speed": "$speed",
+      "offset": "=$size*0.55",
+      "blur": 8,
+      "displace": "=$amp*sin(s/$wavelength*6.2832 - t*2)*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "color": "$eyes",
+      "size": "=$size*0.26",
+      "spacing": "=L+$length+40",
+      "speed": "$speed",
+      "offset": "=-$size*0.55",
+      "blur": 8,
+      "displace": "=$amp*sin(s/$wavelength*6.2832 - t*2)*sin(v*3.14159)"
+    }
+  ],
+  "skin": [
+    {
+      "type": "glow",
+      "color": "$color",
+      "radius": 2.2,
+      "alpha": 0.3
+    },
+    {
+      "type": "disc",
+      "color": "#0d0517",
+      "radius": 1
+    },
+    {
+      "type": "ring",
+      "color": "$color",
+      "radius": 1,
+      "width": 0.16,
+      "blur": 6
+    },
+    {
+      "type": "pulse",
+      "color": "$eyes",
+      "from": 0.3,
+      "to": 1.2,
+      "period": 2,
+      "width": 0.1
+    },
+    {
+      "type": "disc",
+      "color": "$eyes",
+      "radius": 0.2,
+      "blur": 6
+    }
+  ]
+}

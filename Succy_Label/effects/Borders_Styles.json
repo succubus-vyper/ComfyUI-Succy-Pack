@@ -1,0 +1,161 @@
+{
+  "version": 1,
+  "family": "border",
+  "effects": [
+    {
+      "id": "none",
+      "label": "None",
+      "default": true,
+      "borderColors": 1,
+      "noBorder": true,
+      "borderDur": 0,
+      "css": ""
+    },
+    {
+      "id": "solid",
+      "label": "Solid",
+      "borderColors": 1,
+      "borderDur": 0,
+      "css": ""
+    },
+	{
+	  "id": "dashed",
+	  "label": "Dashed",
+	  "borderColors": 1,
+	  "noBorder": true,
+	  "borderDur": 0,
+	  "css": "[data-border-style=\"dashed\"]::after {\n    border: var(--sl-border-w) dashed var(--sl-border-col);\n}"
+	},
+	{
+	  "id": "dotted",
+	  "label": "Dotted",
+	  "borderColors": 1,
+	  "noBorder": true,
+	  "borderDur": 0,
+	  "css": "[data-border-style=\"dotted\"]::after {\n    border: var(--sl-border-w) dotted var(--sl-border-col);\n}"
+	},
+    {
+      "id": "double",
+      "label": "Double",
+      "borderColors": 1,
+      "noBorder": true,
+      "borderDur": 0,
+      "css": "[data-border-style=\"double\"]::after {\n    border: var(--sl-border-w) double var(--sl-border-col);\n}"
+    },
+    {
+      "id": "corner_brackets",
+      "label": "Corner Brackets",
+      "borderColors": 1,
+      "noBorder": true,
+      "ignoreRadius": true,
+      "borderDur": 0,
+      "css": "[data-border-style=\"corner_brackets\"]::after {\n    border: none;\n    background:\n        linear-gradient(var(--sl-border-col), var(--sl-border-col)) 0 0 / 20px var(--sl-border-w) no-repeat,\n        linear-gradient(var(--sl-border-col), var(--sl-border-col)) 0 0 / var(--sl-border-w) 20px no-repeat,\n        linear-gradient(var(--sl-border-col), var(--sl-border-col)) 100% 0 / 20px var(--sl-border-w) no-repeat,\n        linear-gradient(var(--sl-border-col), var(--sl-border-col)) 100% 0 / var(--sl-border-w) 20px no-repeat,\n        linear-gradient(var(--sl-border-col), var(--sl-border-col)) 0 100% / 20px var(--sl-border-w) no-repeat,\n        linear-gradient(var(--sl-border-col), var(--sl-border-col)) 0 100% / var(--sl-border-w) 20px no-repeat,\n        linear-gradient(var(--sl-border-col), var(--sl-border-col)) 100% 100% / 20px var(--sl-border-w) no-repeat,\n        linear-gradient(var(--sl-border-col), var(--sl-border-col)) 100% 100% / var(--sl-border-w) 20px no-repeat;\n}"
+    },
+    {
+      "id": "cut_corners",
+      "label": "Cut Corners",
+      "borderColors": 1,
+      "noBorder": true,
+      "ignoreRadius": true,
+      "borderDur": 0,
+      "css": "[data-border-style=\"cut_corners\"]::after {\n    border: var(--sl-border-w) solid var(--sl-border-col);\n    clip-path: polygon(\n        18px 0, calc(100% - 18px) 0,\n        100% 18px, 100% calc(100% - 18px),\n        calc(100% - 18px) 100%, 18px 100%,\n        0 calc(100% - 18px), 0 18px\n    );\n}"
+    },
+    {
+      "id": "neon_pulse",
+      "label": "Neon Pulse",
+      "borderColors": 1,
+      "noBorder": true,
+      "borderDur": 1.5,
+      "css": "@keyframes sl-np-pulse {\n    0%, 100% { box-shadow: 0 0 5px var(--sl-border-col), inset 0 0 5px var(--sl-border-col); }\n    50%      { box-shadow: 0 0 20px var(--sl-border-col), inset 0 0 10px var(--sl-border-col); }\n}\n[data-border-style=\"neon_pulse\"]::after {\n    border: var(--sl-border-w) solid var(--sl-border-col);\n    animation: sl-np-pulse var(--sl-border-dur) ease-in-out infinite;\n    animation-delay: var(--sl-delay-border, 0s);\n}"
+    },
+	{
+	  "id": "dashed_glow",
+	  "label": "Dashed Glow",
+	  "borderColors": 1,
+	  "noBorder": true,
+	  "borderDur": 2.0,
+	  "css": "@keyframes sl-dg-pulse {\n    0%, 100% { filter: drop-shadow(0 0 2px var(--sl-border-col)); }\n    50%      { filter: drop-shadow(0 0 12px var(--sl-border-col)) drop-shadow(0 0 24px var(--sl-border-col)); }\n}\n[data-border-style=\"dashed_glow\"]::after {\n    border: var(--sl-border-w) dashed var(--sl-border-col);\n    animation: sl-dg-pulse var(--sl-border-dur) ease-in-out infinite;\n    animation-delay: var(--sl-delay-border, 0s);\n}"
+	},
+    {
+      "id": "fade",
+      "label": "Fade",
+      "borderColors": 1,
+      "noBorder": true,
+      "borderDur": 2.5,
+      "css": "@keyframes sl-fd-anim {\n    0%, 100% { opacity: 1; }\n    50%      { opacity: 0.15; }\n}\n[data-border-style=\"fade\"]::after {\n    border: var(--sl-border-w) solid var(--sl-border-col);\n    animation: sl-fd-anim var(--sl-border-dur) ease-in-out infinite;\n    animation-delay: var(--sl-delay-border, 0s);\n}"
+    },
+    {
+      "id": "heartbeat",
+      "label": "Heartbeat",
+      "borderColors": 1,
+      "noBorder": true,
+      "borderDur": 1.4,
+      "css": "@keyframes sl-hb-anim {\n    0%, 100% { filter: drop-shadow(0 0 0 var(--sl-border-col)); }\n    6%       { filter: drop-shadow(0 0 calc(var(--sl-border-w) * 6) var(--sl-border-col)); }\n    12%      { filter: drop-shadow(0 0 0 var(--sl-border-col)); }\n    22%      { filter: drop-shadow(0 0 calc(var(--sl-border-w) * 4) var(--sl-border-col)); }\n    28%      { filter: drop-shadow(0 0 0 var(--sl-border-col)); }\n}\n[data-border-style=\"heartbeat\"]::after {\n    border: var(--sl-border-w) solid var(--sl-border-col);\n    border-radius: inherit;\n    animation: sl-hb-anim var(--sl-border-dur) ease-in-out infinite;\n    animation-delay: var(--sl-delay-border, 0s);\n}"
+    },
+	{
+	  "id": "segments",
+	  "label": "Segments",
+	  "borderColors": 2,
+	  "noBorder": true,
+	  "borderDur": 0,
+	  "css": "[data-border-style=\"segments\"]::after {\n    border: var(--sl-border-w) dashed;\n    border-color: var(--sl-border-col) var(--sl-border-col-b);\n}"
+	},
+	{
+	  "id": "marching_ants",
+	  "label": "Marching Ants",
+	  "borderColors": 1,
+	  "noBorder": true,
+	  "borderDur": 1.0,
+	  "css": "@keyframes sl-ma-scroll {\n    from { background-position: 0 0, 0 100%, 0 0, 100% 0; }\n    to   { background-position: 12px 0, -12px 100%, 0 -12px, 100% 12px; }\n}\n[data-border-style=\"marching_ants\"]::after {\n    border: none;\n    padding: var(--sl-border-w);\n    background-image:\n        linear-gradient(90deg, var(--sl-border-col) 50%, transparent 50%),\n        linear-gradient(90deg, var(--sl-border-col) 50%, transparent 50%),\n        linear-gradient(0deg,  var(--sl-border-col) 50%, transparent 50%),\n        linear-gradient(0deg,  var(--sl-border-col) 50%, transparent 50%);\n    background-repeat: repeat-x, repeat-x, repeat-y, repeat-y;\n    background-size:\n        12px var(--sl-border-w), 12px var(--sl-border-w),\n        var(--sl-border-w) 12px, var(--sl-border-w) 12px;\n    background-position: 0 0, 0 100%, 0 0, 100% 0;\n    animation: sl-ma-scroll var(--sl-border-dur) linear infinite;\n    animation-delay: var(--sl-delay-border, 0s);\n    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);\n    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);\n    -webkit-mask-composite: xor;\n    mask-composite: exclude;\n}"
+	},
+	{
+	  "id": "hazard",
+	  "label": "Hazard",
+	  "borderColors": 2,
+	  "noBorder": true,
+	  "borderDur": 0.8,
+	  "css": "@keyframes sl-hz-flow {\n    from { background-position: 0 0, 0 100%, 0 0, 100% 0; }\n    to   { background-position: 16px 0, -16px 100%, 0 -16px, 100% 16px; }\n}\n[data-border-style=\"hazard\"]::after {\n    border: none;\n    padding: var(--sl-border-w);\n    background-image:\n        repeating-linear-gradient(90deg, var(--sl-border-col) 0 8px, var(--sl-border-col-b) 8px 16px),\n        repeating-linear-gradient(90deg, var(--sl-border-col) 0 8px, var(--sl-border-col-b) 8px 16px),\n        repeating-linear-gradient(0deg,  var(--sl-border-col) 0 8px, var(--sl-border-col-b) 8px 16px),\n        repeating-linear-gradient(0deg,  var(--sl-border-col) 0 8px, var(--sl-border-col-b) 8px 16px);\n    background-repeat: repeat-x, repeat-x, repeat-y, repeat-y;\n    background-size:\n        16px var(--sl-border-w), 16px var(--sl-border-w),\n        var(--sl-border-w) 16px, var(--sl-border-w) 16px;\n    background-position: 0 0, 0 100%, 0 0, 100% 0;\n    animation: sl-hz-flow var(--sl-border-dur) linear infinite;\n    animation-delay: var(--sl-delay-border, 0s);\n    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);\n    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);\n    -webkit-mask-composite: xor;\n    mask-composite: exclude;\n}"
+	},
+    {
+      "id": "rainbow",
+      "label": "Rainbow",
+      "borderColors": 1,
+      "noBorder": true,
+      "borderDur": 3.0,
+      "css": "@keyframes sl-rb-hue {\n    from { filter: hue-rotate(0deg); }\n    to   { filter: hue-rotate(360deg); }\n}\n[data-border-style=\"rainbow\"]::after {\n    border: var(--sl-border-w) solid var(--sl-border-col);\n    animation: sl-rb-hue var(--sl-border-dur) linear infinite;\n    animation-delay: var(--sl-delay-border, 0s);\n}"
+    },
+    {
+      "id": "comet",
+      "label": "Comet",
+      "borderColors": 2,
+      "noBorder": true,
+      "borderDur": 2.0,
+      "css": "@property --sl-angle { syntax: '<angle>'; inherits: false; initial-value: 0deg; }\n@keyframes sl-cm-rot {\n    from { --sl-angle: 0deg; }\n    to   { --sl-angle: 360deg; }\n}\n[data-border-style=\"comet\"]::after {\n    border: none;\n    background: conic-gradient(\n        from var(--sl-angle),\n        var(--sl-border-col) 0deg,\n        var(--sl-border-col) 30deg,\n        var(--sl-border-col-b) 90deg,\n        transparent 160deg,\n        transparent 360deg\n    );\n    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);\n    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);\n    -webkit-mask-composite: xor;\n    mask-composite: exclude;\n    padding: var(--sl-border-w);\n    animation: sl-cm-rot var(--sl-border-dur) linear infinite;\n    animation-delay: var(--sl-delay-border, 0s);\n}"
+    },
+    {
+      "id": "glitch_border",
+      "label": "Glitch Border",
+      "borderColors": 2,
+      "noBorder": true,
+      "borderDur": 2.4,
+      "css": "@keyframes sl-gb-shake {\n    0%, 90%, 100% { transform: translate(0, 0); }\n    92%           { transform: translate(-2px, 1px); }\n    94%           { transform: translate(0, 0); }\n    96%           { transform: translate(2px, -1px); }\n}\n@keyframes sl-gb-color {\n    0%, 90%, 100% { border-color: var(--sl-border-col); }\n    92%           { border-color: var(--sl-border-col-b); }\n    94%           { border-color: var(--sl-border-col); }\n    96%           { border-color: var(--sl-border-col-b); }\n}\n[data-border-style=\"glitch_border\"]::after {\n    border: var(--sl-border-w) solid var(--sl-border-col);\n    animation:\n        sl-gb-shake var(--sl-border-dur) steps(1, end) infinite,\n        sl-gb-color var(--sl-border-dur) steps(1, end) infinite;\n    animation-delay: var(--sl-delay-border, 0s);\n}"
+    },
+    {
+      "id": "gradient_border",
+      "label": "Gradient Border",
+      "borderColors": 2,
+      "noBorder": true,
+      "borderDur": 3.0,
+      "css": "@keyframes sl-gdb-slide {\n    from { background-position: 0% 50%; }\n    to   { background-position: 200% 50%; }\n}\n[data-border-style=\"gradient_border\"]::after {\n    border: none;\n    padding: var(--sl-border-w);\n    background: linear-gradient(\n        90deg,\n        var(--sl-border-col),\n        var(--sl-border-col-b),\n        var(--sl-border-col),\n        var(--sl-border-col-b),\n        var(--sl-border-col)\n    );\n    background-size: 200% auto;\n    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);\n    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);\n    -webkit-mask-composite: xor;\n    mask-composite: exclude;\n    animation: sl-gdb-slide var(--sl-border-dur) linear infinite;\n    animation-delay: var(--sl-delay-border, 0s);\n}"
+    },
+    {
+      "id": "notched",
+      "label": "Notched",
+      "borderColors": 1,
+      "noBorder": true,
+      "ignoreRadius": true,
+      "borderDur": 0,
+      "css": "[data-border-style=\"notched\"]::after {\n    border: var(--sl-border-w) solid var(--sl-border-col);\n    clip-path: polygon(\n        0 8px, 8px 8px, 8px 0,\n        calc(100% - 8px) 0, calc(100% - 8px) 8px, 100% 8px,\n        100% calc(100% - 8px), calc(100% - 8px) calc(100% - 8px), calc(100% - 8px) 100%,\n        8px 100%, 8px calc(100% - 8px), 0 calc(100% - 8px)\n    );\n}"
+    }
+  ]
+}

@@ -1,0 +1,125 @@
+{
+  "id": "ouroboros",
+  "name": "Ouroboros",
+  "icon": "♾",
+  "order": 150,
+  "description": "Two serpents chasing each other in opposite directions along the wire.",
+  "params": [
+    {
+      "key": "color",
+      "label": "Serpent A",
+      "type": "color",
+      "default": "#4fd3b2"
+    },
+    {
+      "key": "color2",
+      "label": "Serpent B",
+      "type": "color",
+      "default": "#d9a441"
+    },
+    {
+      "key": "size",
+      "label": "Thickness",
+      "type": "range",
+      "min": 1.5,
+      "max": 6,
+      "step": 0.1,
+      "default": 2.8
+    },
+    {
+      "key": "length",
+      "label": "Length",
+      "type": "range",
+      "min": 30,
+      "max": 220,
+      "step": 5,
+      "default": 90
+    },
+    {
+      "key": "speed",
+      "label": "Speed (px/s)",
+      "type": "range",
+      "min": 20,
+      "max": 300,
+      "step": 5,
+      "default": 90
+    },
+    {
+      "key": "amp",
+      "label": "Amplitude",
+      "type": "range",
+      "min": 0,
+      "max": 16,
+      "step": 0.5,
+      "default": 5
+    },
+    {
+      "key": "wavelength",
+      "label": "Wavelength",
+      "type": "range",
+      "min": 20,
+      "max": 120,
+      "step": 2,
+      "default": 40
+    }
+  ],
+  "layers": [
+    {
+      "type": "stroke",
+      "color": "$color",
+      "alpha": 0.12,
+      "width": 1.5
+    },
+    {
+      "type": "dots",
+      "color": "$color",
+      "size": "$size",
+      "spacing": "=L+$length+30",
+      "speed": "$speed",
+      "trail": "$length",
+      "trailSteps": 40,
+      "trailTaper": 0.75,
+      "trailFade": 0.2,
+      "blur": 3,
+      "displace": "=$amp*sin(s/$wavelength*6.2832 - t*3)*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "color": "$color2",
+      "size": "$size",
+      "spacing": "=L+$length+30",
+      "speed": "=-$speed",
+      "trail": "$length",
+      "trailSteps": 40,
+      "trailTaper": 0.75,
+      "trailFade": 0.2,
+      "blur": 3,
+      "displace": "=-$amp*sin(s/$wavelength*6.2832 - t*3)*sin(v*3.14159)"
+    }
+  ],
+  "skin": [
+    {
+      "type": "disc",
+      "color": "#0e1413",
+      "radius": 1
+    },
+    {
+      "type": "spin",
+      "color": "$color",
+      "radius": 1,
+      "width": 0.2,
+      "count": 2,
+      "span": 0.4,
+      "speed": 0.5
+    },
+    {
+      "type": "spin",
+      "color": "$color2",
+      "radius": 0.62,
+      "width": 0.16,
+      "count": 2,
+      "span": 0.4,
+      "speed": -0.5
+    }
+  ]
+}

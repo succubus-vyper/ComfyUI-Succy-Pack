@@ -1,0 +1,127 @@
+{
+  "id": "galaxy",
+  "name": "Galaxy Stream",
+  "icon": "✨",
+  "order": 230,
+  "description": "A twinkling star stream drifting through a faint nebula.",
+  "params": [
+    {
+      "key": "hue",
+      "label": "Nebula hue",
+      "type": "range",
+      "min": 0,
+      "max": 360,
+      "step": 1,
+      "default": 250
+    },
+    {
+      "key": "speed",
+      "label": "Drift (px/s)",
+      "type": "range",
+      "min": -200,
+      "max": 200,
+      "step": 5,
+      "default": 40
+    },
+    {
+      "key": "density",
+      "label": "Star spacing",
+      "type": "range",
+      "min": 6,
+      "max": 40,
+      "step": 1,
+      "default": 16
+    },
+    {
+      "key": "twinkle",
+      "label": "Twinkle",
+      "type": "range",
+      "min": 0,
+      "max": 8,
+      "step": 0.1,
+      "default": 3
+    },
+    {
+      "key": "swirl",
+      "label": "Swirl",
+      "type": "range",
+      "min": 0,
+      "max": 24,
+      "step": 0.5,
+      "default": 8
+    }
+  ],
+  "layers": [
+    {
+      "type": "stroke",
+      "color": "=hsl($hue,80,55)",
+      "alpha": 0.1,
+      "width": 12,
+      "blur": 22,
+      "composite": "lighter"
+    },
+    {
+      "type": "stroke",
+      "color": "=hsl($hue+30,80,70)",
+      "alpha": 0.22,
+      "width": 1
+    },
+    {
+      "type": "dots",
+      "shape": "star",
+      "color": "=hsl($hue+rnd(i*1.7)*120,90,78)",
+      "size": "=0.7+1.6*rnd(i*3.1)",
+      "spacing": "$density",
+      "speed": "$speed",
+      "blur": 6,
+      "alpha": "=0.3+0.7*pow(sin(t*$twinkle+i*1.9),2)",
+      "displace": "=$swirl*sin(i*2.3+s*0.05-t*0.8)*sin(v*3.14159)"
+    },
+    {
+      "type": "dots",
+      "shape": "star",
+      "color": "#ffffff",
+      "size": "=1.4+1.4*rnd(i*5.3)",
+      "spacing": "=$density*3.3",
+      "speed": "=$speed*0.5",
+      "blur": 10,
+      "alpha": "=0.4+0.6*pow(sin(t*$twinkle*0.7+i*2.7),2)",
+      "displace": "=-$swirl*sin(i*1.9+s*0.04+t*0.6)*sin(v*3.14159)"
+    }
+  ],
+  "skin": [
+    {
+      "type": "disc",
+      "color": "#07061a",
+      "radius": 1
+    },
+    {
+      "type": "glow",
+      "color": "=hsl($hue,80,60)",
+      "radius": 2,
+      "alpha": 0.3
+    },
+    {
+      "type": "orbit",
+      "color": "=hsl($hue+60,90,78)",
+      "radius": 0.62,
+      "size": 0.13,
+      "count": 4,
+      "speed": 0.3,
+      "blur": 4
+    },
+    {
+      "type": "ring",
+      "color": "=hsl($hue,80,65)",
+      "radius": 1,
+      "width": 0.08,
+      "alpha": 0.6
+    },
+    {
+      "type": "disc",
+      "color": "#ffffff",
+      "radius": 0.18,
+      "blur": 6
+    }
+  ]
+}

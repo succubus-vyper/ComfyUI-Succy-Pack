@@ -1,0 +1,113 @@
+{
+  "id": "sparkler",
+  "name": "Sparkler",
+  "icon": "🎇",
+  "order": 380,
+  "description": "A fizzing wire that throws hot sparks sideways and fades them as they cool.",
+  "params": [
+    {
+      "key": "color",
+      "label": "Spark",
+      "type": "color",
+      "default": "#ffb02e"
+    },
+    {
+      "key": "spacing",
+      "label": "Density (px)",
+      "type": "range",
+      "min": 8,
+      "max": 60,
+      "step": 1,
+      "default": 16
+    },
+    {
+      "key": "reach",
+      "label": "Spark reach",
+      "type": "range",
+      "min": 8,
+      "max": 50,
+      "step": 1,
+      "default": 26
+    },
+    {
+      "key": "size",
+      "label": "Size",
+      "type": "range",
+      "min": 0.8,
+      "max": 4,
+      "step": 0.1,
+      "default": 2
+    },
+    {
+      "key": "speed",
+      "label": "Drift (px/s)",
+      "type": "range",
+      "min": -120,
+      "max": 120,
+      "step": 5,
+      "default": 35
+    }
+  ],
+  "layers": [
+    {
+      "type": "stroke",
+      "color": "#ff7a1a",
+      "alpha": 0.22,
+      "width": 2,
+      "blur": 6
+    },
+    {
+      "type": "stroke",
+      "color": "#fff3c4",
+      "alpha": 0.7,
+      "width": 1
+    },
+    {
+      "type": "dots",
+      "shape": "star",
+      "color": "=hsl(18+34*rnd(i*1.7),100,62)",
+      "size": "=$size*(1.1-0.8*fract(t*0.9+rnd(i*3.1)))",
+      "spacing": "$spacing",
+      "speed": "$speed",
+      "alpha": "=1-fract(t*0.9+rnd(i*3.1))",
+      "composite": "lighter",
+      "displace": "=(rnd(i*7.3)>0.5?1:-1)*(0.25+0.75*rnd(i*2.9))*$reach*fract(t*0.9+rnd(i*3.1))*sin(v*3.14159)"
+    }
+  ],
+  "skin": [
+    {
+      "type": "glow",
+      "color": "$color",
+      "radius": 2,
+      "alpha": 0.3
+    },
+    {
+      "type": "disc",
+      "color": "#1a0d04",
+      "radius": 1
+    },
+    {
+      "type": "ring",
+      "color": "$color",
+      "radius": 1,
+      "width": 0.12
+    },
+    {
+      "type": "spin",
+      "color": "#fff3c4",
+      "radius": 0.7,
+      "width": 0.1,
+      "count": 6,
+      "span": 0.12,
+      "speed": 2.2,
+      "blur": 4
+    },
+    {
+      "type": "disc",
+      "color": "#fff3c4",
+      "radius": 0.2,
+      "blur": 8
+    }
+  ],
+  "animated": true
+}

@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "family": "palette",
+  "effects": [
+    { "id": "off",        "label": "Off",        "default": true, "noResolve": true, "colors": [] },
+    { "id": "neon",       "label": "Neon",       "colors": ["#1a0033ff","#ff00ffff","#00ffffff"] },
+    { "id": "ocean",      "label": "Ocean",      "colors": ["#003566ff","#0077b6ff","#00e0ffff"] },
+    { "id": "sunset",     "label": "Sunset",     "colors": ["#3a0ca3ff","#f72585ff","#ffb703ff"] },
+    { "id": "forest",     "label": "Forest",     "colors": ["#0b2e1fff","#2d6a4fff","#95d5b2ff"] },
+    { "id": "cyberpunk",  "label": "Cyberpunk",  "colors": ["#0a0020ff","#ff006eff","#00e0ffff"] },
+    { "id": "fire",       "label": "Fire",       "colors": ["#7a0000ff","#ff4400ff","#ffcc00ff"] },
+    { "id": "ice",        "label": "Ice",        "colors": ["#001f3fff","#00b4d8ff","#ade8f4ff"] },
+    { "id": "monochrome", "label": "Monochrome", "colors": ["#111111ff","#666666ff","#ddddddff"] },
+    { "id": "pastel",     "label": "Pastel",     "colors": ["#2a2030ff","#ffb3baff","#bae1ffff"] }
+  ]
+}

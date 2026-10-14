@@ -1,0 +1,30 @@
+{
+  "_doc_files": "One file = one effect (a file may also hold a list of effects). Files starting with '_' are ignored. Drop a new .json here, press the reload button in the menu (or refresh the browser): no Python/JS edits needed.",
+  "_doc_values": "Any value can be: a literal (3, 'round', '#fff'); '$key' = value of a param; 'auto' = link type color; '=expr' = JS math expression. In expressions: $key (param), t (seconds), u (0..1 along the WHOLE route), v (0..1 along the current wire), s (px along the whole route), i (index), n (count), L (total route length), sin cos tan abs min max pow sqrt floor ceil round atan2 log exp PI, fract mix clamp rnd tri hsl(h,s,l,a) rgba(r,g,b,a) alpha(color,a).",
+
+  "id": "my_effect",
+  "name": "My Effect",
+  "icon": "★",
+  "order": 999,
+  "description": "Shown as tooltip in the menu.",
+  "animated": true,
+
+  "params": [
+    { "key": "color", "label": "Color", "type": "color", "default": "auto" },
+    { "key": "width", "label": "Width", "type": "range", "min": 1, "max": 10, "step": 0.5, "default": 3 },
+    { "key": "mode",  "label": "Mode",  "type": "select", "default": "a", "options": ["a", "b"] },
+    { "key": "on",    "label": "Toggle", "type": "toggle", "default": true }
+  ],
+
+  "_doc_layers": "stroke: color width alpha blur dash[on,off] dashSpeed cap join composite offset displace step perSegment | dots: shape(circle|square|diamond|star|chevron|dash) color size alpha blur spacing|count speed lead trail trailSteps trailTaper trailFade offset displace composite",
+  "layers": [
+    { "type": "stroke", "color": "$color", "width": "$width" },
+    { "type": "dots", "shape": "circle", "color": "#ffffff", "size": 2, "spacing": 40, "speed": 80 }
+  ],
+
+  "_doc_skin": "Layers of the small dot (units are in dot radii): disc ring glow orbit pulse spin. Fields: color radius alpha blur width dash speed count size span phase from to period.",
+  "skin": [
+    { "type": "disc", "color": "#151719", "radius": 1 },
+    { "type": "ring", "color": "$color", "radius": 1, "width": 0.14 }
+  ]
+}

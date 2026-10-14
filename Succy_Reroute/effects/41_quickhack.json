@@ -1,0 +1,99 @@
+{
+  "id": "quickhack",
+  "name": "Quickhack Upload",
+  "icon": "⬆",
+  "order": 410,
+  "description": "A hacking progress bar: blocks light up behind a bright loading head, then it restarts.",
+  "params": [
+    {
+      "key": "color",
+      "label": "Loaded",
+      "type": "color",
+      "default": "#fcee0a"
+    },
+    {
+      "key": "color2",
+      "label": "Pending",
+      "type": "color",
+      "default": "#ff2a55"
+    },
+    {
+      "key": "width",
+      "label": "Block height",
+      "type": "range",
+      "min": 2,
+      "max": 9,
+      "step": 0.5,
+      "default": 5
+    },
+    {
+      "key": "speed",
+      "label": "Speed (px/s)",
+      "type": "range",
+      "min": 30,
+      "max": 400,
+      "step": 5,
+      "default": 120
+    }
+  ],
+  "layers": [
+    {
+      "type": "stroke",
+      "color": "$color2",
+      "alpha": 0.14,
+      "width": 1
+    },
+    {
+      "type": "stroke",
+      "perSegment": true,
+      "step": 7,
+      "cap": "butt",
+      "width": "$width",
+      "color": "=(s<((t*$speed)%(L+60)))?$color:$color2",
+      "alpha": "=(i%4==0)?0:((s<((t*$speed)%(L+60)))?1:0.2)",
+      "blur": 6
+    },
+    {
+      "type": "dots",
+      "shape": "square",
+      "color": "#ffffff",
+      "size": "=$width*0.6",
+      "count": 1,
+      "spacing": "=L+60",
+      "speed": "$speed",
+      "blur": 8,
+      "composite": "lighter"
+    }
+  ],
+  "skin": [
+    {
+      "type": "disc",
+      "color": "#120f02",
+      "radius": 1
+    },
+    {
+      "type": "ring",
+      "color": "$color2",
+      "radius": 1,
+      "width": 0.12,
+      "alpha": 0.6
+    },
+    {
+      "type": "spin",
+      "color": "$color",
+      "radius": 1,
+      "width": 0.22,
+      "count": 1,
+      "span": 0.7,
+      "speed": 0.9,
+      "blur": 5
+    },
+    {
+      "type": "disc",
+      "color": "$color",
+      "radius": 0.22,
+      "alpha": "=0.5+0.5*(sin(t*8)>0?1:0)"
+    }
+  ],
+  "animated": true
+}

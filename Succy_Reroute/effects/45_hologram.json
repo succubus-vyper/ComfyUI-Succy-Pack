@@ -1,0 +1,130 @@
+{
+  "id": "hologram",
+  "name": "Hologram Ribbon",
+  "icon": "🔷",
+  "order": 450,
+  "description": "A translucent holographic band with scanlines, flickering edges and a bright scan sweep.",
+  "params": [
+    {
+      "key": "color",
+      "label": "Hologram",
+      "type": "color",
+      "default": "#38f4ff"
+    },
+    {
+      "key": "width",
+      "label": "Ribbon width",
+      "type": "range",
+      "min": 6,
+      "max": 20,
+      "step": 1,
+      "default": 12
+    },
+    {
+      "key": "scan",
+      "label": "Scanline gap",
+      "type": "range",
+      "min": 3,
+      "max": 12,
+      "step": 0.5,
+      "default": 5
+    },
+    {
+      "key": "speed",
+      "label": "Sweep (px/s)",
+      "type": "range",
+      "min": -300,
+      "max": 300,
+      "step": 5,
+      "default": 110
+    }
+  ],
+  "layers": [
+    {
+      "type": "stroke",
+      "color": "$color",
+      "alpha": 0.1,
+      "width": "=$width",
+      "blur": 8
+    },
+    {
+      "type": "stroke",
+      "color": "$color",
+      "alpha": 0.32,
+      "width": "=$width",
+      "cap": "butt",
+      "dash": [
+        1,
+        "=$scan"
+      ],
+      "dashSpeed": 16
+    },
+    {
+      "type": "stroke",
+      "color": "$color",
+      "width": 1.1,
+      "offset": "=$width/2",
+      "alpha": "=0.55+0.35*rnd(floor(t*20))"
+    },
+    {
+      "type": "stroke",
+      "color": "$color",
+      "width": 1.1,
+      "offset": "=-$width/2",
+      "alpha": "=0.55+0.35*rnd(floor(t*20)+9)"
+    },
+    {
+      "type": "stroke",
+      "color": "#ffffff",
+      "alpha": 0.85,
+      "width": "=$width",
+      "cap": "butt",
+      "dash": [
+        3,
+        "=L+80"
+      ],
+      "dashSpeed": "$speed",
+      "composite": "lighter",
+      "blur": 6
+    }
+  ],
+  "skin": [
+    {
+      "type": "glow",
+      "color": "$color",
+      "radius": 1.8,
+      "alpha": 0.25
+    },
+    {
+      "type": "disc",
+      "color": "#04141a",
+      "radius": 1
+    },
+    {
+      "type": "ring",
+      "color": "$color",
+      "radius": 1,
+      "width": 0.1,
+      "dash": [
+        0.12,
+        0.1
+      ],
+      "speed": 0.2,
+      "alpha": "=0.6+0.4*rnd(floor(t*18))"
+    },
+    {
+      "type": "ring",
+      "color": "$color",
+      "radius": 0.55,
+      "width": 0.08,
+      "alpha": 0.6
+    },
+    {
+      "type": "disc",
+      "color": "$color",
+      "radius": 0.16,
+      "blur": 6
+    }
+  ],
+  "animated": true
+}

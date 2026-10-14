@@ -1,0 +1,97 @@
+{
+  "id": "vhs_static",
+  "name": "VHS Static",
+  "icon": "📼",
+  "order": 480,
+  "description": "Dying tape signal: crawling noise, snow and a tracking band that tears the wire sideways as it passes.",
+  "params": [
+    {
+      "key": "color",
+      "label": "Signal",
+      "type": "color",
+      "default": "#cfe0ff"
+    },
+    {
+      "key": "width",
+      "label": "Width",
+      "type": "range",
+      "min": 1.5,
+      "max": 7,
+      "step": 0.5,
+      "default": 3.4
+    },
+    {
+      "key": "snow",
+      "label": "Snow",
+      "type": "range",
+      "min": 0,
+      "max": 1,
+      "step": 0.05,
+      "default": 0.7
+    }
+  ],
+  "layers": [
+    {
+      "type": "stroke",
+      "perSegment": true,
+      "step": 5,
+      "color": "$color",
+      "width": "$width",
+      "composite": "lighter",
+      "alpha": "=0.2+0.8*rnd(floor(t*24)+i*1.37)",
+      "displace": "=(18*exp(-pow((s-((t*160)%(L+200))+100)/24,2))*(rnd(floor(t*30))-0.5)*2)"
+    },
+    {
+      "type": "stroke",
+      "color": "#ff2a6d",
+      "alpha": 0.25,
+      "width": 1,
+      "offset": 2.5,
+      "composite": "lighter"
+    },
+    {
+      "type": "stroke",
+      "color": "#2ad4ff",
+      "alpha": 0.25,
+      "width": 1,
+      "offset": -2.5,
+      "composite": "lighter"
+    },
+    {
+      "type": "dots",
+      "shape": "square",
+      "color": "#ffffff",
+      "size": 0.9,
+      "spacing": 7,
+      "speed": 0,
+      "alpha": "=(rnd(floor(t*20)+i*2.3)>(1-0.5*$snow))?0.9:0",
+      "displace": "=(rnd(i*3+floor(t*20))-0.5)*16*sin(v*3.14159)"
+    }
+  ],
+  "skin": [
+    {
+      "type": "disc",
+      "color": "#0a0b10",
+      "radius": 1
+    },
+    {
+      "type": "ring",
+      "color": "$color",
+      "radius": 1,
+      "width": 0.1,
+      "alpha": "=0.4+0.6*rnd(floor(t*20))"
+    },
+    {
+      "type": "disc",
+      "color": "#ffffff",
+      "radius": 0.5,
+      "alpha": "=0.06+0.2*rnd(floor(t*24))"
+    },
+    {
+      "type": "disc",
+      "color": "#ff2a6d",
+      "radius": 0.14
+    }
+  ],
+  "animated": true
+}

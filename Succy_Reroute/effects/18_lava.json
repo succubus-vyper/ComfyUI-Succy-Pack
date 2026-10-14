@@ -1,0 +1,113 @@
+{
+  "id": "lava",
+  "name": "Lava Flow",
+  "icon": "🌋",
+  "order": 180,
+  "description": "Slow molten flow with a cooling crust and rising embers.",
+  "params": [
+    {
+      "key": "width",
+      "label": "Width",
+      "type": "range",
+      "min": 3,
+      "max": 14,
+      "step": 0.5,
+      "default": 6
+    },
+    {
+      "key": "speed",
+      "label": "Flow speed",
+      "type": "range",
+      "min": 0,
+      "max": 120,
+      "step": 5,
+      "default": 30
+    },
+    {
+      "key": "heat",
+      "label": "Heat hue",
+      "type": "range",
+      "min": 0,
+      "max": 60,
+      "step": 1,
+      "default": 18
+    },
+    {
+      "key": "glow",
+      "label": "Glow",
+      "type": "range",
+      "min": 0,
+      "max": 30,
+      "step": 1,
+      "default": 14
+    },
+    {
+      "key": "ember",
+      "label": "Ember spacing",
+      "type": "range",
+      "min": 10,
+      "max": 80,
+      "step": 2,
+      "default": 26
+    }
+  ],
+  "layers": [
+    {
+      "type": "stroke",
+      "perSegment": true,
+      "step": 5,
+      "blur": "$glow",
+      "width": "=$width*(0.8+0.35*sin(s/18 - t*$speed*0.06))",
+      "color": "=hsl($heat+14*sin(s/25 - t*1.2)+6*sin(s/7+t),100,45+12*sin(s/13 - t*2))"
+    },
+    {
+      "type": "stroke",
+      "color": "#3a1208",
+      "alpha": 0.55,
+      "width": "=$width*0.35",
+      "dash": [
+        14,
+        22
+      ],
+      "dashSpeed": "=$speed*0.5",
+      "step": 4,
+      "displace": "=2*sin(s/9 - t)"
+    },
+    {
+      "type": "dots",
+      "shape": "circle",
+      "color": "#ffb36a",
+      "size": 1.4,
+      "spacing": "$ember",
+      "speed": "=$speed*1.5+20",
+      "blur": 8,
+      "offset": "=-6-5*sin(i*1.7+t*2)"
+    }
+  ],
+  "skin": [
+    {
+      "type": "glow",
+      "color": "#ff5a14",
+      "radius": 2.1,
+      "alpha": 0.35
+    },
+    {
+      "type": "disc",
+      "color": "#1c0a06",
+      "radius": 1
+    },
+    {
+      "type": "ring",
+      "color": "#ff7a1a",
+      "radius": 1,
+      "width": 0.18,
+      "blur": 5
+    },
+    {
+      "type": "disc",
+      "color": "=hsl(25+12*sin(t*2),100,55)",
+      "radius": 0.42,
+      "blur": 6
+    }
+  ]
+}
