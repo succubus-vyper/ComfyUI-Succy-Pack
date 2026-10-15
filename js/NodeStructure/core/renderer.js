@@ -142,13 +142,14 @@ function renderNode(rt, R, node, item) {
         }
     }
 
-    // visible / disabled
+    // visible / disabled ("!$ref" = the opposite: a toggle can show one row and hide its twin)
+    const flag = (x) => (typeof x === "string" && x.startsWith("!") ? !evalValue(rt, x.slice(1), item) : !!evalValue(rt, x, item));
     if (node.visible !== undefined && node.visible !== true) {
-        const put = () => { const v = typeof node.visible === "boolean" ? node.visible : !!evalValue(rt, node.visible, item); const s = v ? "1" : "0"; if (el.getAttribute("data-ns-vis") !== s) el.setAttribute("data-ns-vis", s); };
+        const put = () => { const v = typeof node.visible === "boolean" ? node.visible : flag(node.visible); const s = v ? "1" : "0"; if (el.getAttribute("data-ns-vis") !== s) el.setAttribute("data-ns-vis", s); };
         put(); if (typeof node.visible === "string") effects.push(put);
     }
     if (node.disabled !== undefined) {
-        const put = () => { const d = typeof node.disabled === "boolean" ? node.disabled : !!evalValue(rt, node.disabled, item); if ("disabled" in el) el.disabled = d; el.classList.toggle("ns-disabled", d); };
+        const put = () => { const d = typeof node.disabled === "boolean" ? node.disabled : flag(node.disabled); if ("disabled" in el) el.disabled = d; el.classList.toggle("ns-disabled", d); };
         put(); if (typeof node.disabled === "string") effects.push(put);
     }
 

@@ -69,12 +69,15 @@ piece(C("flip_node", {
 });
 
 piece(C("set_node", {
-    scopo: "Scrive un valore in una chiave di stato del nodo (salvo `unless`) e, se richiesto, segna il grafo come modificato.", natura: "funziona", estado: "draft",
+    scopo: "Scrive un valore in una chiave di stato del nodo o in un widget nativo (salvo `unless`) e, se richiesto, segna il grafo come modificato.", natura: "funziona", estado: "draft",
     tag: ["azione", "stato"],
-    props: { key: { ...K("chiave di stato"), required: true }, value: { ...R("valore da scrivere"), required: true }, unless: R("se vero non fa nulla"), change: B("chiama graph.change()", false) },
+    props: { key: K("chiave di stato"), native: S("in alternativa a key: nome di un widget nativo (es. box)"), value: { ...R("valore da scrivere"), required: true }, unless: R("se vero non fa nulla"), change: B("chiama graph.change()", false) },
     esempio: actEx("set_node", { key: "v", value: "uno", change: true }, { state: { v: { policy: "ui" } } }),
 }), (api, ev, el, item, a = {}) => {
     if (a.unless) return;
+    // a native widget gets the value in place (the Python reads it) — same door as flip_node
+    if (a.native) { if (api.native.get(a.native) !== a.value) api.native.set(a.native, a.value); return; }
+    if (!a.key) return;
     if (api.state.get(a.key) === a.value) return;
     api.state.set(a.key, a.value);
     if (a.change) { try { api.node.graph?.change?.(); } catch (_) {} }

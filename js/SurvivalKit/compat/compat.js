@@ -16,5 +16,7 @@ export {
     getDpr,
     getChangeTracker,
     viewUrl,
+    uploadImage,
+    uploadStats,
     inspect,
 } from "./adapters.js";

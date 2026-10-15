@@ -69,6 +69,20 @@ NODES = {
         "display":  "Succy - 🧪X Torture",
         "category": "Succy Pack/Test",
     },
+        "Succy_Crop": {
+        "folder":   "Succy_Crop_Stitch",
+        "py_file":  "Succy_Crop_Stitch.py",
+        "class":    "Succy_Crop",
+        "display":  "Succy - ✂️Crop",
+        "category": "Succy Pack",
+    },
+    "Succy_Stitch": {
+        "folder":   "Succy_Crop_Stitch",
+        "py_file":  "Succy_Crop_Stitch.py",
+        "class":    "Succy_Stitch",
+        "display":  "Succy - 🧵Stitch",
+        "category": "Succy Pack",
+    }
 }
 
 # Usiamo MODULES per il loop per sfruttare i mapping definiti nel file stesso

@@ -139,8 +139,9 @@ export class Lifecycle {
             // only as wide as its widgets. Now a fresh node gets at least the declared width; a loaded or pasted one
             // gets its saved size right after, from configure(). She starts with room to breathe.
             try {
-                const dw = Number(config.defaultSize?.[0]) || 0;
-                if (dw && this.size && this.size[0] < dw) this.setSize?.([dw, this.size[1]]);
+                const dw = Number(config.defaultSize?.[0]) || 0, dh = Number(config.defaultSize?.[1]) || 0;
+                // height too (D-106): a free-height node (Crop) is born at its declared size; derived nodes snap back to theirs anyway
+                if (this.size && ((dw && this.size[0] < dw) || (dh && this.size[1] < dh))) this.setSize?.([Math.max(this.size[0], dw), Math.max(this.size[1], dh)]);
             } catch (_) {}
             return ret;
         };

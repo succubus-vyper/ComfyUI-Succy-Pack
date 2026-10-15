@@ -371,8 +371,10 @@ export class Heal {
                     if (!touched) return false;
                     try { node.arrange?.(); } catch (_) {}
                     try {
+                        // grow only (D-106): shrinking here threw away the height a free-height node (Crop) was given by hand or
+                        // by its saved workflow; derived nodes get their exact height from NodeStructure's relayout anyway
                         const sz = node.computeSize?.();
-                        if (sz && node.size) node.setSize?.([node.size[0], sz[1]]);
+                        if (sz && node.size && sz[1] > node.size[1]) node.setSize?.([node.size[0], sz[1]]);
                     } catch (_) {}
                     try { node.setDirtyCanvas?.(true, true); } catch (_) {}
                     return true;
@@ -394,8 +396,10 @@ export class Heal {
                     if (!touched) return false;
                     try { node.arrange?.(); } catch (_) {}
                     try {
+                        // grow only (D-106): shrinking here threw away the height a free-height node (Crop) was given by hand or
+                        // by its saved workflow; derived nodes get their exact height from NodeStructure's relayout anyway
                         const sz = node.computeSize?.();
-                        if (sz && node.size) node.setSize?.([node.size[0], sz[1]]);
+                        if (sz && node.size && sz[1] > node.size[1]) node.setSize?.([node.size[0], sz[1]]);
                     } catch (_) {}
                     try { node.setDirtyCanvas?.(true, true); } catch (_) {}
                     return true;

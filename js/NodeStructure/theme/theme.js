@@ -120,6 +120,7 @@ ${tokenBlock(".ns-root", TOKENS_DARK)}
 .ns-seg-btn.ns-tone-mute.ns-active{color:var(--ns-t-mute);background:color-mix(in srgb,var(--ns-t-mute) 15%,transparent)}
 .ns-seg-btn.ns-tone-fx.ns-active{box-shadow:0 0 5px color-mix(in srgb,currentColor 35%,transparent)}
 .ns-btn-act{flex:1;padding:9px 8px;font-size:11px;letter-spacing:.4px;text-transform:uppercase;color:#fff;transition:background .15s,box-shadow .15s,opacity .15s}
+.ns-slim .ns-seg-btn{padding:3px 4px}.ns-slim .ns-btn-act,.ns-btn-act.ns-slim{padding:4px 8px}
 .ns-btn.ns-tone-ok{background:#2d6a2d}.ns-btn.ns-tone-ok:hover:not(:disabled):not(.ns-disabled){background:#3a8a3a;border-color:var(--ns-border);box-shadow:0 0 10px rgba(58,138,58,.30)}
 .ns-btn.ns-tone-danger{background:#8b1a1a}.ns-btn.ns-tone-danger:hover:not(:disabled):not(.ns-disabled){background:#b02020;border-color:var(--ns-border);box-shadow:0 0 10px rgba(176,32,32,.30)}
 .ns-btn.ns-tone-ok.ns-disabled,.ns-btn.ns-tone-danger.ns-disabled,.ns-btn.ns-tone-ok:disabled,.ns-btn.ns-tone-danger:disabled{filter:saturate(.5);box-shadow:none;cursor:not-allowed}

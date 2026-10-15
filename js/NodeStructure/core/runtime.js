@@ -92,6 +92,12 @@ export class Runtime {
         if (r.host.getAttribute("data-ns-vis") !== v) r.host.setAttribute("data-ns-vis", v);
         const w = r.widget?.element;
         if (w && w !== r.host) w.style.display = hidden ? "none" : "";
+        // D-106: Vue Nodes lays regions out as `auto` grid rows and ignores the declared heights (getMinHeight & co.), so the
+        // spare room gets shared with the neighbours. A `pin` region puts its declared height on the DOM as min-height: it keeps its size.
+        if (r.spec.height?.pin) {
+            const px = hidden ? "" : regionHeight(this, r.spec).value + "px";
+            if (r.host.style.minHeight !== px) r.host.style.minHeight = px;
+        }
     }
 
     // ---- update (batched on a tracked rAF) ----
@@ -166,6 +172,7 @@ export class Runtime {
         const fixed = this.def.node?.fixedSize;
         if (fixed) { size[0] = fixed[0]; size[1] = fixed[1]; return; }
         for (const fn of [...this.onNodeResize]) { try { fn(size); } catch (e) { this.warnOnce("onNodeResize", e); } }
+        if (this.onNodeResize.size) this.update();          // D-106: a `pin` region (Vue Nodes) only gets its new height on a flush
         if ((this.spec.layout?.heightMode || "derived") === "derived") {
             try { const t = this.node.computeSize?.([size[0], 0]); if (t && t[1] > 0) size[1] = t[1]; } catch (_) {}
         }

@@ -12,7 +12,7 @@
 import { Governor } from "./governor.js";
 import { Errors } from "./errors.js";
 
-const VERSION = "1.3.0";
+const VERSION = "1.5.0";
 const TESTED_FE = "1.53.10";             // frontend on which the assumptions were verified
 const LS_OPEN = "succy:monitor-open";
 
@@ -183,6 +183,11 @@ function install() {
         ["EXT door (Builder)", () => { const np = SK()?.nodePorts, e = NS()?.ext; if (!np || !e) return ["err", "SurvivalKit.nodePorts / NodeStructure.ext missing"]; const pr = np.probe(); if (!pr.ok) return ["err", "missing: " + pr.missing.join(", ")]; if (typeof np.showInputs !== "function") return ["err", "nodePorts.showInputs missing"]; const s = e.stats(); if (!s.users) return ["n/a", "no users"]; if (s.errors.length) return ["err", s.errors.slice(0, 2).join(" · ")]; return ["ok", `${s.users} nodes · widget ${s.widget} · chip ${s.chip}`]; }],
         ["Reroute panel (Builder)", () => { const il = SK()?.inputLink; if (!il) return ["err", "SurvivalKit.inputLink missing"]; const miss = ["rerouteWires", "rerouteDropSource", "rerouteSetSource", "rerouteDropDest"].filter((k) => typeof il[k] !== "function"); if (miss.length) return ["err", "inputLink missing: " + miss.join(", ")]; const ex = NS()?.extensions?.get?.("Succy.NativeReroutes"), cur = ex?.current?.(), g = app()?.canvas?.graph, rid = cur?.node?.reroute?.id; if (cur && g && !g.reroutes?.has?.(rid)) return ["err", `orphan panel: reroute #${rid} is gone but its menu is still open`]; const n = g?.reroutes instanceof Map ? g.reroutes.size : 0; return ["ok", n ? `${n} reroutes · ${cur ? "panel open on #" + rid : "no panel open"}` : "no reroutes"]; }],
         ["Pause hold (Survival)", () => { const h = SK()?.hold; if (!h) return ["err", "SurvivalKit.hold missing"]; const s = h.stats(); if (!s.classes?.length) return ["n/a", "no Pause nodes"]; return ["ok", `${s.classes.length} class(es) · ${s.waiting} waiting · ${s.runs} runs`]; }],
+        // --- D-105 (Crop phase 2): the viewport and the picture feed ---
+        ["Crop viewport (Builder)", () => { const v = NS()?.view; if (!v) return ["err", "NodeStructure.view missing"]; const s = v.stats(), f = v.shots(); if (!s.views && !f.nodes) return ["n/a", "no Crop viewport open"]; if (f.nodes && !f.wired) return ["warn", "pictures arrived but the feed is not wired"]; return ["ok", `${s.views} viewport(s) (${s.zoomed} zoomed) · ${f.nodes} picture(s)`]; }],
+        // --- D-106 (Crop phase 3): free hand mask and pictures loaded without a Queue ---
+        ["Crop brush (Builder)", () => { const b = NS()?.view?.brush; if (!b) return ["err", "NodeStructure.view.brush missing"]; const s = b(); if (!s.brushes) return ["n/a", "no brush open"]; return ["ok", `${s.brushes} brush(es) · ${s.active} in free hand · ${s.painting} painting`]; }],
+        ["Image load (Survival)", () => { const c = SK()?.compat; if (!c?.uploadStats) return ["err", "SurvivalKit.compat.uploadImage missing"]; const u = c.uploadStats(), b = NS()?.view?.brush?.() || {}; if (!u.ok && !u.failed && !u.pending) return ["n/a", "nothing uploaded yet"]; if (u.failed) return ["warn", `${u.failed} failed upload(s): ${u.last || b.last || "?"}`]; return ["ok", `${u.ok} upload(s) · ${b.drops || 0} drop · ${b.pastes || 0} paste · ${b.picks || 0} pick${u.pending ? ` · ${u.pending} in flight` : ""}`]; }],
         ["Reroute snap (Survival)", () => { const r = SK()?.rerouteSnap; if (!r) return ["err", "SurvivalKit.rerouteSnap missing"]; return r.active() ? ["ok", `${r.active()} user(s)`] : ["n/a", "no users"]; }],
         ["Subgraph shield (Survival)", () => { const sh = SK()?.subgraphShield, P = globalThis.LiteGraph?.LGraph?.prototype; if (!sh) return ["err", "SurvivalKit.subgraphShield missing"]; const miss = ["convertToSubgraph", "unpackSubgraph"].filter((k) => typeof P?.[k] !== "function"); if (miss.length) return ["err", "frontend lost: " + miss.join(", ")]; return sh._installed ? ["ok", "installed"] : ["warn", "not installed"]; }],
         // --- B4 (14/10): the last Survival departments without a chaperone get one too. Nobody sleeps unwatched, darling ---
@@ -211,6 +216,9 @@ function install() {
         "EXT door (Builder)": "NodeStructure/pieces/node.js (ext_node) + SurvivalKit/shields/node-ports.js (showInputs)",
         "Reroute panel (Builder)": "SurvivalKit/shields/input-link.js (reroute*) + NodeStructure/pieces/wire.js + NodeStructure/core/extend.js (the menu closes when its reroute dies)",
         "Pause hold (Survival)": "SurvivalKit/shields/hold.js",
+        "Crop viewport (Builder)": "NodeStructure/components/view.js (view_box, marquee_element) + NodeStructure/runtime/shot-feed.js",
+        "Crop brush (Builder)": "NodeStructure/components/brush.js (brush_element)",
+        "Image load (Survival)": "SurvivalKit/compat/adapters.js (uploadImage) + NodeStructure/components/brush.js (load_mask)",
         "Reroute snap (Survival)": "SurvivalKit/shields/reroute-snap.js",
         "Subgraph shield (Survival)": "SurvivalKit/shields/subgraph.js",
         "Lifecycle + heal (Survival)": "SurvivalKit/core/lifecycle.js (_wrapHooks) + SurvivalKit/core/heal.js (_uiHealthy / heal)",

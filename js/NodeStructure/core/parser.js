@@ -194,7 +194,7 @@ export function normalizeSpec(raw, opts = {}) {
         for (const k of ["visible", "disabled"]) if (node[k] !== undefined) {
             if (typeof node[k] === "boolean") continue;
             if (typeof node[k] !== "string") err(`${path}.${k}`, "bool o ref");
-            else noteRef(`${path}.${k}`, node[k], { allow: ["live", "state", "native", "cache", "local", "item"] });
+            else noteRef(`${path}.${k}`, node[k].replace(/^!/, ""), { allow: ["live", "state", "native", "cache", "local", "item"] });      // "!$ref" = the opposite
         }
         if (node.scrollable !== undefined && typeof node.scrollable !== "boolean") err(`${path}.scrollable`, "bool");
 
@@ -265,7 +265,7 @@ export function normalizeSpec(raw, opts = {}) {
                 if (h.live !== undefined) noteRef(`${p}.height.live`, h.live, { allow: ["live"] });
                 if (h.active !== undefined) noteRef(`${p}.height.active`, h.active, { allow: ["live", "state", "native", "cache", "local"] });
                 for (const k of ["value", "min", "max", "default", "plus"]) if (h[k] !== undefined && !(typeof h[k] === "number" && h[k] >= 0)) err(`${p}.height.${k}`, "numero >= 0");
-                for (const k of ["auto", "flex", "triple"]) if (h[k] !== undefined && typeof h[k] !== "boolean") err(`${p}.height.${k}`, "bool");
+                for (const k of ["auto", "flex", "triple", "pin"]) if (h[k] !== undefined && typeof h[k] !== "boolean") err(`${p}.height.${k}`, "bool");
             } else err(`${p}.height`, "numero o oggetto");
         }
         const scope = { ids: new Set() };

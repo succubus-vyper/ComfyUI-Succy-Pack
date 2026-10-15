@@ -16,6 +16,7 @@
 //   {auto:true, min, max}           measured from the content (ResizeObserver)
 //   plus:N, active:"$ref"           FIXED part (px) added to bind; if `active` is false only plus remains
 //   flex:true                       the widget may grow beyond the declared value
+//   pin:true                        Vue Nodes: the declared height goes on the DOM as min-height (D-106)
 // ============================================================
 
 import { parseRef } from "./parser.js";

@@ -14,6 +14,9 @@ import "./components/layout.js";
 import "./components/controls.js";
 import "./components/media.js";
 import "./components/progress.js";
+import { viewStats } from "./components/view.js";
+import { brushStats } from "./components/brush.js";
+import { ShotFeed } from "./runtime/shot-feed.js";
 import "./behaviors/builtin.js";
 import "./pieces/panes.js";
 import "./pieces/actions.js";
@@ -44,7 +47,7 @@ import { extend, EXTS } from "./core/extend.js";
 import { Governor } from "../Governor/governor.js";
 import { deepClone, deepEqual, propertyViolations, findNonJson } from "./util/json.js";
 
-export const VERSION = "0.3.0";
+export const VERSION = "0.3.1";
 
 // CSS outside the kit = drift (nodes have no CSS): it still gets registered but stays on record
 const LATE_CSS = [];
@@ -102,6 +105,8 @@ export const NodeStructure = {
     ext: Ext,
     // editable tables (table_box, D-67): state of the live tables ("Tables" light)
     tables: Tables,
+    // viewport + picture feed of Crop (view_box / shot_system, D-105): zoomed stages and pictures held (Governor HEALTH light)
+    view: { stats: viewStats, shots: ShotFeed.stats, brush: brushStats },
 
     instanceOf: (node) => INSTANCES.get(node) || null,
     instances: liveRuntimes,

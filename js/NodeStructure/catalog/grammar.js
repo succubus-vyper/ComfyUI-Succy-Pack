@@ -21,15 +21,15 @@ export const PROP_TYPES = Object.freeze(["string", "number", "bool", "enum", "re
 const W = (tipo, words) => words.split(/\s+/).filter(Boolean).map((w) => [w, tipo]);
 const ENTRIES = [
     // component: objects you put in a spec
-    ...W("component", "stack row group grid section notice pane cards form editor menu spacer separator divider label text pre badge button toggle input textarea number stepper select segmented field image canvas slot raw note table status progress wire"),
+    ...W("component", "stack row group grid section notice pane cards form editor menu spacer separator divider label text pre badge button toggle input textarea number stepper select segmented field image canvas slot raw note table status progress wire view marquee brush"),
     // behavior: behaviors switched on in spec.behaviors
-    ...W("behavior", "collapse resize open gate follow persist ext sync bind feed lab paint chip shape grow snap hold"),
+    ...W("behavior", "collapse resize open gate follow persist ext sync bind feed lab paint chip shape grow snap hold load"),
     // action: generic recipes called from `on`/`commit` ($actions.<name>)
     ...W("action", "copy download flip set focus reload fit toast kill reset release sound"),
     // renderer: painters for canvas_element
     ...W("renderer", "dot preview particles"),
     // io: kit data sources ($live.<name>)
-    ...W("io", "sig type chain source deck params effects self style vram tab loop"),
+    ...W("io", "sig type chain source deck params effects self style vram tab loop shot"),
 ];
 const seen = new Map();
 for (const [w, t] of ENTRIES) { if (seen.has(w) && seen.get(w) !== t) throw new Error(`dizionario: '${w}' ha due tipi`); seen.set(w, t); }

@@ -224,12 +224,13 @@ class Succy_Preview_Anything_Convert:
                     if is_mask:
                         pil_img = Image.fromarray(arr, mode="L")
                     else:
-                        # handles grayscale (1 channel) and RGBA (4 channels)
+                        # handles grayscale (1 channel) and RGBA (4 channels): the alpha is KEPT (D-106: a Crop cutout
+                        # previewed as RGB looked uncut). Anything wider than 4 channels keeps its first 3.
                         if arr.shape[-1] == 1:
                             arr = np.repeat(arr, 3, axis=-1)
-                        elif arr.shape[-1] > 3:
+                        elif arr.shape[-1] > 4:
                             arr = arr[..., :3]
-                        pil_img = Image.fromarray(arr, mode="RGB")
+                        pil_img = Image.fromarray(arr, mode="RGBA" if arr.shape[-1] == 4 else "RGB")
                     pil_img.save(file_path, compress_level=4)
 
                     ui_images = [{
