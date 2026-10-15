@@ -56,7 +56,27 @@ export const SPEC = {
             ] },
         ] },
     }],
+    menus: {
+        info: NodeStructure.infoMenu({
+            title: "Succy Pause — hold that thought",
+            about: "Stops the Queue right here and waits for you. Everything after this node holds still until you press Continue, press Stop, or the timeout runs out. What goes in comes out unchanged.",
+            keys: [
+                { keys: "Pause Workflow / Do Not Pause", does: "Do Not Pause turns the node into a plain wire: handy to keep it in place and switch it off." },
+                { keys: "Timeout", does: "Seconds to wait (1–3600). When it runs out, the node decides by itself (see On Timeout)." },
+                { keys: "On Timeout  ▶ / ■", does: "▶ = carry on after the timeout. ■ = stop the whole workflow." },
+                { keys: "Sound Warning / Mute", does: "A ding when the workflow stops here, so you can go and make tea." },
+                { keys: "Continue", does: "Lets the run go on past this node." },
+                { keys: "Stop", does: "Ends the run here." },
+            ],
+            notes: [
+                "ComfyUI's own Stop button works too, any time.",
+                "Inside a Succy loop, it pauses at every turn and Continue resumes in place.",
+                "While it waits the status shows the countdown; the buttons are only active when there is something to act on.",
+            ],
+        }),
+    },
     behaviors: [
+        { type: "info_node", menu: "info" },
         { type: "sync_output" },
         { type: "chip_input", input: "input" },
         { type: "chip_output", output: "output" },

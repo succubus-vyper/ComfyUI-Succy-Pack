@@ -107,7 +107,29 @@ export const SPEC = {
             ] },
         },
     ],
+    menus: {
+        info: NodeStructure.infoMenu({
+            title: "Succy Multi Math — a pocket calculator, chained",
+            about: "Up to 15 equations over the inputs a..j (the next input appears when you plug the previous one). Each equation is its own output (r1, r2…), and each can use the ones above it. A broken formula gives 0 and a red line in Debug: it never kills the Queue.",
+            keys: [
+                { keys: "@", does: "Type @ in a formula to insert an input or an earlier result by name." },
+                { keys: "+ − * / // % ^", does: "Add, subtract, multiply, divide, whole-number divide, remainder, power." },
+                { keys: "< <= > >= == != and or not", does: "Comparisons and logic give 1 (true) or 0 (false)." },
+                { keys: "a if c else b  ·  ifelse(c,a,b)", does: "Choose between two values." },
+                { keys: "min max abs round clamp lerp avg sign factorial", does: "Handy helpers. round() goes half UP: 2.5 → 3." },
+                { keys: "sqrt sin cos tan log exp floor ceil …", does: "Everything from Python's math module, plus pi, e, tau." },
+                { keys: "FLOAT · INT · STRING · BOOL", does: "The format of each output. INT rounds half up; BOOL is false only for 0." },
+            ],
+            notes: [
+                "The name you type in the small box becomes the output's name, but the wire stays r1..rN: renaming never unplugs anything.",
+                "Equations: the stepper sets how many; the outputs follow.",
+                "Debug On shows every formula with its values filled in and the result. Collapse folds the equations away.",
+                "No eval: formulas are parsed by a tiny safe interpreter, so sharing a workflow is safe.",
+            ],
+        }),
+    },
     behaviors: [
+        { type: "info_node", menu: "info" },
         // sockets: a..j open one by one, nothing shifts when you unplug (D-70). Must run BEFORE the chips look for their sockets.
         { type: "grow_input", names: INPUTS, min: 2, slotType: "*", cacheKey: "inNames" },
         ...INPUTS.map((n) => ({ type: "chip_input", input: n, types: ["INT", "FLOAT", "BOOLEAN", "*"] })),

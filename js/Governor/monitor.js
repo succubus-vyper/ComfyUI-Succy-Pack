@@ -13,7 +13,7 @@ import { Governor } from "./governor.js";
 import { Errors } from "./errors.js";
 
 const VERSION = "1.6.0";
-const TESTED_FE = "1.53.10";             // frontend on which the assumptions were verified
+const TESTED_FE = "1.55.17";             // frontend on which the assumptions were verified
 const LS_OPEN = "succy:monitor-open";
 
 if (!globalThis.__succyMonitorInstalled) {

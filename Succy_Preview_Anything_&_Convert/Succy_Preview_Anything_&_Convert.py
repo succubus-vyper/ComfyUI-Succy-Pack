@@ -140,6 +140,8 @@ class Succy_Preview_Anything_Convert:
                 }),
                 "source": (ANY, {"tooltip": "Attach anything here."}),
                 "output_type": (_OUTPUT_TYPES, {"default": "STRING"}),
+                # only meaningful with output_type MASK: flips the mask (1 - m). The frontend shows it as the INVERT button.
+                "invert_mask": ("BOOLEAN", {"default": False}),
             }
         }
 
@@ -149,7 +151,7 @@ class Succy_Preview_Anything_Convert:
     OUTPUT_NODE = True
 
     # -------------------------------------------------------------- #
-    def execute(self, preview, source, output_type):
+    def execute(self, preview, source, output_type, invert_mask=False):
         converted = source
         width = height = 0
         megapixels = 0.0
@@ -213,15 +215,21 @@ class Succy_Preview_Anything_Convert:
                 else:
                     converted = source
 
+                # MASK + INVERT: white <-> black. Done on the converted mask, so image -> mask -> invert works in one go.
+                invert_shown = bool(invert_mask) and output_type == "MASK"
+                if invert_shown:
+                    converted = 1.0 - converted
+
                 # PNG preview (always saved, even with preview OFF) — we keep a souvenir
                 try:
                     temp_dir = folder_paths.get_temp_directory()
                     filename = f"succy_preview_{random.randint(0, 99999999)}.png"
                     file_path = os.path.join(temp_dir, filename)
 
-                    arr = source[0].cpu().numpy()
+                    shown = converted if invert_shown else source      # inverted mask: preview what comes out
+                    arr = shown[0].cpu().numpy()
                     arr = np.clip(255.0 * arr, 0, 255).astype(np.uint8)
-                    if is_mask:
+                    if shown.dim() == 3:
                         pil_img = Image.fromarray(arr, mode="L")
                     else:
                         # handles grayscale (1 channel) and RGBA (4 channels): the alpha is KEPT (D-106: a Crop cutout

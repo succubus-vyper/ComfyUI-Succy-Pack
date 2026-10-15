@@ -53,6 +53,18 @@ def _emit_for_status(start_id, iteration, total, accumulate):
         "accumulate": bool(accumulate),
     })
 
+def _emit_for_start(start_id, finished, total):
+    """Loop Start announces the pass that is ABOUT to run (`finished` = passes already completed before it)."""
+    if start_id is None:
+        return
+    _succy_send({
+        "start_id": str(start_id),
+        "kind": "for",
+        "side": "start",
+        "iteration": int(finished),
+        "total": int(total),
+    })
+
 def _emit_for_done(start_id, total):
     if start_id is None:
         return
@@ -278,6 +290,7 @@ class Succy_LoopStart:
 
         is_first = idx == 0
         is_last = idx >= max(total - 1, 0)
+        _emit_for_start(state.get("start_id"), idx, total)
 
         item = None
         if mode == "list":
@@ -435,7 +448,7 @@ class Succy_LoopEnd(_LoopGraphMixin):
             "required": {
                 "flow": ("FLOW_CONTROL",),
                 "output_value": (ANY,),
-                "accumulate": ("BOOLEAN", {"default": False}),
+                "accumulate": ("BOOLEAN", {"default": True}),
             },
             "optional": {
                 "next_iteration_value": (ANY,),

@@ -76,6 +76,7 @@ ${tokenBlock(".ns-root", TOKENS_DARK)}
 .ns-btn:hover{background:var(--ns-c-accent-tint, rgba(74,158,255,.22));border-color:var(--ns-border-hi);color:var(--ns-c-text-strong, #fff)}
 .ns-btn.ns-on{color:var(--ns-warn)}
 .ns-btn.ns-cool{color:var(--ns-accent)}
+.ns-pv2 .ns-btn.ns-on-info,.ns-btn.ns-on-info{background:color-mix(in srgb,var(--ns-t-info) 20%,transparent);border-color:color-mix(in srgb,var(--ns-t-info) 55%,transparent);color:var(--ns-t-info)}
 .ns-pv2 .ns-btn.ns-on,.ns-btn.ns-on{background:color-mix(in srgb,var(--ns-t-warn) 20%,transparent);border-color:color-mix(in srgb,var(--ns-t-warn) 55%,transparent);color:var(--ns-t-warn)}
 .ns-pv2 .ns-btn.ns-cool,.ns-btn.ns-cool{background:color-mix(in srgb,var(--ns-t-info) 18%,transparent);border-color:color-mix(in srgb,var(--ns-t-info) 50%,transparent);color:var(--ns-t-info)}
 /* little square toggle (Pause: On Timeout play/stop) */

@@ -47,6 +47,9 @@ export const SPEC = {
                     { t: "row_box", children: [
                         { t: "label_element", text: "Convert To" },
                         { t: "select_element", id: "typeSel", class: "ns-sel-out", bind: "$native.output_type", options: "$live.typeOptions" },
+                        // MASK out only: converts to a mask AND flips it (white <-> black). Blue = on, grey = off.
+                        { t: "button_element", id: "invBtn", text: "INVERT", title: "Invert the mask", visible: "$live.maskOut", classIf: { "ns-on-info": "$native.invert_mask" },
+                            on: { click: { do: "$actions.flip_node", args: { native: "invert_mask" } } } },
                     ] },
                 ] },
                 { t: "separator_element", id: "sep", size: SEP_H, visible: "$native.preview" },
@@ -62,7 +65,26 @@ export const SPEC = {
             ] },
         },
     ],
+    menus: {
+        info: NodeStructure.infoMenu({
+            title: "Succy Preview — look at anything, change its type",
+            about: "Plug anything in: you see it in the box, and you get it back converted to the type you choose. It works as a viewer, as a converter, or both.",
+            keys: [
+                { keys: "Preview On / Off", does: "Off hides the box and the node shrinks. The conversion still works." },
+                { keys: "Convert To", does: "The type of the output: STRING, INT, FLOAT, BOOLEAN, LIST, DICT, ARRAY, JSON, COMBO, and IMAGE ↔ MASK for pictures." },
+                { keys: "INVERT", does: "Appears when Convert To is MASK. Blue = on: the mask comes out flipped (white ↔ black), preview included. Grey = off." },
+        { keys: "⧉ Copy", does: "Copies the text or the picture to the clipboard." },
+                { keys: "⬇ Download", does: "Saves the picture (image mode)." },
+            ],
+            notes: [
+                "Plug an IMAGE and the node grows three more outputs: width, height and megapixels (besides the picture).",
+                "Anything else gives just the one output. If the text can't become the type you asked for, you get a neutral value (0, empty…).",
+                "With a picture the box follows the node; with text, stretch it from the corner handle.",
+            ],
+        }),
+    },
     behaviors: [
+        { type: "info_node", menu: "info" },
         // image: the node is free and the box follows; text/empty: node height LOCKED, resizes only from the handle
         { type: "follow_mask", region: "main", state: "bodyHeight", min: 62, max: 640, persist: "triple", when: "$live.free" },
         { type: "resize_mask", container: "pane", region: "main", state: "bodyHeight", min: 62, max: 640 },
@@ -84,6 +106,7 @@ export const SPEC = {
 
 const live = {
     // image mode (IMAGE/MASK input connected, even before the first run): free node, no handle
+    maskOut: (api) => api.native.get("output_type") === "MASK",
     free: (api) => api.cache.get("mode") === "IMAGE" || content(api)?.kind === "image",
     typeOptions: (api) => { const v = api.native.widget("output_type")?.options?.values; return Array.isArray(v) && v.length ? v : TEXT_TYPES; },
     view(api) {
@@ -95,7 +118,7 @@ const live = {
 NodeStructure.define(TYPE, {
     minWidth: 240,
     defaultSize: [DEFAULT_W, 260],
-    natives: ["preview", "output_type"],
+    natives: ["preview", "output_type", "invert_mask"],
     channels: ["heal", "undo", "redo"],
     order: ["ns_main"],
     state: {
@@ -105,9 +128,9 @@ NodeStructure.define(TYPE, {
     config: { bind_input: { input: 0 } },
     spec: SPEC, live,
     hooks: {
-        onSetup(api) { api.native.hide(["preview", "output_type"]); },
-        refreshFromNative(api) { api.native.hide(["preview", "output_type"]); },
-        onRestore(api) { api.native.hide(["preview", "output_type"]); },
+        onSetup(api) { api.native.hide(["preview", "output_type", "invert_mask"]); },
+        refreshFromNative(api) { api.native.hide(["preview", "output_type", "invert_mask"]); },
+        onRestore(api) { api.native.hide(["preview", "output_type", "invert_mask"]); },
         onConnect(api, t, index) {
             // "when": image input unplugged -> HEIGHT goes back to default (width stays).
             // Deferred: a cable swap (unplug+plug) must not reset anything. Quick changes of partner are allowed. The output shape is shape_output's job.

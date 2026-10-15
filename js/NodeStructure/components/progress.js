@@ -20,7 +20,7 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 const RING_C = 163.4;           // 2·π·26
 const STATES = ["idle", "running", "done", "stopped"];
 const PILL = { idle: "IDLE", running: "RUNNING", done: "DONE", stopped: "STOPPED" };
-const FX_DEFAULT = { accent: "#7cbcff", ring: true, cells: true, glow: true, animate: true, maxCells: 24 };
+const FX_DEFAULT = { accent: "#7cbcff", ring: true, cells: true, glow: true, animate: true, reverse: false, maxCells: 24 };
 
 const rgbOf = (hex) => {
     const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || "").trim());
@@ -151,6 +151,7 @@ const CSS = METER_CSS + `
 .fx-anim .ns-pg-ring.spin svg{animation:nsPgSpin 1.6s linear infinite}
 .fx-anim .ns-pg-cell.cur{animation:nsPgPulse 1s ease-in-out infinite}
 .fx-anim.is-running .ns-pg-bar>i{background-size:24px 24px;background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.18) 0 6px,transparent 6px 12px),linear-gradient(90deg,rgba(var(--a-rgb),.5),var(--a));animation:nsPgStripes .8s linear infinite}
+.fx-rev.fx-anim.is-running .ns-pg-badge,.fx-rev.fx-anim .ns-pg-ring.spin svg{animation-direction:reverse}
 @keyframes nsPgSpin{to{transform:rotate(360deg)}}
 @keyframes nsPgPulse{0%,100%{opacity:1}50%{opacity:.55}}
 @keyframes nsPgStripes{to{background-position:24px 0,0 0}}
@@ -164,7 +165,7 @@ piece(C("progress_element", {
         data: { ...R("oggetto vista {state, pill, num, title, sub, frac, spin, meter, cells, slots, slotPrefix, note} (di solito un pezzo io)"), required: true },
         name: S("nome nella testa (vuoto = testa senza nome)", ""),
         icon: S("glifo del badge nella testa (vuoto = niente badge)", ""),
-        fx: J("aspetto {accent:'#rrggbb', ring, cells, glow, animate, maxCells}", FX_DEFAULT),
+        fx: J("aspetto {accent:'#rrggbb', ring, cells, glow, animate, reverse (gira al contrario), maxCells}", FX_DEFAULT),
     },
     esempio: ex({ t: "progress_element", name: "Loop", icon: "↻", data: { state: "running", num: "3", title: "PASS 3 OF 8", sub: "5 to go", frac: 0.375, cells: { n: 8, done: 3, cur: true } } }),
 }), (node, h) => {
@@ -174,6 +175,7 @@ piece(C("progress_element", {
     el.style.setProperty("--a-rgb", rgbOf(fx.accent));
     el.classList.toggle("fx-glow", fx.glow !== false);
     el.classList.toggle("fx-anim", fx.animate !== false);
+    el.classList.toggle("fx-rev", !!fx.reverse);          // spins the other way (End nodes: the way back)
 
     // head
     const head = mkEl("div", "ns-pg-head");

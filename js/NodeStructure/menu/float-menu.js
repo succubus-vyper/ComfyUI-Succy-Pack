@@ -128,18 +128,9 @@ function applySize(menu, spec) {
     menu.style.width = w + "px"; menu.style.height = h + "px";
     return z;
 }
-let _fontAsked = false;
-function ensureMenuFont() {            // IBM Plex for menu v2; if offline the system fonts stay (token --nsm-font)
-    if (_fontAsked) return;
-    _fontAsked = true;
-    try {
-        if (document.getElementById("succy-ns-font-menu-v2")) return;
-        const l = document.createElement("link");
-        l.id = "succy-ns-font-menu-v2"; l.rel = "stylesheet";
-        l.href = "https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap";
-        document.head.appendChild(l);
-    } catch (_) {}
-}
+// No remote font fetch anymore (it tripped the CSP and bought us nothing): menu v2 rides the system fonts from --nsm-font.
+// Keep the name so the callers stay put; it's a no-op now. Nothing to see here, darling.
+function ensureMenuFont() {}
 // on-screen rectangle of the runtime's subject (node or native reroute), or null
 export function subjectRect(rt) {
     try {

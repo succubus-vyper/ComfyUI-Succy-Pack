@@ -172,14 +172,22 @@ piece(C("feed_system", {
 
 piece(C("sync_output", {
     scopo: "Allinea il tipo dell'uscita 0 al tipo risolto lungo la catena (setup, restore, connessioni, a valle, ogni ~200ms mentre si disegna).", natura: "funziona", dominio: "graph", estado: "draft",
-    tag: ["comportamento", "uscita", "tipo"], uses: ["type_link"], props: {},
+    tag: ["comportamento", "uscita", "tipo"], uses: ["type_link"],
+    props: { input: S("opzionale: nome dell'ingresso da cui copiare il tipo (senza: catena classica, ingresso 0)"), output: S("con `input`: nome dell'uscita che prende il tipo (default: la prima)") },
     esempio: exb({ t: "label_element", text: "x" }, [{ type: "sync_output" }]),
-}), (rt) => {
+}), (rt, p) => {
+    // named input -> named output (Loop End: `outputs` takes the type of whatever feeds `output_value`; unplugged = "*")
+    const named = () => {
+        const n = rt.node, i = n.inputs?.findIndex((x) => x.name === p.input) ?? -1, o = p.output ? n.outputs?.find((x) => x.name === p.output) : n.outputs?.[0];
+        if (!o) return;
+        const t = (i >= 0 && ch.wireType(n, i)) || "*";
+        if (o.type !== t) { o.type = t; n.setDirtyCanvas?.(true, true); }
+    };
     const one = (n) => { try { ch.syncTypes(n); } catch (_) {} };
-    const all = () => { one(rt.node); };
+    const all = () => { if (p.input) named(); else one(rt.node); };
     all();
     rt.onRestore.add(all);
-    rt.onConnect.add(() => { all(); for (const d of ch.downstream(rt.node)) one(d); });
+    rt.onConnect.add(() => { all(); if (!p.input) for (const d of ch.downstream(rt.node)) one(d); });
     let last = 0;
     rt.onDraw.add(() => { const t = performance.now(); if (t - last > 200) { last = t; all(); } });
 });

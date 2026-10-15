@@ -42,6 +42,21 @@ export const SPEC = {
         ] },
     }],
     menus: {
+        info: NodeStructure.infoMenu({
+            title: "Succy Label — a note with attitude",
+            about: "A note that lives on the canvas, with backgrounds, borders, text styles and animated effects. Type the text by hand, or plug a STRING and the note shows it on every run.",
+            keys: [
+                { keys: "Double click", does: "Edit the note and open the style menu." },
+                { keys: "⚙", does: "The same style menu, from the gear." },
+                { keys: "↻ (in the menu)", does: "Reloads the effect files from disk after you edit them." },
+                { keys: "Stretch the node", does: "The note follows the node size, any width and height." },
+            ],
+            notes: [
+                "Style menu: text, background animation and palette, border, overlay pattern, font. The tabs at the top switch between them.",
+                "With the text input plugged, the incoming text replaces your own on every Queue (until the first run it says 'Awaiting node communication…').",
+                "Effects are plain JSON files in Succy_Label/effects: the 0----HowTo.txt there explains how to make your own.",
+            ],
+        }),
         // dedicated menu protocol v2 (D-57): fixed size L/M/S, anchored to the node, closes with ✕/Esc
         style: {
             kind: "menu_float_panel", look: "v2", size: "auto", dock: "subject", dismiss: "explicit",
@@ -66,6 +81,7 @@ export const SPEC = {
         },
     },
     behaviors: [
+        { type: "info_node", menu: "info", hover: true },   // the heart only shows while the pointer is over the node
         { type: "open_float", menu: "style", trigger: "gear", on: "click" },
         { type: "open_float", menu: "style", trigger: "note", on: "dblclick" },
         { type: "follow_mask", region: "main", state: "boxH", min: 30, max: 4000 },

@@ -34,7 +34,25 @@ export const SPEC = {
             { t: "label_element", variant: "hint", text: "{{$state.last}}", visible: "$state.last" },
         ] },
     }],
+    menus: {
+        info: NodeStructure.infoMenu({
+            title: "Succy Clean VRAM — make some room",
+            about: "Drop it in the middle of a chain: your data passes through untouched, and on the way it clears GPU memory so the next heavy node has space to breathe. It runs on every Queue, never skipped by the cache.",
+            keys: [
+                { keys: "Soft", does: "Light touch: runs garbage collection and empties the CUDA cache. Models stay loaded, so nothing needs reloading afterwards." },
+                { keys: "Hard", does: "Soft, plus it unloads ALL models from VRAM. The next node that needs a model loads it again (slower, but VRAM really is free)." },
+                { keys: "NUKE", does: "Hard, plus a deep cleanup of whatever the models left behind. For stubborn leftovers from huge transformer models." },
+                { keys: "Min Free (GB)", does: "Cleans only if free VRAM is BELOW this number. Enough room already = skipped, models stay put. 0 = clean every single time." },
+                { keys: "Meter", does: "Live free / used / total VRAM of your GPU." },
+            ],
+            notes: [
+                "Outputs: any_output = whatever you plugged in, unchanged; status_report = a text of what was done and how many GB it freed (or why it was skipped).",
+                "Tip: put it right after a heavy step (a big sampler, a VAE decode) and before the next one.",
+            ],
+        }),
+    },
     behaviors: [
+        { type: "info_node", menu: "info" },
         { type: "feed_system", name: "vram_system" },
         { type: "sync_output" },
         { type: "chip_input", input: "any_input" },

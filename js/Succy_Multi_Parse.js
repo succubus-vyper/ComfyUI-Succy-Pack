@@ -204,7 +204,35 @@ export const SPEC = {
             ] },
         },
     ],
+    menus: {
+        info: NodeStructure.infoMenu({
+            title: "Succy Multi Parse — text, taken apart",
+            about: "Up to 15 text operations over the inputs a..j (the next input appears when you plug the previous one). Each operation has a Mode, a few fields and an output format, and comes out as its own output (r1, r2…). Later operations can use earlier results. A broken one gives a neutral value and a red line in Debug.",
+            keys: [
+                { keys: "Concat", does: "Builds text from a template: Hello @a, you are @b." },
+                { keys: "Replace", does: "Source, text to find, text to put instead." },
+                { keys: "Regex", does: "Extract: the first match (Group picks which bracket, default 1). Replace: swaps every match." },
+                { keys: "Split", does: "Cuts text at a delimiter into a list. Index picks one piece; off = the whole list. \\n and \\t work." },
+                { keys: "Join", does: "Glues a list into one text with a separator." },
+                { keys: "Contains", does: "True if the text holds the string, or the list holds that item." },
+                { keys: "Compare", does: "True if A and B are equal." },
+                { keys: "Starts / Ends with", does: "True if the text starts or ends with what you give." },
+                { keys: "Trim", does: "Edges only · squash double spaces · remove ALL spaces · remove blank lines." },
+                { keys: "Case", does: "UPPER · lower · Title · Sentence · sWAP · snake_case · kebab-case · camelCase." },
+                { keys: "Substring", does: "A slice from Start to End (off = beginning / end)." },
+                { keys: "Length", does: "How many characters, or how many items in a list." },
+                { keys: "→ format", does: "STRING, INT, FLOAT, BOOLEAN, LIST, DICT, ARRAY, JSON, COMBO: the type of that output." },
+            ],
+            notes: [
+                "Type @ in a field to insert an input or an earlier result. A field holding ONLY a token passes the raw value (a list stays a list). @@ writes a literal @.",
+                "The name you type becomes the output's name; the wire stays r1..rN.",
+                "Regex is protected against patterns that hang the Queue (timeout 2 s with the regex module).",
+                "Debug On shows each operation with the values filled in. Collapse folds the operations away.",
+            ],
+        }),
+    },
     behaviors: [
+        { type: "info_node", menu: "info" },
         // sockets: a..j open one by one, nothing shifts when you unplug. Must run BEFORE the chips look for their sockets.
         { type: "grow_input", names: INPUTS, min: 2, slotType: "*", cacheKey: "inNames" },
         ...INPUTS.map((n) => ({ type: "chip_input", input: n })),

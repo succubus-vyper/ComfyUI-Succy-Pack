@@ -76,11 +76,30 @@ export const SPEC = {
             ] },
         },
     ],
+    menus: {
+        info: NodeStructure.infoMenu({
+            title: "Succy Pick Combo — a table, one row at a time",
+            about: "A small table: each row has a label and up to 8 values. Pick ONE row and every column comes out of its own output, already converted to the type you chose for it. Great for presets: one choice, many settings.",
+            keys: [
+                { keys: "Rows / Columns", does: "How many rows (up to 20) and value columns (up to 8). The outputs follow the number of columns." },
+                { keys: "Use", does: "The row that comes out. Changing it is enough, no need to rewire anything." },
+                { keys: "Column name + type", does: "In the column header: its name becomes the output's name, its type (STRING, INT, FLOAT, BOOLEAN, LIST, DICT, ARRAY, JSON, COMBO) converts the text of the cells." },
+                { keys: "EXT", does: "Pick the row from outside. Widget: the 'choice' dropdown (wire it with a reroute). Chip: a real input that takes a row NAME (text) or a row INDEX (whole number, from 0)." },
+                { keys: "Minimize", does: "Folds the table away and keeps the Use selector." },
+            ],
+            notes: [
+                "Fixed outputs after the columns: index (row number, from 0) · label (the row's label) · all (the whole table as JSON text).",
+                "In the table you can type, paste from a spreadsheet and use the column editor. A cell that isn't a valid number becomes 0 with a console warning.",
+                "With EXT, a name that matches no label falls back to the row picked in Use.",
+            ],
+        }),
+    },
     behaviors: [
+        { type: "info_node", menu: "info" },
         { type: "collapse_box", state: "collapsed", trigger: "colBtn", hide: ["region:table"], glyphs: ["▾ Minimize", "▸ Expand"], target: "colBtn", rootClass: "ns-cool" },
         // EXT (D-86): flag on -> Widget door shows "choice", Chip door shows the real socket "choice_in" (dressed by the chip below)
-        { type: "ext_node", when: "$native.use_choice", mode: "$state.extMode", natives: ["choice"], sockets: [{ name: "choice_in", type: "STRING" }] },
-        { type: "chip_input", input: "choice_in", label: "choice" },
+        { type: "ext_node", when: "$native.use_choice", mode: "$state.extMode", natives: ["choice"], sockets: [{ name: "choice_in", type: "*" }] },
+        { type: "chip_input", input: "choice_in", label: "choice", types: ["STRING", "INT"] },     // a row NAME (text) or a row INDEX (whole number)
         // outputs = number of columns (D-67): the index/label/all wires follow their socket when it changes place
         { type: "shape_output", outputs: "$live.outs", combo: "choice", comboValues: "$live.labelList" },
         // chip selectors (D-62/64): one line per socket

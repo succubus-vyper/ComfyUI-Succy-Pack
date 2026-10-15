@@ -133,7 +133,7 @@ class Succy_Pick_Combo:
             # EXT chip door (D-86): a real socket that takes the row NAME from any STRING source. The frontend only shows it
             # in Chip mode; unplugged or hidden, `choice` (the widget) speaks for itself.
             "optional": {
-                "choice_in":      ("STRING", {"forceInput": True}),
+                "choice_in":      (ANY, {"forceInput": True}),
             },
         }
 
@@ -161,8 +161,14 @@ class Succy_Pick_Combo:
         #    With duplicate labels the chosen row wins if it has that name, otherwise the first one.
         if use_choice:
             # the chip door wins when somebody is plugged into it (she brought her own date), else the widget
-            ch = str(choice_in if choice_in is not None else choice).strip()
-            if 0 <= sel < n and labels[sel].strip() == ch:
+            if isinstance(choice_in, (int, float)) and not isinstance(choice_in, bool):
+                idx = int(choice_in)                  # a whole number plugged into the chip door = the row INDEX
+                ch = None
+            else:
+                ch = str(choice_in if choice_in is not None else choice).strip()
+            if ch is None:
+                pass
+            elif 0 <= sel < n and labels[sel].strip() == ch:
                 idx = sel
             else:
                 for i, lbl in enumerate(labels):

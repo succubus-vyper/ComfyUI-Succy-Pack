@@ -6,12 +6,14 @@
 // The node only hands over TEXT. Zero DOM in the node. Succubus was here — every good toy comes with instructions. Read them. Slowly.
 // ============================================================
 import { piece } from "../catalog/registry.js";
-import { C, S } from "../catalog/kit.js";
+import { B, C, S } from "../catalog/kit.js";
 
 // the button lives in the HEADER (Vue's own light DOM), so this CSS is global — which is what a piece's `css` is
 const CSS = `
 .ns-info-btn{all:unset;box-sizing:border-box;flex:none;width:20px;height:20px;margin:0 16px 0 4px;display:grid;place-items:center;border-radius:50%;cursor:pointer;
   font:15px/1 'Segoe UI Symbol','Apple Symbols',sans-serif;color:#ff7ac8;transition:all .12s}
+.ns-info-btn.ns-hov{opacity:0}
+[data-node-id]:hover .ns-info-btn.ns-hov,.ns-info-btn.ns-hov:focus-visible{opacity:1}
 .ns-info-btn:hover{color:#ffb0dc;transform:scale(1.2);text-shadow:0 0 8px rgba(255,122,200,.8)}
 `;
 
@@ -36,7 +38,7 @@ export function infoMenu({ title = "Info", about = "", keys = [], notes = [], wi
 piece(C("info_node", {
     scopo: "Bottone (i) nella testata del nodo: apre il pannello info (spec.menus.<menu>) con descrizione e scorciatoie.",
     natura: "funziona", dominio: "ui", estado: "draft", tag: ["comportamento", "info", "titolo"], uses: ["menu_float_panel"], css: CSS,
-    props: { menu: S("nome del menu in spec.menus (costruibile con NodeStructure.infoMenu)", "info"), tip: S("tooltip del bottone", "About this node and its shortcuts") },
+    props: { menu: S("nome del menu in spec.menus (costruibile con NodeStructure.infoMenu)", "info"), tip: S("tooltip del bottone", "About this node and its shortcuts"), hover: B("true = il cuore appare solo quando il mouse e sul nodo", false) },
     esempio: { spec: { v: 1, regions: [{ id: "r", height: 40, tree: { t: "label_element", text: "x" } }],
         menus: { info: infoMenu({ title: "x", about: "y", keys: [{ keys: "A", does: "b" }] }) }, behaviors: [{ type: "info_node", menu: "info" }] } },
 }), (rt, p) => {
@@ -45,7 +47,7 @@ piece(C("info_node", {
     let btn = null, mo = null, obsOn = null, last = { x: 200, y: 200 };
     const open = (anchor) => rt.api.openMenu(name, anchor ? { anchor } : { point: { x: last.x + 10, y: last.y + 10 } });
     const make = () => {
-        const b = document.createElement("button"); b.type = "button"; b.className = "ns-info-btn"; b.textContent = "\u2665"; b.title = p.tip || "About this node and its shortcuts";
+        const b = document.createElement("button"); b.type = "button"; b.className = p.hover ? "ns-info-btn ns-hov" : "ns-info-btn"; b.textContent = "\u2665"; b.title = p.tip || "About this node and its shortcuts";
         for (const ev of ["pointerdown", "dblclick", "mousedown"]) b.addEventListener(ev, (e) => e.stopPropagation());
         b.addEventListener("click", (e) => { e.stopPropagation(); e.preventDefault(); open(b); });
         return b;
