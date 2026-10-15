@@ -112,6 +112,7 @@ function buildHost(rt, id, spec) {
 // ---------- menu v2 (D-57): fixed sizes, font, anchoring to the subject ----------
 const SIZES = { L: [404, 612], M: [360, 520], S: [320, 440] };
 function pickSize(spec) {
+    if (spec.size === "fit") return "fit";
     if (SIZES[spec.size]) return spec.size;
     const vw = innerWidth, vh = innerHeight;
     if (vh >= 700 && vw >= 520) return "L";
@@ -119,8 +120,11 @@ function pickSize(spec) {
     return "S";
 }
 function applySize(menu, spec) {
-    const z = pickSize(spec), [w, h] = SIZES[z];
+    const z = pickSize(spec);
     menu.dataset.nsSize = z;
+    // fit (D-108): fixed width, height = the content (a short tool menu, no empty floor); scrolls only past the screen
+    if (z === "fit") { menu.style.width = (Number(spec.width) || 300) + "px"; menu.style.height = "auto"; menu.style.maxHeight = Math.max(200, innerHeight - 24) + "px"; return z; }
+    const [w, h] = SIZES[z];
     menu.style.width = w + "px"; menu.style.height = h + "px";
     return z;
 }
@@ -468,12 +472,15 @@ function openPicker(rt, entry, spec, layer, opts) {
 
     let all = [], shown = [], hi = -1, rows = [];
     const load = () => { try { all = (typeof spec.items === "function" ? spec.items() : spec.items) || []; } catch (e) { console.warn("[NodeStructure] picker items:", e); all = []; } };
+    // the list never starts a text selection, whatever the click count: no selection = no "Translate / Explore" bubble (D-119)
+    entry.bag.listen(list, "selectstart", (e) => e.preventDefault());
+    // class "ns-marquee", NOT "ns-mq": .ns-mq is the Crop's selection box (absolute, blue border) and would drag our text out of the row (D-119)
     const marquee = (row, on) => {
         const t = row?.querySelector(".ns-pick-in"), box = row?.querySelector(".ns-pick-txt");
         if (!t || !box) return;
         const over = box.scrollWidth - box.clientWidth;
-        if (on && over > 2) { t.style.setProperty("--ns-mq", -over + "px"); t.style.setProperty("--ns-mq-s", Math.max(1.5, over / 40) + "s"); t.classList.add("ns-mq"); }
-        else t.classList.remove("ns-mq");
+        if (on && over > 2) { t.style.setProperty("--ns-mq", -over + "px"); t.style.setProperty("--ns-mq-s", Math.max(1.5, over / 40) + "s"); t.classList.add("ns-marquee"); }
+        else t.classList.remove("ns-marquee");
     };
     const setHi = (i, scroll = true) => {
         if (rows[hi]) { rows[hi].classList.remove("ns-hi"); marquee(rows[hi], false); }
@@ -535,6 +542,8 @@ function openPicker(rt, entry, spec, layer, opts) {
                 r.append(bv);
             }
             entry.bag.listen(r, "click", (e) => { e.stopPropagation(); setHi(k, false); });
+            // a second click never starts a text selection (the browser's "Translate / Explore" bubble on the connected row, D-118)
+            entry.bag.listen(r, "mousedown", (e) => { if (e.detail > 1) e.preventDefault(); });
             entry.bag.listen(r, "dblclick", (e) => { e.stopPropagation(); setHi(k, false); if (!it.removable) confirm(k); });   // double click = connect
             entry.bag.listen(r, "mouseenter", () => marquee(r, true));
             entry.bag.listen(r, "mouseleave", () => { if (k !== hi) marquee(r, false); });
@@ -594,6 +603,12 @@ export function close(rt, name) {
     const id = globalId(rt.ctx.key, "menu", name);
     const entry = OPEN.get(id);
     if (!entry) return false;
+    // a field still being typed in commits on blur: blur it BEFORE the tree goes, or a click outside eats the value (D-108)
+    try {
+        const root = entry.menuEl?.getRootNode?.();
+        const a = root?.activeElement || document.activeElement;
+        if (a && entry.menuEl?.contains?.(a) && typeof a.blur === "function") a.blur();
+    } catch (_) { /* nothing focused, nothing to save */ }
     OPEN.delete(id);
     rt.menus.delete(name);
     try { entry.bag.dispose(); } catch (_) {}
@@ -631,7 +646,7 @@ piece(C("menu_float_panel", {
     tag: ["menu", "solo-menu"], alias: [],
     props: { title: S("titolo"), icon: S("icona"), tree: { ...J("albero di pezzi del pannello"), required: true }, modal: B("modale con sfondo", false), geometry: J("{state:'chiave'} dove persistere posizione/dimensione"), width: N("larghezza iniziale"), height: N("altezza iniziale"),
         look: E(["classic", "v2"], "aspetto: v2 = protocollo menu dedicato (dimensione fissa, token --nsm-*, D-57)", "classic"),
-        size: E(["auto", "L", "M", "S"], "v2: taglia fissa (auto = scelta all'apertura dallo spazio libero)", "auto"),
+        size: E(["auto", "L", "M", "S", "fit"], "v2: taglia fissa (auto = scelta all'apertura dallo spazio libero; fit = larghezza `width`, altezza del contenuto)", "auto"),
         dock: E(["free", "subject"], "v2: subject = agganciato al nodo/reroute (lato con piu' spazio) e lo segue; trascinando l'header si stacca", "free"),
         dismiss: E(["outside", "explicit"], "v2: explicit = si chiude solo con ✕/Esc/comando; outside = anche cliccando fuori", "outside"),
         chip: S("v2: testo della pillola accanto al titolo (template, es. tipo del filo)"), head: J("v2: albero di pezzi nell'header, prima della ✕ (es. pulsante ricarica, pallino)") },

@@ -1,6 +1,8 @@
 // ============================================================
 // NodeStructure/components/brush.js — FREE HAND mask and picture LOADING on a view_box (Crop & Stitch phase 3, D-106)
 //   brush_element  a paint layer over a view_box, in ORIGINAL image pixels: size, hardness, opacity, eraser, [ ] to resize the tip.
+//                  Tip shapes (D-120): round (soft), round_hard, square (soft sides), square_hard. Alt + drag = size (sideways) and hardness (up/down),
+//                  Alt + wheel = size, like Photoshop; the ring shows the inner solid core while the edge fades out.
 //                  Two layers live in ONE PNG (data URL) written to a native: R = painted, G = erased (the eraser can also bite the
 //                  rectangle). The native is the only truth: ComfyUI's undo/redo, copy/paste and subgraphs carry the mask for free,
 //                  and a copy never shares a file with its twin. The Python reads the same PNG.
@@ -10,7 +12,7 @@
 // ============================================================
 import { mkEl } from "./index.js";
 import { piece } from "../catalog/registry.js";
-import { C, ex, exb, N, S, R, ID } from "../catalog/kit.js";
+import { C, ex, exb, N, S, R, B, ID } from "../catalog/kit.js";
 import { parseRef } from "../core/parser.js";
 import { writeRef } from "../core/binding.js";
 import { ShotFeed } from "../runtime/shot-feed.js";
@@ -25,6 +27,9 @@ const CSS = `
 .ns-br-add{opacity:.5}.ns-br-ers{opacity:.55}
 .ns-br-ring{position:absolute;box-sizing:border-box;border-radius:50%;pointer-events:none;border:calc(1.5px / var(--ns-vs,1)) solid #fff;box-shadow:0 0 0 calc(1px / var(--ns-vs,1)) rgba(0,0,0,.7)}
 .ns-br-ring.erase{border-style:dashed}
+.ns-br-ring.sq,.ns-br-ring.sq .ns-br-core{border-radius:0}
+.ns-br-core{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);box-sizing:border-box;border-radius:50%;border:calc(1px / var(--ns-vs,1)) solid rgba(255,255,255,.75);box-shadow:0 0 0 calc(1px / var(--ns-vs,1)) rgba(0,0,0,.45)}
+.ns-br-core[hidden]{display:none}
 .ns-br-ring[hidden]{display:none}
 .ns-view.ns-br-on{cursor:none}
 .ns-view.ns-br-on.pan{cursor:grab}
@@ -32,8 +37,15 @@ const CSS = `
 `;
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-const RES = 1024;                              // longest side of the stored mask (the Python scales it to the real picture)
+// longest side of the stored mask, never more than the picture itself (the Python scales it to the real picture). Was 1024:
+// on a 5000 px photo one mask pixel covered ~5 picture pixels and a fine brush became a soft, shifted blob (D-116).
+const RES = 4096;
+const SHAPES = ["round", "round_hard", "square", "square_hard"];
 const ADD = [255, 79, 163], ERS = [0, 0, 0];   // display tints: pink = painted, black = erased
+// decoded layers by PNG + size: a node rebuilt by Ctrl+Z (the whole graph reloads, D-109) paints them back in the same frame,
+// no blank flash while the PNG decodes again. A few entries only: the last masks you touched.
+const DECODED = new Map();
+const remember = (url, mw, mh, A, E) => { const k = `${mw}x${mh}:${url}`; DECODED.delete(k); DECODED.set(k, { A, E }); while (DECODED.size > 2) DECODED.delete(DECODED.keys().next().value); };
 
 // ---------- brush_element ----------
 piece(C("brush_element", {
@@ -45,7 +57,10 @@ piece(C("brush_element", {
         active: R("vero = si dipinge (falso = solo si vede)"),
         size: R("diametro in px immagine (ref di stato, [ ] lo cambiano)"), hardness: R("durezza 0..100"), opacity: R("opacita' 0..100"),
         erase: R("vero = gomma"),
+        shape: R("forma della punta: round | round_hard | square | square_hard (ref, es. $state.brushShape)"),
+        veil: R("vero = un veil_element mostra gia' la maschera: le tinte rosa/nera spariscono (il tratto in corso resta visibile)"),
         res: N("lato lungo della maschera salvata (px)", RES),
+        rightErase: B("tasto destro = gomma, sinistro = pennello (niente menu del tasto destro mentre si dipinge)", false),
     },
     esempio: ex({ t: "view_box", children: [{ t: "brush_element", data: "", active: false }] }),
 }), (node, h) => {
@@ -53,15 +68,16 @@ piece(C("brush_element", {
     const wrap = mkEl("div", "ns-br");
     const ers = mkEl("canvas", "ns-br-ers"), add = mkEl("canvas", "ns-br-add"), stk = mkEl("canvas", "ns-br-stk");
     const ring = mkEl("div", "ns-br-ring"); ring.hidden = true;
+    const core = mkEl("div", "ns-br-core"); ring.appendChild(core);
     wrap.append(ers, add, stk, ring);
     const ctx = (c) => c.getContext("2d", { willReadFrequently: true });
 
     const me = { W: 0, H: 0, mw: 0, mh: 0, last: null, token: 0, painting: false, active: false };
     BRUSHES.add(me); h.bag.add(() => BRUSHES.delete(me));
-    const dataRef = parseRef(node.data), sizeRef = parseRef(node.size);
+    const dataRef = parseRef(node.data), sizeRef = parseRef(node.size), hardRef = parseRef(node.hardness);
     const view = () => wrap.closest(".ns-view")?.__nsView || null;
     const num = (v, d) => { const n = Number(h.val(v)); return Number.isFinite(n) ? n : d; };
-    const tip = () => ({ size: clamp(num(node.size, 64), 1, 4096), hard: clamp(num(node.hardness, 50), 0, 100) / 100, op: clamp(num(node.opacity, 100), 1, 100) / 100, erase: !!h.val(node.erase) });
+    const tip = () => ({ size: clamp(num(node.size, 64), 1, 4096), hard: clamp(num(node.hardness, 50), 0, 100) / 100, op: clamp(num(node.opacity, 100), 1, 100) / 100, erase: !!h.val(node.erase), shape: SHAPES.includes(h.val(node.shape)) ? h.val(node.shape) : "round" });
 
     // ---- the two layers <-> one PNG (R = painted alpha, G = erased alpha, B = 0, A = 255: lossless both ways)
     const clearAll = () => { for (const c of [add, ers, stk]) ctx(c).clearRect(0, 0, c.width, c.height); };
@@ -76,6 +92,8 @@ piece(C("brush_element", {
     };
     const decode = (url) => {
         const t = ++me.token;
+        const hit = DECODED.get(`${me.mw}x${me.mh}:${url}`);
+        if (hit) { clearAll(); ctx(add).putImageData(hit.A, 0, 0); ctx(ers).putImageData(hit.E, 0, 0); return; }
         const im = new Image();
         im.onload = () => {
             if (t !== me.token || !me.mw) return;
@@ -89,6 +107,7 @@ piece(C("brush_element", {
                 E.data[i] = ERS[0]; E.data[i + 1] = ERS[1]; E.data[i + 2] = ERS[2]; E.data[i + 3] = src[i + 1];
             }
             clearAll(); ctx(add).putImageData(A, 0, 0); ctx(ers).putImageData(E, 0, 0);
+            remember(url, mw, mh, A, E);
         };
         im.onerror = () => { if (t === me.token) rt.warnOnce?.("brush.decode", "brush mask could not be read"); };
         im.src = url;
@@ -108,35 +127,65 @@ piece(C("brush_element", {
     };
 
     // ---- painting: dabs along the path on a stroke layer, merged with the opacity when you let go
-    const dab = (c, x, y, r, hard, rgb) => {
+    // soft square: a small alpha stamp (solid core, fading sides) drawn scaled; cached by size + hardness + colour
+    const STAMPS = new Map();
+    const squareStamp = (r, hard, rgb) => {
+        const S = clamp(Math.ceil(r * 2), 4, 256), key = `${S}|${Math.round(hard * 100)}|${rgb}`;
+        let st = STAMPS.get(key);
+        if (!st) {
+            st = document.createElement("canvas"); st.width = st.height = S;
+            const cx = st.getContext("2d"), im = cx.createImageData(S, S), [R0, G0, B0] = rgb.split(",").map(Number), hh = Math.min(hard, 0.98);
+            for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) {
+                const d = Math.max(Math.abs((i + 0.5) / S * 2 - 1), Math.abs((j + 0.5) / S * 2 - 1));
+                const a = d <= hh ? 1 : Math.max(0, (1 - d) / (1 - hh)), o = (j * S + i) * 4;
+                im.data[o] = R0; im.data[o + 1] = G0; im.data[o + 2] = B0; im.data[o + 3] = Math.round(a * 255);
+            }
+            cx.putImageData(im, 0, 0);
+            STAMPS.set(key, st); if (STAMPS.size > 24) STAMPS.delete(STAMPS.keys().next().value);
+        }
+        return st;
+    };
+    const dab = (c, x, y, r, hard, rgb, shape = "round") => {
+        if (shape === "round_hard") { c.fillStyle = `rgb(${rgb})`; c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill(); return; }
+        if (shape === "square_hard") { c.fillStyle = `rgb(${rgb})`; c.fillRect(x - r, y - r, r * 2, r * 2); return; }
+        if (shape === "square") { c.drawImage(squareStamp(r, hard, rgb), x - r, y - r, r * 2, r * 2); return; }
         const g = c.createRadialGradient(x, y, r * Math.min(hard, 0.98), x, y, r);
         g.addColorStop(0, `rgba(${rgb},1)`); g.addColorStop(1, `rgba(${rgb},0)`);
         c.fillStyle = g; c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill();
     };
-    const ringAt = (p) => {
-        const t = tip();
+    // the outer ring = the tip's reach; the inner one = the solid core (soft shapes only), so you SEE what hardness does
+    const ringAt = (p, o) => {
+        const t = { ...tip(), ...(o || {}) };
+        if (p) me.pt = p;
         ring.hidden = !me.active || !p;
         if (ring.hidden) return;
         ring.classList.toggle("erase", t.erase);
+        ring.classList.toggle("sq", t.shape.startsWith("square"));
+        const soft = !t.shape.endsWith("_hard") && t.hard < 0.98;
+        core.hidden = !soft;
+        if (soft) core.style.width = core.style.height = (Math.max(0, t.hard) * 100) + "%";
         ring.style.width = ring.style.height = t.size + "px";
         ring.style.left = (p.x - t.size / 2) + "px"; ring.style.top = (p.y - t.size / 2) + "px";
     };
     const begin = (e, root) => {
         const V = view();
-        if (!me.active || !V || !me.mw || e.button !== 0 || e.altKey || root.classList.contains("pan") || V.isBusy()) return;
+        const right = e.button === 2 && node.rightErase === true;      // D-113: right button = eraser, left = brush
+        if (!me.active || !V || !me.mw || (e.button !== 0 && !right) || e.altKey || root.classList.contains("pan") || V.isBusy()) return;
         e.preventDefault(); e.stopPropagation();
-        const t = tip(), k = me.mw / me.W, r = Math.max(0.5, (t.size / 2) * k), rgb = (t.erase ? ERS : ADD).join(",");
+        const t = tip();
+        if (right) t.erase = true;
+        const k = me.mw / me.W, r = Math.max(0.5, (t.size / 2) * k), rgb = (t.erase ? ERS : ADD).join(",");
         const sc = ctx(stk); sc.clearRect(0, 0, me.mw, me.mh);
         stk.style.opacity = String(t.op * (t.erase ? 0.55 : 0.5));
         me.painting = true;
         const step = Math.max(0.5, r * 0.18);
         const segment = (a, p) => {             // dabs from a to p (image coords), spaced so the line stays smooth
             const dx = (p.x - a.x) * k, dy = (p.y - a.y) * k, n = Math.max(1, Math.floor(Math.hypot(dx, dy) / step));
-            for (let i = 1; i <= n; i++) dab(sc, a.x * k + dx * (i / n), a.y * k + dy * (i / n), r, t.hard, rgb);
+            for (let i = 1; i <= n; i++) dab(sc, a.x * k + dx * (i / n), a.y * k + dy * (i / n), r, t.hard, rgb, t.shape);
         };
         let last = V.toImage(e.clientX, e.clientY);
         // Shift + click = straight line from where the last stroke ended (classic: click A, Shift+click B). Straight and to the point.
-        if (e.shiftKey && me.lastPt) segment(me.lastPt, last); else dab(sc, last.x * k, last.y * k, r, t.hard, rgb);
+        if (e.shiftKey && me.lastPt) segment(me.lastPt, last); else dab(sc, last.x * k, last.y * k, r, t.hard, rgb, t.shape);
         const id = e.pointerId;
         try { root.setPointerCapture(id); } catch (_) {}
         const move = (m) => {
@@ -158,6 +207,7 @@ piece(C("brush_element", {
             sc.clearRect(0, 0, me.mw, me.mh);
             const url = encode();
             me.last = url;                                           // so update() does not decode what we just wrote
+            if (url) remember(url, me.mw, me.mh, ctx(add).getImageData(0, 0, me.mw, me.mh), ctx(ers).getImageData(0, 0, me.mw, me.mh));
             writeRef(rt, dataRef, url); rt.update?.();
         };
         root.addEventListener("pointermove", move); root.addEventListener("pointerup", up); root.addEventListener("pointercancel", up);
@@ -180,12 +230,25 @@ piece(C("brush_element", {
             const s = tip().size, n = Math.round(clamp(e.key === "]" ? s * 1.2 + 1 : s / 1.2, 1, 4096));
             writeRef(rt, sizeRef, n); rt.update?.();
         };
+        // Alt gestures (D-120), the Photoshop way: sideways = size, up = harder / down = softer; Alt + wheel = size
+        const setSize = (n) => writeRef(rt, sizeRef, Math.round(clamp(n, 1, 4096)));
+        const unAlt = V.alt({
+            active: () => me.active,
+            start: (e) => { const t = tip(); const p0 = V.toImage(e.clientX, e.clientY); ringAt(p0); return { size0: t.size, hard0: t.hard * 100, p0 }; },
+            drag: (st, d) => {
+                const size = clamp(st.size0 + 2 * d.dx, 1, 4096), hard = clamp(st.hard0 - d.sy * 0.5, 0, 100);
+                setSize(size); writeRef(rt, hardRef, Math.round(hard));
+                ringAt(st.p0, { size: Math.round(size), hard: Math.round(hard) / 100 });
+                rt.update?.();
+            },
+            wheel: (e) => { const s = tip().size * Math.exp(-e.deltaY * 0.0012); setSize(s); ringAt(me.pt || null, { size: Math.round(clamp(s, 1, 4096)) }); rt.update?.(); },
+        });
         root.addEventListener("pointerdown", down);
         root.addEventListener("pointermove", hover);
         root.addEventListener("pointerleave", leave);
         window.addEventListener("keydown", key, true);
         const unsub = V.onChange(() => update());
-        off = () => { root.removeEventListener("pointerdown", down); root.removeEventListener("pointermove", hover); root.removeEventListener("pointerleave", leave); window.removeEventListener("keydown", key, true); unsub(); };
+        off = () => { unAlt(); root.removeEventListener("pointerdown", down); root.removeEventListener("pointermove", hover); root.removeEventListener("pointerleave", leave); window.removeEventListener("keydown", key, true); unsub(); };
     };
     h.bag.add(() => { if (off) off(); me.token++; });
 
@@ -207,6 +270,9 @@ piece(C("brush_element", {
 
     const update = () => {
         hook(); fitSize(); clipErase();
+        // under the black veil (D-108) the pink/black tints only muddy the picture: hide them, keep the stroke being drawn
+        const veiled = !!h.val(node.veil);
+        add.style.display = ers.style.display = veiled ? "none" : "";
         me.active = !!h.val(node.active);
         offRoot?.classList.toggle("ns-br-on", me.active);
         if (!me.active) ring.hidden = true;
@@ -248,7 +314,10 @@ piece(C("load_mask", {
     const show = (name, w = 0, hh = 0) => {
         if (!name) return;
         const i = name.lastIndexOf("/");
-        ShotFeed.put(node(), { src: viewUrl({ filename: i < 0 ? name : name.slice(i + 1), subfolder: i < 0 ? "" : name.slice(0, i), type: "input" }), width: w, height: hh });
+        const src = viewUrl({ filename: i < 0 ? name : name.slice(i + 1), subfolder: i < 0 ? "" : name.slice(0, i), type: "input" });
+        ShotFeed.put(node(), { src, width: w, height: hh });
+        // size unknown (a saved workflow comes back with just the name): measure it, the workspace scaling needs the real numbers
+        if ((!w || !hh) && src) { const im = new Image(); im.onload = () => { if (im.naturalWidth) ShotFeed.put(node(), { src, width: im.naturalWidth, height: im.naturalHeight }); }; im.src = src; }
     };
     // a saved workflow comes back with the file name: show it until a real run says otherwise
     const restore = () => { const n = String(rt.api.native.get(NAT) || ""); if (n && !ShotFeed.get(node())) show(n); };

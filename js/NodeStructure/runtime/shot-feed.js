@@ -46,9 +46,10 @@ export const ShotFeed = {
         return last.get(execId(node)) || null;
     },
     // a picture the node got WITHOUT a run (dropped / pasted / loaded, D-106): shown at once, replaced by the next real run
+    // `raw` = the file as it is on disk: a node with a WORKSPACE size (D-120) shows it scaled like its Python will, see shot_system
     put(node, { src, width = 0, height = 0 } = {}) {
         if (!node || node.id == null || !src) return;
-        last.set(execId(node), { src, width: Number(width) || 0, height: Number(height) || 0, v: Date.now() });
+        last.set(execId(node), { src, width: Number(width) || 0, height: Number(height) || 0, v: Date.now(), raw: true });
         publish();
     },
     clear() { last.clear(); publish(); },

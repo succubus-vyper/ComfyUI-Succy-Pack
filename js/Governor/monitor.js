@@ -12,7 +12,7 @@
 import { Governor } from "./governor.js";
 import { Errors } from "./errors.js";
 
-const VERSION = "1.5.0";
+const VERSION = "1.6.0";
 const TESTED_FE = "1.53.10";             // frontend on which the assumptions were verified
 const LS_OPEN = "succy:monitor-open";
 
@@ -187,6 +187,7 @@ function install() {
         ["Crop viewport (Builder)", () => { const v = NS()?.view; if (!v) return ["err", "NodeStructure.view missing"]; const s = v.stats(), f = v.shots(); if (!s.views && !f.nodes) return ["n/a", "no Crop viewport open"]; if (f.nodes && !f.wired) return ["warn", "pictures arrived but the feed is not wired"]; return ["ok", `${s.views} viewport(s) (${s.zoomed} zoomed) · ${f.nodes} picture(s)`]; }],
         // --- D-106 (Crop phase 3): free hand mask and pictures loaded without a Queue ---
         ["Crop brush (Builder)", () => { const b = NS()?.view?.brush; if (!b) return ["err", "NodeStructure.view.brush missing"]; const s = b(); if (!s.brushes) return ["n/a", "no brush open"]; return ["ok", `${s.brushes} brush(es) · ${s.active} in free hand · ${s.painting} painting`]; }],
+        ["Crop mask view (Builder)", () => { const m = NS()?.view?.mask; if (!m) return ["err", "NodeStructure.view.mask missing"]; const s = m(); if (!s.previews) return ["n/a", "no mask preview open"]; if (s.lastMs > 250) return ["warn", `slow preview: ${s.lastMs} ms per render (lower res)`]; return ["ok", `${s.previews} preview(s) · ${s.shown} shown · ${s.renders} render(s) · last ${s.lastMs} ms`]; }],
         ["Image load (Survival)", () => { const c = SK()?.compat; if (!c?.uploadStats) return ["err", "SurvivalKit.compat.uploadImage missing"]; const u = c.uploadStats(), b = NS()?.view?.brush?.() || {}; if (!u.ok && !u.failed && !u.pending) return ["n/a", "nothing uploaded yet"]; if (u.failed) return ["warn", `${u.failed} failed upload(s): ${u.last || b.last || "?"}`]; return ["ok", `${u.ok} upload(s) · ${b.drops || 0} drop · ${b.pastes || 0} paste · ${b.picks || 0} pick${u.pending ? ` · ${u.pending} in flight` : ""}`]; }],
         ["Reroute snap (Survival)", () => { const r = SK()?.rerouteSnap; if (!r) return ["err", "SurvivalKit.rerouteSnap missing"]; return r.active() ? ["ok", `${r.active()} user(s)`] : ["n/a", "no users"]; }],
         ["Subgraph shield (Survival)", () => { const sh = SK()?.subgraphShield, P = globalThis.LiteGraph?.LGraph?.prototype; if (!sh) return ["err", "SurvivalKit.subgraphShield missing"]; const miss = ["convertToSubgraph", "unpackSubgraph"].filter((k) => typeof P?.[k] !== "function"); if (miss.length) return ["err", "frontend lost: " + miss.join(", ")]; return sh._installed ? ["ok", "installed"] : ["warn", "not installed"]; }],
@@ -218,6 +219,7 @@ function install() {
         "Pause hold (Survival)": "SurvivalKit/shields/hold.js",
         "Crop viewport (Builder)": "NodeStructure/components/view.js (view_box, marquee_element) + NodeStructure/runtime/shot-feed.js",
         "Crop brush (Builder)": "NodeStructure/components/brush.js (brush_element)",
+        "Crop mask view (Builder)": "NodeStructure/components/veil.js (veil_element) + NodeStructure/util/mask-math.js",
         "Image load (Survival)": "SurvivalKit/compat/adapters.js (uploadImage) + NodeStructure/components/brush.js (load_mask)",
         "Reroute snap (Survival)": "SurvivalKit/shields/reroute-snap.js",
         "Subgraph shield (Survival)": "SurvivalKit/shields/subgraph.js",

@@ -36,22 +36,40 @@ piece(C("copy_system", {
 });
 
 piece(C("download_system", {
-    scopo: "Scarica un file da un URL (fetch + blob) con il nome indicato e mostra un flash ✓/✗.", natura: "funziona", dominio: "runtime", estado: "draft",
+    scopo: "Scarica un file da un URL o da una rotta di ComfyUI (anche da una voce di menu) e mostra un flash ✓/✗; errori del server come toast.", natura: "funziona", dominio: "runtime", estado: "draft",
     tag: ["azione", "file"],
-    props: { url: { ...R("URL da scaricare"), required: true }, name: S("nome del file", "download"), flash: S("chiave cache per il flash", "dlFlash") },
+    props: {
+        url: R("URL da scaricare"), route: S("in alternativa: rotta di ComfyUI (fetchApi), {id} = id del nodo (D-115)"),
+        name: S("nome del file (vuoto: quello del server, Content-Disposition)", "download"), flash: S("chiave cache per il flash", "dlFlash"),
+        post: B("con `route`: POST {widgets: valori dei widget del nodo, linked: ingressi collegati} — il server calcola dal nodo com'e' ORA (D-117)", false),
+    },
     esempio: actEx("download_system", { url: "data:image/gif;base64,R0lGODlhAQABAAAAACw=", name: "x.gif" }),
 }), async (api, ev, el, item, a = {}) => {
     ev?.stopPropagation?.();
-    if (!a.url) return;
-    const key = a.flash || "dlFlash";
+    // args win; from a menu_float_list item the fields come on the item itself (a list item has no args)
+    const pick = (k) => (a && a[k] !== undefined ? a[k] : item?.[k]);
+    const url = pick("url"), route = pick("route");
+    if (!url && !route) return;
+    const key = pick("flash") || "dlFlash";
+    const toast = (detail) => { try { globalThis.app?.extensionManager?.toast?.add?.({ severity: "warn", summary: "Download", detail, life: 4000 }); } catch (_) { /* no toast here */ } };
     try {
-        const blob = await (await fetch(a.url)).blob();
-        const bu = URL.createObjectURL(blob);
-        const link = document.createElement("a"); link.href = bu; link.download = a.name || "download";
+        const node = api.liveNode?.() || api.node;
+        const path = route ? String(route).replace(/\{id\}/g, encodeURIComponent(node?.id ?? "")) : "";
+        let opts;
+        if (route && pick("post")) {
+            const widgets = Object.fromEntries((node?.widgets || []).filter((w) => w?.name && !String(w.name).startsWith("ns_")).map((w) => [w.name, w.value]));
+            const linked = (node?.inputs || []).filter((i) => i?.link != null).map((i) => i.name);
+            opts = { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ widgets, linked }) };
+        }
+        const r = route ? await globalThis.app.api.fetchApi(path, opts) : await fetch(url);
+        if (!r.ok) { let m = `HTTP ${r.status}`; try { m = (await r.json()).error || m; } catch (_) { /* not json */ } toast(m); flash(api, key, false); return; }
+        const name = pick("name") || /filename="([^"]+)"/.exec(r.headers.get("Content-Disposition") || "")?.[1] || "download";
+        const bu = URL.createObjectURL(await r.blob());
+        const link = document.createElement("a"); link.href = bu; link.download = name;
         document.body.appendChild(link); link.click(); link.remove();
-        api.after(() => URL.revokeObjectURL(bu), 1000);
+        api.after(() => URL.revokeObjectURL(bu), 1500);
         flash(api, key, true);
-    } catch (e) { api.log?.("download failed", e); flash(api, key, false); }
+    } catch (e) { api.log?.("download failed", e); toast("Download failed: " + (e?.message || e)); flash(api, key, false); }
 });
 
 piece(C("flip_node", {

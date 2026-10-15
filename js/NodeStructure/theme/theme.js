@@ -131,6 +131,8 @@ ${tokenBlock(".ns-root", TOKENS_DARK)}
 .ns-field-body input[type=range]{flex:1;min-width:0;accent-color:var(--ns-accent)}
 .ns-field-body input[type=color]{width:34px;height:22px;padding:0;border:1px solid var(--ns-border);border-radius:4px;background:var(--ns-c-field-bg, #0f1011);cursor:pointer}
 .ns-field-val{flex:0 0 42px;text-align:right;font-size:10px;color:var(--ns-accent-fg)}
+/* bare swatch (D-111): a colour field with no label, a small square that fits in a tight toolbar row */
+.ns-field.ns-field-bare{flex:0 0 auto;gap:0;min-height:0}.ns-field-bare .ns-field-label{display:none}.ns-field-bare .ns-field-body{flex:0 0 auto}.ns-field-bare input[type=color]{width:22px;height:22px;border-radius:4px}
 .ns-image{width:100%;height:100%;object-fit:contain;pointer-events:none;user-select:none}
 .ns-canvas{display:block;width:100%;height:100%;pointer-events:none}
 .ns-slot{min-width:0}
@@ -290,6 +292,8 @@ export const MENU_V2_CSS = `
 .ns-pv2[data-ns-size=L]{--nsm-head-h:48px;--nsm-bar-h:52px;--nsm-foot-h:48px;--nsm-card-h:64px;--nsm-prev-h:40px;--nsm-row-h:46px}
 .ns-pv2[data-ns-size=M]{--nsm-head-h:42px;--nsm-bar-h:46px;--nsm-foot-h:40px;--nsm-card-h:54px;--nsm-prev-h:32px;--nsm-row-h:38px}
 .ns-pv2[data-ns-size=S]{--nsm-head-h:40px;--nsm-bar-h:44px;--nsm-foot-h:38px;--nsm-card-h:42px;--nsm-prev-h:40px;--nsm-row-h:36px}
+.ns-pv2[data-ns-size=fit]{--nsm-head-h:36px;--nsm-bar-h:40px;--nsm-foot-h:36px;--nsm-card-h:42px;--nsm-prev-h:32px;--nsm-row-h:34px;display:flex;flex-direction:column}
+.ns-pv2[data-ns-size=fit] .ns-panel-body{overflow:auto;flex:0 1 auto}
 .ns-pv2 .ns-panel-head{height:var(--nsm-head-h);box-sizing:border-box;padding:0 8px 0 14px;gap:10px;background:var(--nsm-head);border-bottom:1px solid var(--nsm-line)}
 .ns-pv2 .ns-panel-title{flex:0 1 auto;font:600 13px var(--nsm-font);letter-spacing:.01em;overflow:hidden;text-overflow:ellipsis;color:var(--nsm-text)}
 .ns-pv2 .ns-pv2-chip{display:inline-flex;align-items:center;height:22px;box-sizing:border-box;padding:0 8px;border-radius:11px;background:var(--nsm-chip-bg);color:var(--nsm-chip-text);font:11px var(--nsm-mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px}

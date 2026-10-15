@@ -21,9 +21,9 @@ export const PROP_TYPES = Object.freeze(["string", "number", "bool", "enum", "re
 const W = (tipo, words) => words.split(/\s+/).filter(Boolean).map((w) => [w, tipo]);
 const ENTRIES = [
     // component: objects you put in a spec
-    ...W("component", "stack row group grid section notice pane cards form editor menu spacer separator divider label text pre badge button toggle input textarea number stepper select segmented field image canvas slot raw note table status progress wire view marquee brush"),
+    ...W("component", "stack row group grid section notice pane cards form editor menu spacer separator divider label text pre badge button toggle input textarea number stepper select segmented field image canvas slot raw note table status progress wire view marquee brush veil swatch boxlock"),
     // behavior: behaviors switched on in spec.behaviors
-    ...W("behavior", "collapse resize open gate follow persist ext sync bind feed lab paint chip shape grow snap hold load"),
+    ...W("behavior", "collapse resize open gate follow persist ext sync bind feed lab paint chip shape grow snap hold load info"),
     // action: generic recipes called from `on`/`commit` ($actions.<name>)
     ...W("action", "copy download flip set focus reload fit toast kill reset release sound"),
     // renderer: painters for canvas_element

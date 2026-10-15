@@ -7,6 +7,21 @@
 
 import { getChangeTracker } from "../compat/compat.js";
 
+// While a mouse button is held (a slider or a stepper being dragged) the undo checkpoint waits for the release:
+// one drag = ONE Ctrl+Z step, not one every 200 ms (D-110). The graph still changes live. One long stroke, one regret.
+let held = false;
+const waiting = new Set();
+if (typeof window !== "undefined") {
+    window.addEventListener("pointerdown", () => { held = true; }, true);
+    const release = () => {
+        held = false;
+        for (const m of [...waiting]) { waiting.delete(m); m._checkpoint(); }
+    };
+    window.addEventListener("pointerup", release, true);
+    window.addEventListener("pointercancel", release, true);
+    window.addEventListener("blur", release);
+}
+
 export class ChangeManager {
     constructor({ delayMs = 200 } = {}) {
         this._graphs = new Set();
@@ -51,6 +66,7 @@ export class ChangeManager {
     }
 
     _checkpoint() {
+        if (held) { waiting.add(this); return; }
         this.checkpointFlushes++;
         try {
             const ct = getChangeTracker();

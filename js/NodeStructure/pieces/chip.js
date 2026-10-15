@@ -27,7 +27,7 @@ const CHIP_CSS = `
 .ns-chip[data-on="1"]{border-color:var(--ns-c-accent, #7aa2f7)}
 .ns-chip-in b{font-weight:700}
 .ns-chip-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;max-width:calc(var(--ns-chip-max,12) * 1ch + 2px)}
-.ns-chip-in.ns-mq{display:inline-block;animation:ns-pick-mq var(--ns-mq-s,3s) ease-in-out .3s infinite alternate}
+.ns-chip-in.ns-marquee{display:inline-block;animation:ns-pick-mq var(--ns-mq-s,3s) ease-in-out .3s infinite alternate}
 .ns-chip-c{font-size:8px;opacity:.7}
 .ns-pick{width:340px;max-height:min(420px,80vh);display:flex;flex-direction:column}
 .ns-pick .ns-panel-head{height:40px;box-sizing:border-box;padding:0 6px 0 12px;gap:8px;display:flex;align-items:center;background:var(--nsm-head);border-bottom:1px solid var(--nsm-line)}
@@ -35,7 +35,8 @@ const CHIP_CSS = `
 .ns-pick-bar{display:flex;gap:6px;padding:8px;border-bottom:1px solid var(--nsm-line)}
 .ns-pick-q{flex:1;min-width:0;height:28px;box-sizing:border-box;padding:0 8px;border:1px solid var(--nsm-line-strong);border-radius:6px;background:var(--nsm-field);color:var(--nsm-text);font:12px var(--nsm-font);outline:none}
 .ns-pick-q:focus{box-shadow:0 0 0 3px var(--nsm-focus);border-color:var(--nsm-accent)}
-.ns-pick-list{flex:1;min-height:40px;overflow-y:auto;overflow-x:hidden;padding:4px 0}
+.ns-pick-list{flex:1;min-height:40px;overflow-y:auto;overflow-x:hidden;padding:4px 0;user-select:none;-webkit-user-select:none}
+.ns-pick-head-t,.ns-pick-group,.ns-pick-hint,.ns-pick-warn{user-select:none;-webkit-user-select:none}
 .ns-pick-row{display:flex;align-items:center;gap:6px;height:28px;padding:0 10px;cursor:pointer;color:var(--nsm-text-dim)}
 .ns-pick-row:hover{background:var(--nsm-surface-hover)}
 .ns-pick-row.ns-hi{background:var(--nsm-accent-soft);color:var(--nsm-accent-soft-text)}
@@ -43,7 +44,7 @@ const CHIP_CSS = `
 .ns-pick-sym{flex:none;width:18px;color:var(--nsm-text-muted);font:12px var(--nsm-mono)}
 .ns-pick-txt{flex:1;min-width:0;overflow:hidden;white-space:nowrap}
 .ns-pick-in{display:inline-block;white-space:nowrap;font:12px var(--nsm-font)}
-.ns-pick-in.ns-mq{animation:ns-pick-mq var(--ns-mq-s,3s) ease-in-out .4s infinite alternate}
+.ns-pick-in.ns-marquee{animation:ns-pick-mq var(--ns-mq-s,3s) ease-in-out .4s infinite alternate}
 @keyframes ns-pick-mq{from{transform:translateX(0)}to{transform:translateX(var(--ns-mq,0))}}
 .ns-pick-sub{flex:0 1 auto;max-width:42%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--nsm-text-faint);font:10px var(--nsm-mono)}
 .ns-pick-empty{padding:12px;color:var(--nsm-text-muted);font:12px var(--nsm-font)}
@@ -170,8 +171,8 @@ function chipBehavior(side) {
             // the canvas/Vue must not see the click (no node dragging, no hand-drawn wire)
             for (const ev of ["pointerdown", "mousedown", "dblclick", "contextmenu"]) rt.bag.listen(chip, ev, (e) => e.stopPropagation());
             // truncated text: on hover it scrolls to show it all — a slow reveal (measured on the container: the inline span has scrollWidth 0)
-            rt.bag.listen(chip, "mouseenter", () => { const over = txt.scrollWidth - txt.clientWidth; if (over > 2) { txtIn.style.setProperty("--ns-mq", -over + "px"); txtIn.style.setProperty("--ns-mq-s", Math.max(1.2, over / 40) + "s"); txtIn.classList.add("ns-mq"); } });
-            rt.bag.listen(chip, "mouseleave", () => txtIn.classList.remove("ns-mq"));
+            rt.bag.listen(chip, "mouseenter", () => { const over = txt.scrollWidth - txt.clientWidth; if (over > 2) { txtIn.style.setProperty("--ns-mq", -over + "px"); txtIn.style.setProperty("--ns-mq-s", Math.max(1.2, over / 40) + "s"); txtIn.classList.add("ns-marquee"); } });
+            rt.bag.listen(chip, "mouseleave", () => txtIn.classList.remove("ns-marquee"));
             Tip.attach(rt.bag, chip, tipContent);                 // ONE hover only: the kit's (D-63)
             rt.bag.listen(chip, "click", (e) => { e.preventDefault(); e.stopPropagation(); open(chip); });
             rt.bag.listen(chip, "keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); open(chip); } });

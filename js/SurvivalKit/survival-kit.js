@@ -36,7 +36,7 @@ import { Log, logger } from "./core/log.js";
 
 const log = logger("kit");
 
-const KIT_VERSION = "1.11.0";
+const KIT_VERSION = "1.12.0";
 
 // --- subsystems ---
 const _registry = new Registry();

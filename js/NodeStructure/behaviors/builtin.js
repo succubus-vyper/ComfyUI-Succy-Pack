@@ -5,7 +5,7 @@
 // ============================================================
 
 import { piece } from "../catalog/registry.js";
-import { C, exb, E, N, S, K, ID, J, R } from "../catalog/kit.js";
+import { C, exb, E, N, S, B, K, ID, J, R } from "../catalog/kit.js";
 import { parseRef } from "../core/parser.js";
 import { evalValue } from "../core/binding.js";
 import { regionHeight, readPersisted, writePersisted, regionState } from "../core/heights.js";
@@ -144,7 +144,9 @@ piece(C("resize_mask", {
 piece(C("open_float", {
     scopo: "Apre un menu/pannello flottante (spec.menus) al click, doppio click o tasto destro di un elemento o del nodo.", estado: "stable",
     tag: ["comportamento", "menu"], alias: ["float-menu"], uses: ["menu_float_list", "menu_float_panel"],
-    props: { menu: { ...S("nome del menu in spec.menus"), required: true }, on: E(["click", "dblclick", "contextmenu"], "evento", "click"), trigger: { ...S("id elemento oppure 'node'"), required: true } },
+    props: { menu: { ...S("nome del menu in spec.menus"), required: true }, on: E(["click", "dblclick", "contextmenu"], "evento", "click"), trigger: { ...S("id elemento oppure 'node'"), required: true },
+        when: R("se falso il menu non si apre (l'evento resta comunque nostro: niente menu del browser/ComfyUI). Es. \"!$state.paint\""),
+        alt: B("con Alt premuto il menu si apre sempre, anche se `when` e' falso (D-115)", false) },
     esempio: { spec: { v: 1, regions: [{ id: "r", height: 40, tree: { t: "button_element", id: "b", text: "menu" } }], menus: { m: { kind: "menu_float_list", items: [{ label: "uno", action: "$actions.nop" }] } },
         behaviors: [{ type: "open_float", menu: "m", trigger: "b" }] }, actions: { nop() {} } },
 }), (rt, p) => {
@@ -154,7 +156,12 @@ piece(C("open_float", {
     if (!trg) { rt.warnOnce("fm:" + p.trigger, `float-menu: trigger '${p.trigger}' not found`); return; }
     rt.bag.listen(trg, on, (e) => {
         e.preventDefault(); e.stopPropagation();
-        rt.api.openMenu(p.menu, on === "contextmenu" ? { point: { x: e.clientX, y: e.clientY } } : { anchor: trg });
+        if (p.when !== undefined && !(p.alt === true && e.altKey)) {            // D-113: "!$ref" = the opposite; D-115: Alt forces it
+            const w = typeof p.when === "string" && p.when.startsWith("!") ? !evalValue(rt, p.when.slice(1)) : !!evalValue(rt, p.when);
+            if (!w) return;
+        }
+        // a right click opens the menu just to the RIGHT of the pointer (D-115), not under it
+        rt.api.openMenu(p.menu, on === "contextmenu" ? { point: { x: e.clientX + 14, y: e.clientY - 10 } } : { anchor: trg });
     });
 });
 

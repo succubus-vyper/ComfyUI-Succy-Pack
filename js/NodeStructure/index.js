@@ -14,8 +14,10 @@ import "./components/layout.js";
 import "./components/controls.js";
 import "./components/media.js";
 import "./components/progress.js";
+import "./components/crop-tools.js";
 import { viewStats } from "./components/view.js";
 import { brushStats } from "./components/brush.js";
+import { maskStats } from "./components/veil.js";
 import { ShotFeed } from "./runtime/shot-feed.js";
 import "./behaviors/builtin.js";
 import "./pieces/panes.js";
@@ -25,6 +27,7 @@ import "./pieces/fx.js";
 import "./pieces/runtime.js";
 import "./pieces/note.js";
 import "./pieces/wire.js";
+import { infoMenu } from "./pieces/info.js";
 import { Chips } from "./pieces/chip.js";
 import { Tip } from "./menu/tip.js";
 import { Ports } from "./pieces/ports.js";
@@ -47,7 +50,7 @@ import { extend, EXTS } from "./core/extend.js";
 import { Governor } from "../Governor/governor.js";
 import { deepClone, deepEqual, propertyViolations, findNonJson } from "./util/json.js";
 
-export const VERSION = "0.3.1";
+export const VERSION = "0.3.14";
 
 // CSS outside the kit = drift (nodes have no CSS): it still gets registered but stays on record
 const LATE_CSS = [];
@@ -103,10 +106,11 @@ export const NodeStructure = {
     ports: Ports,
     // EXT door (D-86): which nodes have the flag on and through which door (Governor HEALTH light)
     ext: Ext,
+    infoMenu,                               // text -> the spec of an (i) panel, for `info_node` (D-121)
     // editable tables (table_box, D-67): state of the live tables ("Tables" light)
     tables: Tables,
     // viewport + picture feed of Crop (view_box / shot_system, D-105): zoomed stages and pictures held (Governor HEALTH light)
-    view: { stats: viewStats, shots: ShotFeed.stats, brush: brushStats },
+    view: { stats: viewStats, shots: ShotFeed.stats, brush: brushStats, mask: maskStats },
 
     instanceOf: (node) => INSTANCES.get(node) || null,
     instances: liveRuntimes,

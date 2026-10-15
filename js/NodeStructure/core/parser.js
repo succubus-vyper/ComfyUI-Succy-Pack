@@ -296,7 +296,7 @@ export function normalizeSpec(raw, opts = {}) {
                 if (!m.tree) err(`${p}.tree`, "il panel richiede 'tree'");
                 else walkTree(m.tree, `${p}.tree`, { ids: new Set() }, 0, false);
                 if (m.head !== undefined) walkTree(m.head, `${p}.head`, { ids: new Set() }, 0, false);
-                for (const [k, vals] of [["look", ["classic", "v2"]], ["size", ["auto", "L", "M", "S"]], ["dock", ["free", "subject"]], ["dismiss", ["outside", "explicit"]]])
+                for (const [k, vals] of [["look", ["classic", "v2"]], ["size", ["auto", "L", "M", "S", "fit"]], ["dock", ["free", "subject"]], ["dismiss", ["outside", "explicit"]]])
                     if (m[k] !== undefined && !vals.includes(m[k])) err(`${p}.${k}`, `uno fra ${vals.join("|")}`);
             }
             for (const k of ["title", "icon", "chip"]) if (m[k] !== undefined) checkValue(`${p}.${k}`, m[k]);
