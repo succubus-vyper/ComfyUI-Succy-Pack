@@ -1,7 +1,7 @@
 [project]
 name = "comfyui-succy-pack"
 version = "0.1.0"
-description = "Succy Pack: Multi Math, Multi Parse, Pick Combo, Preview Anything, Pause, Clean VRAM, Label, Crop and Stitch, Loops, and sexier native reroutes for ComfyUI."
+description = "Succy Pack: live (no Queue) picture nodes: Load Image & Resize, Crop and Stitch, Primitive, Any switch; plus Multi Math, Multi Parse, Pick Combo, Preview Anything, Pause, Clean VRAM, Label, Loops, and sexier native reroutes for ComfyUI."
 readme = "README.md"
 license = { text = "All rights reserved" }
 requires-python = ">=3.10"
