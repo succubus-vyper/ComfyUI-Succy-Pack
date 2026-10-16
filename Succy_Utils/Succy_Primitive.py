@@ -3,7 +3,7 @@ import json
 import torch
 import comfy.model_management
 
-from _succy_common import ANY, convert_text, parse_bool, parse_float, parse_int   # the shared drawer (loaded once by __init__.py)
+from _succy_common import ANY, LiveWait, coerce_widgets, convert_text, parse_bool, parse_float, parse_int   # the shared drawer (loaded once by __init__.py)
 
 # ====================================================================== #
 #  Succy_Primitive — "the ultimate madafacca primitive"                   #
@@ -145,4 +145,16 @@ class Succy_Primitive:
         if d.get("kind") == "SEED":
             return {"ui": {"seed": [out[0]]}, "result": out}
         return out
+
+    # ---- LIVE (D-172): the picture / mask she makes, as it is NOW, without a Queue (IMAGE and MASK kinds; the rest has no picture to show) ----
+    SUCCY_LIVE = ("value",)
+
+    @classmethod
+    def succy_live(cls, widgets, inputs, node_id):
+        w = coerce_widgets(cls, widgets)
+        d = _data(w.get("data", ""))
+        if str(d.get("kind") or "") not in ("IMAGE", "MASK"):
+            raise LiveWait("run", "the Primitive is not a picture or a mask")
+        with torch.inference_mode():
+            return {"value": _value(d, w.get("seed", 0))[0]}
 

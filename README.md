@@ -52,6 +52,13 @@ The ultimate primitive. She's born small and undecided: pick what she becomes �
 - Resolution / Image / Mask / Latent: presets (SDXL buckets included), ⇄ swap, *Multiple of*, **Scale**; width, height and megapixels come out too.
 - Changed your mind? The little **↺** in her title bar, next to the heart, makes her a newborn again. A real node, not a virtual one: subgraphs, copy/paste and the API all work.
 
+### 🕵 Any
+Switch, batch and list in one body. Plug anything into her first input and every input locks onto that type, a new one opens each time you plug the last, and her outputs and title follow (*Succy - Any🖼️ Image*…). Unplug everything and she's Any again.
+- **picked**: one input, chosen by **Index** (inputs keep their number: unplug 1 and 2 and the 3 is still the 3; `-1` = last), **Bool** (True = input 1, False = input 2) or **Auto** (the first that really arrives: mute a branch and the next one takes over). Index and Bool can come from a wire (**EXT**).
+- **list**: every item one by one, for ANY type — three checkpoints, one Run, the sampler tries them all. **batch**: everything glued into one batch (IMAGE, MASK, LATENT, AUDIO, and CONDITIONING = one prompt per picture); it simply disappears for types that can't batch. **count**: how many.
+- **Lazy**: with only `picked` wired, the branches she doesn't pick never run.
+- Advanced (folded): **From / To / Every** pick which items list/batch/count keep (numbers, each one also from a wire), **Fit** (stretch / crop / pad) and **Size of** (first / largest / smallest) for pictures of different sizes in a batch (list never resizes). ⇅ slides the plugged inputs up over the holes and renumbers them.
+
 ### 🎯 Pick Combo
 A small spreadsheet inside a node. Rows × columns, each column with its own type. Pick **one row** and every column comes out of its own socket, plus `index`, `label` and `all`.
 - Type or paste whole tables at once.
@@ -62,6 +69,13 @@ A small spreadsheet inside a node. Rows × columns, each column with its own typ
 Cut a piece out of a picture, work on it, and sew it back so well nobody finds the seam.
 - **Crop**: draw the selection right on the node (move, resize, snap, feather the edge). Work at your own resolution (**workspace** and **Resize crop (MP)**, sizes snap to a *Multiple of*), add a **context** ring around the cut, grow or soften the mask. Outputs: `stitch` (the "how to sew it back" package), the full-picture `mask`, and the `cutout`. A **⬇** menu hands you the original, the crop, the masks or the cutout as PNG without queueing anything.
 - **Stitch**: puts the retouched crop back in place. Feathered, border-aware blending, **colour match** from the context ring, **sharpness and grain match** so the patch has the same skin as its surroundings. A live **A | B** preview re-runs the very same code as the real run, so what you see is what you get. Optional **pause for a retouch**, and the file remembers where it came from, so you can drop the PNG back in later. Something missing? The preview tells you exactly which input and why (no picture yet, or it needs a Run).
+
+### 🖼️ Load Image & Resize
+One loader that also resizes, and shares what it holds with the rest of the pack **live**, no Queue.
+- **Image**: drop / paste / 📂 a picture (or wire one in) and draw the mask right on it — box and brush, grow, feather, like Crop. Nothing drawn = an empty mask, like ComfyUI's Load Image; the picture's own transparency counts as mask too.
+- **Folder**: the input folder, one of its subfolders, or any full path. **Next** hands out the following picture at every execution — a Run, a lap of a Succy **Loop / While**, a ▶ of a **Pause** — and `is_last` tells the While when the folder is over. A strip of thumbnails shows where you are; click one to go on from there (or to pick it, in **Index** mode).
+- **Resize** moves picture and mask together, so they always match (handy before a second sampler or an inpaint): **W × H** with Fit / Fill / Pad / Stretch, an anchor and an **Outpaint** switch for the borders, or **Scale** (megapixels, then scale by). Sides snap to a *Multiple of* (1 = untouched).
+- **Live**: any Succy node wired to it — Stitch's replacement, base or mask, Crop's image — sees the picture right away, and follows when you change it. **Result** shows what leaves the node.
 
 ### 🔁 Loop & While
 **Loop Start / Loop End** repeat a piece of the graph N times, carrying values from one pass to the next. **While Start / End** keep going until your condition says stop. Four nodes, one idea: loops without copy-pasting the same chain ten times.
@@ -89,6 +103,8 @@ Every input and output name becomes a **chip**: click it and pick what to connec
 ## Good to know
 - **Fonts for Label / Note** come from Google Fonts through a tiny built-in proxy (only `fonts.googleapis.com` / `fonts.gstatic.com`, nothing else). ComfyUI's own security policy blocks remote fonts, so the pack serves them itself.
 - **Pause** and **Crop/Stitch with retouch** hold one execution slot while they wait (up to 1 h). That's the price of making the workflow wait for you.
+- **Load Image & Resize, Folder mode**: a full path can point anywhere on the computer that runs ComfyUI (like other folder loaders). Its thumbnails route only answers ComfyUI's own page and only with picture files of that folder.
+- **Live link**: Succy nodes ask each other for a reduced picture while you edit; the full size is computed only on Run, Copy and Download.
 - **Regex safety**: install the optional `regex` package and Multi Parse gets a real 2-second timeout. Without it, dangerous nested patterns are refused instead.
 - **If a ComfyUI frontend update ever breaks something** the pack draws or patches: press Ctrl+Shift+D (the Monitor says which piece and which file), or switch the whole UI layer off with `SuccyKill.on()` in the console + F5 (`?succy=off` in the address does it for one visit). The nodes keep working with plain ComfyUI widgets. A console line also warns you when your frontend is newer than the one the pack was tested on.
 

@@ -10,12 +10,19 @@ What lives here, and why one copy:
   - convert_text             text -> STRING/INT/FLOAT/BOOLEAN/LIST/DICT/ARRAY/JSON/COMBO (Pick Combo cells, Primitive multiline)
   - same_origin              the little bouncer for the routes that press buttons (Pause, Crop, Stitch)
   - DISPLAY                  node display names, filled by __init__.py: the single place names are written
+  - live_eval / LiveInputs   the LIVE LINK (D-156): a node "as it is now" -> its outputs, no Queue. A class opts in with
+                             SUCCY_LIVE = (output names) + a classmethod succy_live(widgets, inputs, node_id) -> {output: value}.
+                             The browser sends the chain {node_id, type, widgets, linked, from: {input: {output, ...source}}}.
+  - coerce_widgets           browser widget values -> the Python types INPUT_TYPES declares (what a live call needs)
 """
 import ast
 import json
 import math
+import threading
+from collections import OrderedDict
 
-__all__ = ["AnyType", "ANY", "parse_bool", "parse_int", "parse_float", "loads_loose", "to_container", "convert_text", "same_origin", "DISPLAY"]
+__all__ = ["AnyType", "ANY", "parse_bool", "parse_int", "parse_float", "loads_loose", "to_container", "convert_text", "same_origin", "DISPLAY",
+           "LiveWait", "LiveInputs", "live_eval", "live_touch", "live_types", "coerce_widgets"]
 
 
 class AnyType(str):
@@ -168,3 +175,151 @@ def same_origin(request):
         return urlsplit(origin).netloc.lower() == host
     except Exception:
         return False
+
+
+# ---------------------------------------------------------------------------
+# LIVE LINK (D-156): every Succy node that can say what it outputs "as it is now" does, without a Queue.
+# The frontend (NodeStructure runtime/live-link.js) walks the wires back through live nodes and sends the chain;
+# live_eval runs it from the far end, each node getting its upstream outputs through LiveInputs. Pure Python: the
+# node classes bring the torch. Not ready is a state (LiveWait), not an error — she just isn't dressed yet.
+# ---------------------------------------------------------------------------
+
+LIVE_DEPTH = 8               # nodes in one chain at most: a loop of wires can't send us round and round
+_LIVE_MEMO = OrderedDict()   # chain -> outputs: two viewers of the same node share one computation
+_LIVE_MEMO_MAX = 8
+_LIVE_LOCK = threading.Lock()
+_LIVE_EPOCH = [0]
+
+
+class LiveWait(Exception):
+    """A source that can't answer YET. need = 'image' (load one) | 'run' (only a Run brings it); why = what the user reads."""
+    def __init__(self, need, why):
+        super().__init__(why)
+        self.need, self.why = need, why
+
+
+def live_touch():
+    """A live node ran or changed its own state (a folder counter): what the memo remembers may be stale."""
+    with _LIVE_LOCK:
+        _LIVE_EPOCH[0] += 1
+        _LIVE_MEMO.clear()
+
+
+def live_types(mapping):
+    """{node type: [live output names]} of the classes that opted in (SUCCY_LIVE + succy_live)."""
+    out = {}
+    for key, cls in (mapping or {}).items():
+        outs = getattr(cls, "SUCCY_LIVE", None)
+        if outs and callable(getattr(cls, "succy_live", None)):
+            out[key] = [str(o) for o in outs]
+    return out
+
+
+class LiveInputs:
+    """What a live node gets for its inputs: get(name) = the upstream live output, None when the input has no live source
+    (not wired, or wired to a node that only a Run can fill: the node then falls back to its last Run)."""
+    def __init__(self, spec, mapping, depth=0):
+        spec = spec if isinstance(spec, dict) else {}
+        self._from = spec.get("from") if isinstance(spec.get("from"), dict) else {}
+        self._linked = set(str(x) for x in (spec.get("linked") or []))
+        self._mapping, self._depth = mapping, depth
+
+    def linked(self, name):
+        # a wire whose live source says "I hand out nothing" (an Any on Index 0 or on a hole) counts as NO wire at all (D-172)
+        return name in self._linked and not self.empty(name)
+
+    def live(self, name):
+        return name in self._from and name in self._linked
+
+    def empty(self, name):
+        """True when the live source behind `name` chose to give nothing on purpose (it lists the output in "_empty")."""
+        if not self.live(name):
+            return False
+        src = self._from[name]
+        try:
+            outs = live_eval(src, self._mapping, self._depth + 1)
+        except LiveWait:
+            return False
+        return str(src.get("output") or "") in (outs.get("_empty") or ())
+
+    def get(self, name):
+        if not self.live(name) or self.empty(name):
+            return None
+        src = self._from[name]
+        outs = live_eval(src, self._mapping, self._depth + 1)
+        out = str(src.get("output") or "")
+        if outs.get(out) is None:
+            raise LiveWait("run", f"{src.get('type', 'the node')} has no live '{out}': Run once")
+        return outs[out]
+
+
+def live_eval(spec, mapping, depth=0):
+    """One node of the chain, as it is now -> {output name: value}. Raises LiveWait when it can't answer yet."""
+    if not isinstance(spec, dict) or not isinstance(spec.get("type"), str):
+        raise LiveWait("run", "nothing live on this wire")
+    if depth > LIVE_DEPTH:
+        raise LiveWait("run", "the live chain is too long: Run once")
+    cls = (mapping or {}).get(spec["type"])
+    fn = getattr(cls, "succy_live", None) if cls is not None and getattr(cls, "SUCCY_LIVE", None) else None
+    if not callable(fn):
+        raise LiveWait("run", f"{spec['type']} can't send live: Run once")
+    try:
+        key = json.dumps([spec, _LIVE_EPOCH[0]], sort_keys=True, default=str)
+    except (TypeError, ValueError):
+        key = None
+    if key is not None:
+        with _LIVE_LOCK:
+            hit = _LIVE_MEMO.get(key)
+            if hit is not None:
+                _LIVE_MEMO.move_to_end(key)
+                return hit
+    widgets = spec.get("widgets") if isinstance(spec.get("widgets"), dict) else {}
+    outs = fn(dict(widgets), LiveInputs(spec, mapping, depth), str(spec.get("node_id", "")))
+    outs = outs if isinstance(outs, dict) else {}
+    if key is not None:
+        with _LIVE_LOCK:
+            _LIVE_MEMO[key] = outs
+            while len(_LIVE_MEMO) > _LIVE_MEMO_MAX:
+                _LIVE_MEMO.popitem(last=False)
+    return outs
+
+
+def coerce_widgets(cls, widgets):
+    """Browser widget values -> what the node's function expects, by the types INPUT_TYPES declares (required + optional widgets).
+    Unknown names are dropped; a value that doesn't read falls back to the widget's default. Combos keep only listed values."""
+    try:
+        it = cls.INPUT_TYPES()
+    except Exception:
+        return {}
+    decl = {**(it.get("optional") or {}), **(it.get("required") or {})}
+    out = {}
+    for name, value in (widgets or {}).items():
+        d = decl.get(name)
+        if not d:
+            continue
+        kind, opts = d[0], (d[1] if len(d) > 1 and isinstance(d[1], dict) else {})
+        if opts.get("forceInput"):
+            continue
+        default = opts.get("default")
+        try:
+            if isinstance(kind, (list, tuple)):
+                v = str(value)
+                out[name] = v if v in [str(k) for k in kind] else (default if default is not None else (kind[0] if kind else v))
+            elif kind == "INT":
+                v = int(round(float(value)))
+                lo, hi = opts.get("min"), opts.get("max")
+                out[name] = max(lo, v) if lo is not None and v < lo else min(hi, v) if hi is not None and v > hi else v
+            elif kind == "FLOAT":
+                v = float(value)
+                if not math.isfinite(v):
+                    raise ValueError
+                lo, hi = opts.get("min"), opts.get("max")
+                out[name] = max(lo, v) if lo is not None and v < lo else min(hi, v) if hi is not None and v > hi else v
+            elif kind == "BOOLEAN":
+                out[name] = parse_bool(value)
+            elif kind == "STRING":
+                out[name] = "" if value is None else str(value)
+        except (TypeError, ValueError):
+            if default is not None:
+                out[name] = default
+    return out

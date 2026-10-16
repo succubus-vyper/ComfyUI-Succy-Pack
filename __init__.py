@@ -83,6 +83,20 @@ NODES = {
         "display":  "Succy - 💎Primitive",
         "category": "Succy Pack",
     },
+    "Succy_Any": {
+        "folder":   "Succy_Utils",
+        "py_file":  "Succy_Any.py",
+        "class":    "Succy_Any",
+        "display":  "Succy - 🕵Any",
+        "category": "Succy Pack",
+    },
+    "Succy_Load_Image_Resize": {
+        "folder":   "Succy_Load",
+        "py_file":  "Succy_Load.py",
+        "class":    "Succy_Load_Image_Resize",
+        "display":  "Succy - 🖼️Load Image & Resize",
+        "category": "Succy Pack",
+    },
 }
 
 # Usiamo MODULES per il loop per sfruttare i mapping definiti nel file stesso
@@ -129,6 +143,10 @@ _common = _load_module("Succy_Common", {"folder": "Succy_Common", "py_file": "su
 if _common is not None:
     sys.modules["_succy_common"] = _common
     _common.DISPLAY.update({k: v["display"] for k, v in NODES.items() if v.get("display")})
+    # the shared drawer for pictures (torch helpers + the live routes, D-156): `from _succy_image import ...`
+    _image = _load_module("Succy_Image", {"folder": "Succy_Common", "py_file": "succy_image.py"})
+    if _image is not None:
+        sys.modules["_succy_image"] = _image
 
 
 NODE_CLASS_MAPPINGS = {}
