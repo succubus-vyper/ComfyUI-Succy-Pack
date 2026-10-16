@@ -4,6 +4,7 @@ import aiohttp
 import urllib.parse
 import json
 import os
+import re
 
 # ===================================================
 # Succy_Label — backend
@@ -23,7 +24,7 @@ def _load_family(family):
             data = json.load(f)
         return data.get("effects", data.get("items", []))
     except Exception as e:
-        print(f"[Succy_Label] effects/{family}.json non leggibile: {e}")
+        print(f"[Succy_Label] effects/{family}.json unreadable: {e}")
         return []
 
 
@@ -36,7 +37,9 @@ async def succy_css_proxy(request):
     # Re-reads Fonts.json on every request: if you add a font and hit ↻ in the menu,
     # the next request includes it without restarting the server.
     fonts = _load_family("Fonts")
-    imports = [f.get("import") for f in fonts if isinstance(f, dict) and f.get("import")]
+    # family names only (letters, digits, + : ; @ , . = -): nothing else can ride along into the Google URL
+    imports = [f.get("import") for f in fonts
+               if isinstance(f, dict) and isinstance(f.get("import"), str) and re.fullmatch(r"[A-Za-z0-9+:;@,.=\-]+", f["import"])]
     if not imports:
         return web.Response(text="/* No Google fonts configured */", content_type="text/css")
     url = ("https://fonts.googleapis.com/css2?family="
@@ -57,6 +60,12 @@ async def succy_css_proxy(request):
         return web.Response(text=f"/* Proxy Error: {e} */", content_type="text/css")
 
 
+# Only Google's font CDN may pass through: this route is NOT a general URL fetcher (no SSRF, no LAN peeking).
+_FONT_HOSTS = ("fonts.gstatic.com",)
+_FONT_MAX_BYTES = 5 * 1024 * 1024
+_FONT_TYPES = ("font/", "application/font", "application/x-font", "application/octet-stream")
+
+
 @routes.get("/succy/font_proxy")
 async def succy_font_proxy(request):
     url = request.rel_url.query.get("url")
@@ -64,10 +73,22 @@ async def succy_font_proxy(request):
         return web.Response(status=404)
     url = urllib.parse.unquote(url)
     try:
+        u = urllib.parse.urlsplit(url)
+        # https only, exact host from the allowlist, default port, no credentials in the URL
+        if u.scheme != "https" or u.hostname not in _FONT_HOSTS or u.port not in (None, 443) or u.username or u.password:
+            return web.Response(status=403)
         async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
-                data = await resp.read()
-                return web.Response(body=data, content_type=resp.content_type)
+            # allow_redirects=False: an allowed host must not bounce us to somewhere that is not
+            async with session.get(url, allow_redirects=False, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                if resp.status != 200:
+                    return web.Response(status=404)
+                ctype = (resp.content_type or "").lower()
+                if not ctype.startswith(_FONT_TYPES):
+                    return web.Response(status=403)
+                data = await resp.content.read(_FONT_MAX_BYTES + 1)
+                if len(data) > _FONT_MAX_BYTES:
+                    return web.Response(status=413)
+                return web.Response(body=data, content_type=ctype, headers={"Cache-Control": "public, max-age=86400"})
     except Exception:
         return web.Response(status=404)
 

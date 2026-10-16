@@ -1,0 +1,3 @@
+# Optional but recommended: gives Multi Parse's regex mode a real 2-second timeout.
+# Without it the pack still works, and refuses nested-quantifier patterns like (a+)+ instead.
+regex

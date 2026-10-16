@@ -8,10 +8,11 @@
 # Handle with care, darling: regexes are the one thing in here that can still bite.
 # D-78 - Succubus
 # ============================================================
-import ast
 import json
 import math
 import re
+
+from _succy_common import parse_bool, parse_float, parse_int, to_container   # the shared drawer (loaded once by __init__.py)
 
 MAX_OPERATIONS = 15
 INPUT_NAMES = list("abcdefghij")
@@ -65,76 +66,11 @@ def _unescape(s):
 
 
 # ---- converters (text -> the output format you picked) ----------------------------------------------------
-def _parse_bool(v):
-    if isinstance(v, bool): return v
-    if isinstance(v, (int, float)): return v != 0
-    if isinstance(v, str):
-        s = v.strip().lower()
-        if s in ("true", "1", "yes", "on", "y", "t"): return True
-        if s in ("false", "0", "no", "off", "n", "f", ""): return False
-    raise ValueError(f"cannot parse {v!r} as BOOLEAN")
-
-
-def _parse_int(v):
-    if isinstance(v, bool): return int(v)
-    if isinstance(v, int): return v
-    if isinstance(v, float):
-        if not math.isfinite(v): raise ValueError(f"{v} cannot be an INT")
-        return int(round(v))
-    if isinstance(v, str):
-        s = v.strip()
-        if s == "": return 0
-        try:
-            return int(s)                  # exact for huge whole numbers, no float rounding
-        except ValueError:
-            return _parse_int(float(s))
-    raise ValueError(f"cannot parse {v!r} as INT")
-
-
-def _parse_float(v):
-    if isinstance(v, bool): return 1.0 if v else 0.0
-    if isinstance(v, (int, float)): return float(v)
-    if isinstance(v, str):
-        s = v.strip()
-        return 0.0 if s == "" else float(s)
-    raise ValueError(f"cannot parse {v!r} as FLOAT")
-
-
-def _loads_loose(s):
-    """json first (as typed), then json with single quotes swapped, then a python literal. Raises if none fits."""
-    for attempt in (lambda: json.loads(s), lambda: json.loads(s.replace("'", '"')), lambda: ast.literal_eval(s)):
-        try:
-            return attempt()
-        except Exception:
-            continue
-    raise ValueError("not a literal")
-
-
-def _parse_container(v, kind):
-    if kind in ("LIST", "ARRAY"):
-        if isinstance(v, list): return v
-        if isinstance(v, tuple): return list(v)
-        if isinstance(v, str):
-            s = v.strip()
-            if s == "": return []
-            try:
-                p = _loads_loose(s)
-                return p if isinstance(p, list) else [p]
-            except ValueError:
-                pass
-            lines = [ln.strip() for ln in s.split("\n") if ln.strip()]
-            return lines if len(lines) > 1 else [s]
-        return [v]
-    if isinstance(v, dict): return v                     # DICT / JSON
-    if isinstance(v, str):
-        s = v.strip()
-        if s == "": return {}
-        try:
-            p = _loads_loose(s)
-            return p if isinstance(p, dict) else {"value": p}
-        except ValueError:
-            return {"value": s}
-    return {"value": v}
+# strict readers: a block that can't read its input raises, and the block's own error isolation turns it into a red debug line
+def _parse_bool(v): return parse_bool(v, strict=True)
+def _parse_int(v): return parse_int(v, strict=True)
+def _parse_float(v): return parse_float(v, strict=True)
+_parse_container = to_container
 
 
 def _convert(val, fmt):

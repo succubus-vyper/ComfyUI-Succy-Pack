@@ -1,4 +1,5 @@
 import os
+import sys
 import importlib.util
 
 # ---------------------------------------------------------------------------
@@ -21,7 +22,7 @@ NODES = {
         "category": "Succy Pack",
     },
     "Succy_CleanVram": {
-        "folder":   "Succy_Utils",
+        "folder":   "Succy_VRAM",
         "py_file":  "Succy_VRAM.py",
         "class":    "Succy_CleanVram_Madafacca",
         "display":  "Succy - 🧹Clean Vram",
@@ -49,27 +50,19 @@ NODES = {
         "category": "Succy Pack",
     },
     "Succy_Pick_Combo": {
-        "folder":   "Succy_Utils",
+        "folder":   "Succy_Pick_Combo",
         "py_file":  "Succy_Pick_Combo.py",
         "class":    "Succy_Pick_Combo",
         "display":  "Succy - 🎯Pick Combo",
         "category": "Succy Pack",
     },
+    # Route-only entry ("class": None): the module is loaded for the effects route it serves, no node is registered.
     "Succy_Reroute": {
         "folder":   "Succy_Reroute",
         "py_file":  "Succy_Reroute.py",
-        "class":    "Succy_Reroute",
-        "display":  "Succy - 🔀Reroute",
-        "category": "Succy Pack",
+        "class":    None,
     },
-    "Succy_X": {
-        "folder":   "Succy_X",
-        "py_file":  "Succy_X.py",
-        "class":    "Succy_X",
-        "display":  "Succy - 🧪X Torture",
-        "category": "Succy Pack/Test",
-    },
-        "Succy_Crop": {
+    "Succy_Crop": {
         "folder":   "Succy_Crop_Stitch",
         "py_file":  "Succy_Crop_Stitch.py",
         "class":    "Succy_Crop",
@@ -95,9 +88,13 @@ MODULES = {
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
+_LOADED = {}   # path -> module: a file shared by two nodes (Crop + Stitch) runs ONCE, both classes come from the same module
+
 
 def _load_module(key, info):
     path = os.path.join(HERE, info["folder"], info["py_file"])
+    if path in _LOADED:
+        return _LOADED[path]
     if not os.path.isfile(path):
         print(f"[Succy Pack] File not found for '{key}': {path}")
         return None
@@ -115,7 +112,16 @@ def _load_module(key, info):
         print(traceback.format_exc())
         return None
 
+    _LOADED[path] = module
     return module
+
+
+# The shared drawer (parsers, AnyType, route bouncer): loaded FIRST and registered as `_succy_common`,
+# so every node file can simply `from _succy_common import ...`. Without it nothing else is worth loading.
+_common = _load_module("Succy_Common", {"folder": "Succy_Common", "py_file": "succy_common.py"})
+if _common is not None:
+    sys.modules["_succy_common"] = _common
+    _common.DISPLAY.update({k: v["display"] for k, v in NODES.items() if v.get("display")})
 
 
 NODE_CLASS_MAPPINGS = {}
@@ -124,8 +130,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {}
 
 # Legacy one-class modules
 for key, info in NODES.items():
-    module = _load_module(key, info)
-    if module is None:
+    module = _load_module(key, info) if _common is not None else None
+    if module is None or info.get("class") is None:
         continue
 
     cls = getattr(module, info["class"], None)
@@ -143,7 +149,7 @@ for key, info in NODES.items():
 
 # Modules that expose their own mapping (Il nuovo Loop System)
 for key, info in MODULES.items():
-    module = _load_module(key, info)
+    module = _load_module(key, info) if _common is not None else None
     if module is None:
         continue
 

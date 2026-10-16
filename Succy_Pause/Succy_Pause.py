@@ -1,11 +1,12 @@
 import os
-import sys
 import time
 
 import comfy.model_management
 from aiohttp import web
 from comfy_api.latest import io
 from server import PromptServer
+
+from _succy_common import DISPLAY, same_origin   # the shared drawer (loaded once by __init__.py)
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -82,11 +83,17 @@ def _notify_frontend(display_id: str, in_loop: bool) -> None:
 @PromptServer.instance.routes.post("/succy/pause/action")
 async def _pause_action(request: web.Request) -> web.Response:
     """Receives the user's action (continue/stop) from the frontend."""
-    data = await request.json()
-    node_id = data.get("node_id")
-    action = data.get("action")
-    if node_id is not None:
-        _NODE_STATES[str(node_id)] = action
+    if not same_origin(request):
+        return web.json_response({"error": "cross-origin request refused"}, status=403)
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "bad JSON"}, status=400)
+    node_id = data.get("node_id") if isinstance(data, dict) else None
+    action = data.get("action") if isinstance(data, dict) else None
+    if node_id is None or action not in ("continue", "stop"):
+        return web.json_response({"error": "node_id and action ('continue' | 'stop') required"}, status=400)
+    _NODE_STATES[str(node_id)] = action
     return web.json_response({"status": "ok"})
 
 
@@ -102,18 +109,9 @@ async def _pause_ding(request: web.Request) -> web.Response:
 
 def _name_from_init(node_id: str, fallback: str) -> str:
     """V3 nodes carry their own display_name and it BEATS the NODE_DISPLAY_NAME_MAPPINGS of __init__.py.
-    The pack rule is that names are written in ONE place (__init__.py NODES[...]["display"]), so we read it from there
-    instead of keeping a second, silently winning copy. If __init__ can't be found we fall back to a literal."""
-    try:
-        for name, mod in list(sys.modules.items()):
-            if "Succy-Pack" not in name and "Succy_Pack" not in name:
-                continue
-            info = (getattr(mod, "NODES", None) or {}).get(node_id)
-            if isinstance(info, dict) and info.get("display"):
-                return str(info["display"])
-    except Exception:
-        pass
-    return fallback
+    Names are written in ONE place (__init__.py NODES[...]["display"]); __init__ hands them over through the shared drawer
+    (`DISPLAY`) before any node loads. No literal here unless that drawer is empty."""
+    return DISPLAY.get(node_id) or fallback
 
 
 class Succy_PauseExecution(io.ComfyNode):

@@ -1,0 +1,20 @@
+[project]
+name = "comfyui-succy-pack"
+version = "0.1.0"
+description = "Succy Pack: Multi Math, Multi Parse, Pick Combo, Preview Anything, Pause, Clean VRAM, Label, Crop and Stitch, Loops, and sexier native reroutes for ComfyUI."
+readme = "README.md"
+license = { text = "All rights reserved" }
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+# a real 2-second timeout for Multi Parse's regex mode (without it, dangerous nested patterns are refused instead)
+regex = ["regex"]
+
+[project.urls]
+Repository = "https://github.com/succubus-vyper/ComfyUI-Succy-Pack"
+Support = "https://ko-fi.com/succubusvyper"
+
+[tool.comfy]
+DisplayName = "Succy Pack"
+Icon = ""

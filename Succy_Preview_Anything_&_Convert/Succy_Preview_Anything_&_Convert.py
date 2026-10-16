@@ -1,7 +1,7 @@
-import ast
 import json
 import os
 import random
+import re
 
 import folder_paths
 import numpy as np
@@ -9,13 +9,13 @@ import torch
 from PIL import Image
 
 
-class AnyType(str):
-    """Legacy ComfyUI trick: behaves like '*' for the type-checker. A master of disguise."""
-    def __ne__(self, __value):
-        return False
+from _succy_common import ANY, parse_bool, parse_float, parse_int, to_container   # the shared drawer (loaded once by __init__.py)
+
+_PREVIEW_FILES = {}     # node key -> the temp PNG it currently shows (so the next run can delete it)
 
 
-ANY = AnyType("*")
+class _SkipPreview(Exception):
+    """preview is Off: no picture is written."""
 
 _UI_CONTAINER_TYPES = ("JSON", "DICT", "LIST", "ARRAY")
 _UI_LIST_TYPES = ("LIST", "ARRAY")
@@ -28,20 +28,6 @@ _OUTPUT_TYPES = ["STRING", "INT", "FLOAT", "BOOLEAN",
 # ------------------------------------------------------------------ #
 #  Parser helpers (module-level, no state)                           #
 # ------------------------------------------------------------------ #
-def _parse_bool(value) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        return value != 0
-    if isinstance(value, str):
-        v = value.strip().lower()
-        if v in ("true", "1", "yes", "on", "y", "t"):
-            return True
-        if v in ("false", "0", "no", "off", "n", "f", ""):
-            return False
-    return bool(value)
-
-
 def _unwrap_scalar(value):
     """Tensor/array/list with a single element -> the single element."""
     if isinstance(value, torch.Tensor) and value.numel() == 1:
@@ -61,68 +47,11 @@ def _to_text(value) -> str:
 
 
 def _parse_int(value) -> int:
-    value = _unwrap_scalar(value)
-    try:
-        return int(round(float(value)))
-    except (ValueError, TypeError):
-        if isinstance(value, str):
-            return 1 if value.strip() else 0
-        return 1 if value else 0
+    return parse_int(_unwrap_scalar(value), tag="PreviewAny")
 
 
 def _parse_float(value) -> float:
-    value = _unwrap_scalar(value)
-    try:
-        return float(value)
-    except (ValueError, TypeError):
-        if isinstance(value, str):
-            return 1.0 if value.strip() else 0.0
-        return 1.0 if value else 0.0
-
-
-def _coerce_container(value, output_type):
-    """Fits `value` into the requested container (list/dict)."""
-    if output_type in _UI_LIST_TYPES:
-        if isinstance(value, tuple):
-            return list(value)
-        return value if isinstance(value, list) else [value]
-    if output_type in _UI_DICT_TYPES:
-        return value if isinstance(value, dict) else {"value": value}
-    return value
-
-
-def _parse_json_or_literal(source: str, output_type):
-    """Pure JSON → Python literal → single-quoted JSON → multiline fallback."""
-    if not source.strip():
-        return [] if output_type in _UI_LIST_TYPES else {}
-
-    # 1) Valid JSON as is (don't touch the apostrophes inside strings!)
-    try:
-        return _coerce_container(json.loads(source), output_type)
-    except json.JSONDecodeError:
-        pass
-
-    # 2) Python literal: {'a': 1}, [1, 2], (1, 2), True/None...
-    try:
-        parsed = ast.literal_eval(source)
-        if isinstance(parsed, tuple):
-            parsed = list(parsed)
-        return _coerce_container(parsed, output_type)
-    except (ValueError, SyntaxError):
-        pass
-
-    # 3) Last attempt: "dirty" JSON with single quotes (e.g. {'a': true}) — we don't judge
-    try:
-        return _coerce_container(json.loads(source.replace("'", '"')), output_type)
-    except json.JSONDecodeError:
-        pass
-
-    if output_type in _UI_LIST_TYPES:
-        lines = [line.strip() for line in source.split("\n") if line.strip()]
-        return lines if len(lines) > 1 else [source]
-    if output_type in _UI_DICT_TYPES:
-        return {"value": source}
-    return source
+    return parse_float(_unwrap_scalar(value), tag="PreviewAny")
 
 
 # ------------------------------------------------------------------ #
@@ -142,7 +71,9 @@ class Succy_Preview_Anything_Convert:
                 "output_type": (_OUTPUT_TYPES, {"default": "STRING"}),
                 # only meaningful with output_type MASK: flips the mask (1 - m). The frontend shows it as the INVERT button.
                 "invert_mask": ("BOOLEAN", {"default": False}),
-            }
+            },
+            # the node's id: one picture file per node, the old one goes away when the new one lands (no PNG pile-up in temp/)
+            "hidden": {"unique_id": "UNIQUE_ID"},
         }
 
     RETURN_TYPES = (ANY, "INT", "INT", "FLOAT")
@@ -151,7 +82,7 @@ class Succy_Preview_Anything_Convert:
     OUTPUT_NODE = True
 
     # -------------------------------------------------------------- #
-    def execute(self, preview, source, output_type, invert_mask=False):
+    def execute(self, preview, source, output_type, invert_mask=False, unique_id=None):
         converted = source
         width = height = 0
         megapixels = 0.0
@@ -220,10 +151,14 @@ class Succy_Preview_Anything_Convert:
                 if invert_shown:
                     converted = 1.0 - converted
 
-                # PNG preview (always saved, even with preview OFF) — we keep a souvenir
+                # PNG preview: only with preview ON (the pane is hidden otherwise, so nobody would look at it).
+                # One live file per node: the previous one is deleted as soon as the new one is written.
                 try:
+                    if not preview:
+                        raise _SkipPreview()
                     temp_dir = folder_paths.get_temp_directory()
-                    filename = f"succy_preview_{random.randint(0, 99999999)}.png"
+                    node_key = re.sub(r"[^A-Za-z0-9_-]", "_", str(unique_id)) if unique_id is not None else "x"
+                    filename = f"succy_preview_{node_key}_{random.randint(0, 99999999)}.png"
                     file_path = os.path.join(temp_dir, filename)
 
                     shown = converted if invert_shown else source      # inverted mask: preview what comes out
@@ -240,12 +175,21 @@ class Succy_Preview_Anything_Convert:
                             arr = arr[..., :3]
                         pil_img = Image.fromarray(arr, mode="RGBA" if arr.shape[-1] == 4 else "RGB")
                     pil_img.save(file_path, compress_level=4)
+                    old = _PREVIEW_FILES.get(node_key)
+                    _PREVIEW_FILES[node_key] = filename
+                    if old and old != filename:
+                        try:
+                            os.remove(os.path.join(temp_dir, old))
+                        except OSError:
+                            pass
 
                     ui_images = [{
                         "filename": filename,
                         "subfolder": "",
                         "type": "temp",
                     }]
+                except _SkipPreview:
+                    pass
                 except Exception as e:
                     print(f"[PreviewAny] Image preview error: {e}")
 
@@ -259,12 +203,12 @@ class Succy_Preview_Anything_Convert:
                 elif output_type == "FLOAT":
                     converted = _parse_float(source)
                 elif output_type == "BOOLEAN":
-                    converted = _parse_bool(source)
+                    converted = parse_bool(source)
                 elif output_type in _UI_CONTAINER_TYPES:
                     if isinstance(source, str):
-                        converted = _parse_json_or_literal(source, output_type)
+                        converted = to_container(source, output_type)
                     else:
-                        converted = _coerce_container(source, output_type)
+                        converted = to_container(source, output_type)
             except Exception as e:
                 print(f"[PreviewAny] Conversion error for {output_type}: {e}")
 
@@ -272,7 +216,7 @@ class Succy_Preview_Anything_Convert:
 
         # ---------- UI RESPONSE ----------
         # "succy_*" keys: custom, handled by the dedicated JS (not by the native UI).
-        # We ALWAYS send them, even when preview=False, so the client caches them.
+        # Text always goes out; the picture only with preview ON (see above).
         ui_res = {}
         if ui_images:
             ui_res["succy_images"] = ui_images

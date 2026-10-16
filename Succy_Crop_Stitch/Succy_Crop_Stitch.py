@@ -17,6 +17,8 @@ import comfy.model_management
 import folder_paths
 from server import PromptServer
 
+from _succy_common import same_origin   # the shared drawer (loaded once by __init__.py)
+
 # ===================================================
 # Succy Crop & Stitch — phase 1 (backend only, native widgets)
 #
@@ -36,8 +38,8 @@ _TAG = "[Succy Crop&Stitch]"
 # Same dance as Succy Pause: the node waits in place, the frontend (SurvivalKit.hold, class Succy_Crop) posts
 # "stop" / "continue" here. Continue normally RE-QUEUES the graph with run_id "<ts>_continue": the node then skips
 # the wait and crops with the x/y/w/h the user just drew. State key = the id SHOWN in the graph.
-# __init__.py loads this file ONCE PER NODE (Crop and Stitch share it), so the module body runs twice: the state dict and the
-# route live on the server instance and are created only the first time (a second POST route = ComfyUI refuses to start).
+# __init__.py loads this file ONCE (Crop and Stitch share the module). The state dict and the routes still live on the server instance
+# and are created only the first time, so a module reload can't register a second POST route (ComfyUI would refuse to start).
 _NODE_STATES = getattr(PromptServer.instance, "_succy_crop_states", None)
 _FIRST_LOAD = _NODE_STATES is None
 if _FIRST_LOAD:
@@ -46,6 +48,17 @@ if _FIRST_LOAD:
     PromptServer.instance._succy_crop_last = {}
 # D-115: the outputs of each Crop's LAST run (references, no copy), so the node's ⬇ can hand any of them over as a PNG
 _LAST = PromptServer.instance._succy_crop_last
+_LAST_MAX = 12               # nodes remembered at once: the oldest one lets go (its tensors) when a new one comes in, so a long session can't hoard RAM
+
+
+def _remember(did, entry):
+    """Keep the last run of node `did`; past _LAST_MAX nodes the least recently run one is forgotten (it just asks for a fresh Run)."""
+    _LAST.pop(did, None)                                   # re-insert = most recent goes last
+    _LAST[did] = entry
+    while len(_LAST) > _LAST_MAX:
+        _LAST.pop(next(iter(_LAST)), None)
+
+
 _DOWNLOADS = ("full_img", "cutout", "mask", "crop_img", "crop_mask")
 _PREVIEW_MAX = 2048          # longest side of the preview the viewport shows (selection coords stay in ORIGINAL pixels)
 
@@ -62,9 +75,15 @@ def _display_id(dynprompt, unique_id):
 if _FIRST_LOAD:
     @PromptServer.instance.routes.post("/succy/crop/action")
     async def _crop_action(request):
-        data = await request.json()
-        if data.get("node_id") is not None:
-            _NODE_STATES[str(data["node_id"])] = data.get("action")
+        if not same_origin(request):
+            return web.json_response({"error": "cross-origin request refused"}, status=403)
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "bad JSON"}, status=400)
+        if not isinstance(data, dict) or data.get("node_id") is None or data.get("action") not in ("continue", "stop"):
+            return web.json_response({"error": "node_id and action ('continue' | 'stop') required"}, status=400)
+        _NODE_STATES[str(data["node_id"])] = data["action"]
         return web.json_response({"status": "ok"})
 
     async def _outs_for(request, nid, need):
@@ -100,6 +119,8 @@ if _FIRST_LOAD:
 
     @PromptServer.instance.routes.post("/succy/crop/download")
     async def _crop_download(request):
+        if not same_origin(request):
+            return web.json_response({"error": "cross-origin request refused"}, status=403)
         # ?node_id=<shown id>&which=<output> -> that output as a PNG. The file carries the way back in (tEXt "succy_crop", D-123).
         nid, which = str(request.query.get("node_id", "")), request.query.get("which", "")
         if which not in _DOWNLOADS:
@@ -116,6 +137,8 @@ if _FIRST_LOAD:
 
     @PromptServer.instance.routes.post("/succy/crop/stitch")
     async def _crop_stitch(request):
+        if not same_origin(request):
+            return web.json_response({"error": "cross-origin request refused"}, status=403)
         # What Stitch's live preview needs from a Crop, no Queue (D-123). ?node_id=<Crop shown id>&what=
         #   info = JSON {region, selection, orig_size, work_size} · base = the ORIGINAL region as PNG · mask = the crop's mask over the region as PNG
         nid, what = str(request.query.get("node_id", "")), request.query.get("what", "")
@@ -143,6 +166,8 @@ if _FIRST_LOAD:
 
     @PromptServer.instance.routes.post("/succy/stitch/render")
     async def _stitch_render(request):
+        if not same_origin(request):
+            return web.json_response({"error": "cross-origin request refused"}, status=403)
         # Stitch's Copy / Download (D-124): the FULL-resolution result, no Queue, computed by Succy_Stitch.stitch itself (pixel = Queue).
         # ?node_id=<Stitch shown id> · body {widgets, linked} of the Stitch + crop: {node_id, widgets, linked} of the Crop on its wire.
         nid = str(request.query.get("node_id", ""))
@@ -464,7 +489,7 @@ class Succy_Crop:
     RETURN_NAMES = ("stitch", "mask", "cutout")
     FUNCTION = "crop"
 
-    def crop(self, x, y, w, h, context, workspace_mp, out_mp, multiple, box_snap=1, alpha=False, solid_color="#000000", box=True, box_feather=0, mask_grow=0, mask_feather=0, hold=False, hold_timeout=300,
+    def crop(self, x, y, w, h, context, workspace_mp, out_mp, multiple, box_snap=1, alpha=True, solid_color="#000000", box=True, box_feather=0, mask_grow=0, mask_feather=0, hold=False, hold_timeout=300,
              run_id="", source="", brush="", image=None, mask=None, out_mp_in=None, multiple_in=None, unique_id=None, dynprompt=None, _quiet=False, _all=False):
         if out_mp_in is not None:                          # EXT (D-130): the wire wins over the slider
             out_mp = max(0.0, float(out_mp_in))
@@ -565,9 +590,9 @@ class Succy_Crop:
             cutout = rgb * a + col * (1.0 - a)
         full_mask = sel.clamp(0.0, 1.0)[None]                                 # [1, H, W]: the whole picture, soft edges and all
         if not _quiet:
-            _LAST[did] = {"full_img": image, "cutout": cutout, "mask": full_mask, "crop_img": out_img, "crop_mask": out_mask,
-                          "stem": _stem(source), "in_image": in_image, "in_mask": mask, "stitch": stitch,
-                          "in_out_mp": out_mp_in, "in_multiple": multiple_in}
+            _remember(did, {"full_img": image, "cutout": cutout, "mask": full_mask, "crop_img": out_img, "crop_mask": out_mask,
+                            "stem": _stem(source), "in_image": in_image, "in_mask": mask, "stitch": stitch,
+                            "in_out_mp": out_mp_in, "in_multiple": multiple_in})
         if _all:                                   # the downloads (D-117) want every picture
             return {"stitch": stitch, "full_img": image, "cutout": cutout, "mask": full_mask, "crop_img": out_img, "crop_mask": out_mask}
         return (stitch, full_mask, cutout)
@@ -860,7 +885,7 @@ class Succy_Stitch:
         stitch = _resolve_stitch(stitch, base_in, mask_in)
         if not _quiet:                                     # the node shows the replacement that came in; Copy / Download re-run from it (D-124)
             did = _display_id(dynprompt, unique_id)
-            _LAST[did] = {"st_image": image, "st_base": base_image, "st_mask": mask}
+            _remember(did, {"st_image": image, "st_base": base_image, "st_mask": mask})
             _send_preview(did, image, 0, 0, 0, 0)
             if hold and not str(run_id).endswith("_continue"):            # retouch on the fresh result, then ▶ (same shield as Crop / Pause)
                 print(f"{_TAG} node {did} waiting up to {hold_timeout}s for a retouch...")

@@ -20,11 +20,7 @@ except Exception:
     _HAS_PROMPT_SERVER = False
 
 
-class AnyType(str):
-    def __ne__(self, value):
-        return False
-
-ANY = AnyType("*")
+from _succy_common import ANY   # the shared drawer (loaded once by __init__.py)
 
 _FLOW_TAG = "SuccyFlow"
 _STATE_TAG = "_succy"

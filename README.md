@@ -22,7 +22,7 @@ cd ComfyUI/custom_nodes
 git clone https://github.com/succubus-vyper/ComfyUI-Succy-Pack.git
 ```
 Restart ComfyUI. Every node lives under the **Succy Pack** category.
-No extra Python packages needed. Tested with ComfyUI frontend **1.53.10**, with the new Vue nodes on.
+No extra Python packages needed (`regex` is optional and recommended: see below). Tested with ComfyUI frontend **1.55.17**, with the new Vue nodes on.
 
 ---
 
@@ -50,6 +50,14 @@ A small spreadsheet inside a node. Rows × columns, each column with its own typ
 - Name your columns; the outputs take those names.
 - Choose the row from the widget, or drive it from another node through a real input socket.
 
+### ✂️ Crop & 🧵 Stitch
+Cut a piece out of a picture, work on it, and sew it back so well nobody finds the seam.
+- **Crop**: draw the selection right on the node (move, resize, snap, feather the edge). Work at your own resolution (**workspace** and **Resize crop (MP)**, sizes snap to a *Multiple of*), add a **context** ring around the cut, grow or soften the mask. Outputs: `stitch` (the "how to sew it back" package), the full-picture `mask`, and the `cutout`. A **⬇** menu hands you the original, the crop, the masks or the cutout as PNG without queueing anything.
+- **Stitch**: puts the retouched crop back in place. Feathered, border-aware blending, **colour match** from the context ring, **sharpness and grain match** so the patch has the same skin as its surroundings. A live **A | B** preview re-runs the very same code as the real run, so what you see is what you get. Optional **pause for a retouch**, and the file remembers where it came from, so you can drop the PNG back in later.
+
+### 🔁 Loop & While
+**Loop Start / Loop End** repeat a piece of the graph N times, carrying values from one pass to the next. **While Start / End** keep going until your condition says stop. Four nodes, one idea: loops without copy-pasting the same chain ten times.
+
 ### ⏸ Pause Execution
 Stops the workflow right where you put it and waits for you. **Continue** or **Stop**, with a timeout that decides for you if you wander off (1 s to 1 h). It plays a little ding when it's waiting, passes any type through, and survives undo, reloads and subgraphs. Patience is a virtue. I just make it look good.
 
@@ -70,8 +78,11 @@ Every input and output name becomes a **chip**: click it and pick what to connec
 
 ---
 
-## Coming soon 😏
-A proper **Loop** system and an **LLM client** are getting dressed in the back room. If your console whispers `File not found` about them at startup, that's just me teasing. They're not ready to be seen yet.
+## Good to know
+- **Fonts for Label / Note** come from Google Fonts through a tiny built-in proxy (only `fonts.googleapis.com` / `fonts.gstatic.com`, nothing else). ComfyUI's own security policy blocks remote fonts, so the pack serves them itself.
+- **Pause** and **Crop/Stitch with retouch** hold one execution slot while they wait (up to 1 h). That's the price of making the workflow wait for you.
+- **Regex safety**: install the optional `regex` package and Multi Parse gets a real 2-second timeout. Without it, dangerous nested patterns are refused instead.
+- **If a ComfyUI frontend update ever breaks something** the pack draws or patches: press Ctrl+Shift+D (the Monitor says which piece and which file), or switch the whole UI layer off with `SuccyKill.on()` in the console + F5 (`?succy=off` in the address does it for one visit). The nodes keep working with plain ComfyUI widgets. A console line also warns you when your frontend is newer than the one the pack was tested on.
 
 ---
 

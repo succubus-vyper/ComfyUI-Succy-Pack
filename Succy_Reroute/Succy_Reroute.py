@@ -8,9 +8,7 @@ import os
 # js/Succy_NativeReroutes.js. This file reads every .json in ./effects and serves them on
 #   GET /succy/reroute/effects   (re-read on every request: add a json, reload, done).
 #
-# The Succy_Reroute class below is a STUB: the pack's __init__.py registry (NODES) wants
-# a class for every entry, otherwise it prints "Class not found" on every start. Hidden (DEPRECATED),
-# no inputs nor outputs: it does nothing. Just there to look pretty. The old JS node (js/Succy_Reroute.js) is gone.
+# No node here: __init__.py lists this file as a route-only entry ("class": None), so it is loaded for the route alone.
 # ---------------------------------------------------------------------------
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -91,22 +89,6 @@ def _register_route():
 
 
 _register_route()
-
-
-class Succy_Reroute:
-    """Stub for the __init__.py registry (see above). Hidden, does nothing."""
-
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {"required": {}}
-
-    RETURN_TYPES = ()
-    FUNCTION = "noop"
-    CATEGORY = "Succy Pack"
-    DEPRECATED = True
-
-    def noop(self):
-        return ()
 
 
 # Node names (and the class mapping) live ONLY in the pack's __init__.py (NODES). Nobody gets to name herself here, honey.
