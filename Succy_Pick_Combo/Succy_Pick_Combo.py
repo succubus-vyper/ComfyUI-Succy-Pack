@@ -1,6 +1,6 @@
 import json
 
-from _succy_common import ANY, parse_bool, parse_float, parse_int, to_container   # the shared drawer (loaded once by __init__.py)
+from _succy_common import ANY, convert_text   # the shared drawer (loaded once by __init__.py)
 
 # ====================================================================== #
 #  Succy_Pick_Combo — multi-column "Pick Combo" (D-67)                    #
@@ -18,20 +18,7 @@ FORMATS = ["STRING", "INT", "FLOAT", "BOOLEAN", "LIST", "DICT", "ARRAY", "JSON",
 
 
 def _pc_convert(raw_value, output_format):
-    fmt = (output_format or "STRING").upper()
-    s = "" if raw_value is None else str(raw_value)
-    if fmt in ("STRING", "COMBO"):
-        return s
-    if fmt == "INT":
-        return parse_int(s, tag="Succy Pick Combo")
-    if fmt == "FLOAT":
-        return parse_float(s, tag="Succy Pick Combo")
-    if fmt == "BOOLEAN":
-        return parse_bool(s)
-    if fmt in ("LIST", "ARRAY", "DICT", "JSON"):
-        return to_container(s, fmt)
-    return s
-
+    return convert_text(raw_value, output_format, tag="Succy Pick Combo")
 
 
 def _pc_table(raw):

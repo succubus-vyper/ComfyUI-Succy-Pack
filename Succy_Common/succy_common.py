@@ -7,6 +7,7 @@ What lives here, and why one copy:
   - AnyType / ANY            the '*' type that ComfyUI's checker waves through
   - parse_bool/int/float     ONE reading of "what does this text mean as a number", with a policy knob
   - loads_loose / to_container   JSON -> Python literal -> single-quoted JSON, and ONE rule for empty text
+  - convert_text             text -> STRING/INT/FLOAT/BOOLEAN/LIST/DICT/ARRAY/JSON/COMBO (Pick Combo cells, Primitive multiline)
   - same_origin              the little bouncer for the routes that press buttons (Pause, Crop, Stitch)
   - DISPLAY                  node display names, filled by __init__.py: the single place names are written
 """
@@ -14,7 +15,7 @@ import ast
 import json
 import math
 
-__all__ = ["AnyType", "ANY", "parse_bool", "parse_int", "parse_float", "loads_loose", "to_container", "same_origin", "DISPLAY"]
+__all__ = ["AnyType", "ANY", "parse_bool", "parse_int", "parse_float", "loads_loose", "to_container", "convert_text", "same_origin", "DISPLAY"]
 
 
 class AnyType(str):
@@ -131,6 +132,26 @@ def to_container(value, kind):
     if want_list:
         return value if isinstance(value, list) else [value]
     return value if isinstance(value, dict) else {"value": value}
+
+
+TEXT_FORMATS = ("STRING", "INT", "FLOAT", "BOOLEAN", "LIST", "DICT", "ARRAY", "JSON", "COMBO")
+
+
+def convert_text(raw_value, output_format, tag=""):
+    """One reading of a piece of text as the format the user picked. Unknown format = the text itself."""
+    fmt = (output_format or "STRING").upper()
+    s = "" if raw_value is None else str(raw_value)
+    if fmt in ("STRING", "COMBO"):
+        return s
+    if fmt == "INT":
+        return parse_int(s, tag=tag)
+    if fmt == "FLOAT":
+        return parse_float(s, tag=tag)
+    if fmt == "BOOLEAN":
+        return parse_bool(s)
+    if fmt in ("LIST", "ARRAY", "DICT", "JSON"):
+        return to_container(s, fmt)
+    return s
 
 
 def same_origin(request):

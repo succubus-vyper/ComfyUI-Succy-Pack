@@ -75,7 +75,14 @@ NODES = {
         "class":    "Succy_Stitch",
         "display":  "Succy - 🧵Stitch",
         "category": "Succy Pack",
-    }
+    },
+    "Succy_Primitive": {
+        "folder":   "Succy_Utils",
+        "py_file":  "Succy_Primitive.py",
+        "class":    "Succy_Primitive",
+        "display":  "Succy - 💎Primitive",
+        "category": "Succy Pack",
+    },
 }
 
 # Usiamo MODULES per il loop per sfruttare i mapping definiti nel file stesso

@@ -44,6 +44,14 @@ The text-wrangling sibling of Multi Math: up to **15 chained text operations** o
 Twelve modes: **Concat, Replace, Regex** (extract / replace, with a timeout so a bad pattern can't hang ComfyUI), **Split, Join, Contains, Compare, Starts / Ends with, Trim** (edges, double spaces, all spaces, blank lines), **Case** (UPPER, lower, Title, Sentence and more), **Substring, Length**.
 Fields accept `@` tokens, numeric fields can be overridden by a wire, and every error stays visible instead of crashing the queue.
 
+### 💎 Primitive
+The ultimate primitive. She's born small and undecided: pick what she becomes — **Int, Float, Seed, Bool, String, Multiline, List, Color, Resolution, Image, Mask, Latent** — and she turns into exactly that, with the right controls and outputs. Her title follows (*Succy - 🔢Int*…) unless you renamed her yourself.
+- **Or just wire her**: drag her output onto any widget of another node and she copies it, value included. Dropdowns too (sampler, scheduler, models…).
+- Open-ended numbers (drag, click to type, ‹ ›), Float **Precision** (1–6 decimals), Seed with ComfyUI's own Fixed / +1 / −1 / Random, 🎲 and ↺ Reuse the last seed.
+- Multiline with **Trim** and an output type (STRING, INT, LIST, JSON…); List gives the list and its item count.
+- Resolution / Image / Mask / Latent: presets (SDXL buckets included), ⇄ swap, *Multiple of*, **Scale**; width, height and megapixels come out too.
+- Changed your mind? The little **↺** in her title bar, next to the heart, makes her a newborn again. A real node, not a virtual one: subgraphs, copy/paste and the API all work.
+
 ### 🎯 Pick Combo
 A small spreadsheet inside a node. Rows × columns, each column with its own type. Pick **one row** and every column comes out of its own socket, plus `index`, `label` and `all`.
 - Type or paste whole tables at once.
