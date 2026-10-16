@@ -35,7 +35,7 @@ export function infoMenu({ title = "Info", about = "", keys = [], notes = [], wi
                 : { t: "row_box", gap: 8, style: { alignItems: "flex-start" }, children: [
                     { t: "badge_element", tone: "accent", text: k.keys, style: { flex: "none" } },
                     { ...hint(k.does), style: { flex: "1 1 0", minWidth: "0" } },
-                ] }))] : []),
+                ] })] : []),
             ...(notes.length ? [sec("Good to know"), ...notes.map(hint)] : []),
         ] },
     };
