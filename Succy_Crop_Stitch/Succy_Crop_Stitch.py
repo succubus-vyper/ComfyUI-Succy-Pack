@@ -141,15 +141,23 @@ if _FIRST_LOAD:
             return web.json_response({"error": "cross-origin request refused"}, status=403)
         # What Stitch's live preview needs from a Crop, no Queue (D-123). ?node_id=<Crop shown id>&what=
         #   info = JSON {region, selection, orig_size, work_size} · base = the ORIGINAL region as PNG · mask = the crop's mask over the region as PNG
+        #   "not yet" (no picture, a wire that fills only at Run) is NOT an error: 200 {ready: false, need, why} keeps the console quiet
         nid, what = str(request.query.get("node_id", "")), request.query.get("what", "")
-        outs, err = await _outs_for(request, nid, "crop_img")
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        wait = _stitch_wait(data, _LAST.get(nid) or {})
+        if wait:
+            return web.json_response({"ready": False, "need": wait[0], "why": wait[1]})
+        outs, err = await _outs_from(data, nid, "crop_img")
         if err:
             return err
         st = outs.get("stitch")
         if st is None:
             st = (_LAST.get(nid) or {}).get("stitch")
         if st is None:
-            return web.json_response({"error": "this Crop has no stitch yet: run it once"}, status=404)
+            return web.json_response({"ready": False, "need": "run", "why": "the Crop has nothing to stitch yet: Run once"})
         try:
             if what == "info":
                 return web.json_response(_stitch_meta(st, as_dict=True))
@@ -201,6 +209,20 @@ if _FIRST_LOAD:
 
 _INT_ARGS = ("x", "y", "w", "h", "context", "multiple", "box_snap", "box_feather", "mask_grow", "mask_feather")
 _FLOAT_ARGS = ("workspace_mp", "out_mp")
+
+
+def _stitch_wait(data, last):
+    """Why a Crop can't hand Stitch its region YET (D-143), or None. data = {widgets, linked} of the Crop as it is now, last = its last Run.
+    -> ("image" | "run", text the user reads). Not ready is a state, not an error: she just isn't dressed yet."""
+    widgets, linked = data.get("widgets") or {}, set(data.get("linked") or [])
+    if not widgets:
+        return None if last.get("stitch") is not None else ("run", "the Crop has nothing to stitch yet: Run once")
+    for inp in ("image", "mask"):
+        if inp in linked and last.get("in_" + inp) is None:
+            return ("run", f"the Crop's {inp} comes from a wire: Run once so it gets there")
+    if "image" not in linked and not str(widgets.get("source") or ""):
+        return ("image", "the Crop has no picture: load one on it (or wire one and Run)")
+    return None
 
 
 def _crop_now(widgets, image, mask, nid):
