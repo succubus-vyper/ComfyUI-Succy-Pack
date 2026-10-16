@@ -51,6 +51,26 @@ export function inputSource(node, i = 0) {
     return { node: title, output: own, name: generic ? title : own };
 }
 
+// R2 (D-124): the NODE that feeds an input (by index or name) -> { node, slot } or null. Native reroutes are not nodes: the
+// link already names the real origin. A subgraph input pin is not followed (null): the caller says "wire it here".
+export function inputNode(node, which = 0) {
+    const i = typeof which === "number" ? which : (node?.inputs || []).findIndex((x) => x?.name === which);
+    const inp = node?.inputs?.[i];
+    if (!inp || inp.link == null) return null;
+    const g = node.graph, l = linkOf(g, inp.link);
+    const src = l ? g?.getNodeById?.(l.origin_id) : null;
+    return src ? { node: src, slot: l.origin_slot } : null;
+}
+
+// R2 (D-124): a node "as it is now", the shape the Python routes eat (D-117): { id, type, widgets: {name: value}, linked: [input names] }.
+// The kit's own widgets (ns_*) stay out.
+export function snapshot(node) {
+    if (!node) return null;
+    const widgets = Object.fromEntries((node.widgets || []).filter((w) => w?.name && !String(w.name).startsWith("ns_")).map((w) => [w.name, w.value]));
+    const linked = (node.inputs || []).filter((i) => i?.link != null).map((i) => i.name);
+    return { id: node.id, type: node.type, widgets, linked };
+}
+
 // Multi-input sockets (D-70). `names` = ordered socket names. Visible = (highest PLUGGED index + 2), at least `min`,
 // at most names.length. Unplugging NEVER shifts anything: a plugged C stays C even if A and B go away, and the empty
 // A and B stay put (just like the user asked: no swapping upwards). Only trailing UNPLUGGED sockets are dropped.
@@ -239,4 +259,4 @@ export function probe() {
     return { ok: !miss.length, missing: miss };
 }
 
-export const NodePorts = { version: "0.4.0", inputType, inputSource, growInputs, showInputs, setOutputs, setComboValues, stats, probe };
+export const NodePorts = { version: "0.5.0", inputType, inputSource, inputNode, snapshot, growInputs, showInputs, setOutputs, setComboValues, stats, probe };

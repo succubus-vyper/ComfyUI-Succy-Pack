@@ -3,7 +3,7 @@
 // ------------------------------------------------------------
 // SurvivalKit entry point. Builds every subsystem and ties them together,
 // then registers the public API on globalThis.SurvivalKit — the front door, darling.
-// v0.1.0 — 2026-10-09 · v1.5.0 — 2026-10-13: inputLink (D-61) · v1.6.0: nodePorts (D-66) · v1.6.1: nodePorts byName (D-67) · v1.7.0: rerouteSnap (D-81) · v1.8.0: hold (D-82) · v1.9.0: inputLink.reroute* (D-85) · v1.10.0: inputLink 0.5.0 (origin lock) + nodePorts.showInputs (D-86) · v1.11.0: compat.uploadImage (D-106)
+// v0.1.0 — 2026-10-09 · v1.5.0 — 2026-10-13: inputLink (D-61) · v1.6.0: nodePorts (D-66) · v1.6.1: nodePorts byName (D-67) · v1.7.0: rerouteSnap (D-81) · v1.8.0: hold (D-82) · v1.9.0: inputLink.reroute* (D-85) · v1.10.0: inputLink 0.5.0 (origin lock) + nodePorts.showInputs (D-86) · v1.11.0: compat.uploadImage (D-106) · v1.13.0: R2 state.peek + nodePorts.inputNode/snapshot (D-124)
 // ============================================================
 
 import { Registry }       from "./core/registry.js";
@@ -36,7 +36,7 @@ import { Log, logger } from "./core/log.js";
 
 const log = logger("kit");
 
-const KIT_VERSION = "1.12.0";
+const KIT_VERSION = "1.13.0";
 
 // --- subsystems ---
 const _registry = new Registry();

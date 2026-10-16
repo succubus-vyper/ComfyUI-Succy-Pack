@@ -79,7 +79,7 @@ export const SPEC = {
     menus: {
         info: NodeStructure.infoMenu({
             title: "Succy Pick Combo — a table, one row at a time",
-            about: "A small table: each row has a label and up to 8 values. Pick ONE row and every column comes out of its own output, already converted to the type you chose for it. Great for presets: one choice, many settings.",
+            about: "A small table: each row has a label and up to 8 values. Pick ONE row and every column comes out of its own output, already converted to the type you chose for it. Great for presets: one choice, many settings. Choose your favourite, I'll do the rest.",
             keys: [
                 { keys: "Rows / Columns", does: "How many rows (up to 20) and value columns (up to 8). The outputs follow the number of columns." },
                 { keys: "Use", does: "The row that comes out. Changing it is enough, no need to rewire anything." },

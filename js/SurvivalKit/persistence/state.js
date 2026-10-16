@@ -36,6 +36,22 @@ export class State {
         this._byKey.set(key, { config, node, values, dirty: false });
     }
 
+    // R2 (D-124): read ANOTHER node's state without owning it. nodeOrId = node or id (in `graph`, default: the open graph).
+    // Mounted node = its live values; not mounted yet (or not a kit node) = what it saved in properties. key omitted = all of it.
+    // Read-only by design: peeking is allowed, touching is not.
+    peek(nodeOrId, key, graph) {
+        let node = nodeOrId;
+        if (node == null) return undefined;
+        if (typeof node !== "object") {
+            const g = graph || globalThis.app?.canvas?.graph || globalThis.app?.graph;
+            node = g?.getNodeById?.(node) ?? null;
+            if (!node) return undefined;
+        }
+        const entry = this._byKey.get(nodeKey(node));
+        const values = entry ? entry.values : parseObject(node.properties?.succy_state, {});
+        return key === undefined ? { ...values } : values[key];
+    }
+
     get(node, key) {
         const entry = this._byKey.get(nodeKey(node));
         if (!entry) return undefined;

@@ -44,7 +44,7 @@ export const SPEC = {
     menus: {
         info: NodeStructure.infoMenu({
             title: "Succy Label — a note with attitude",
-            about: "A note that lives on the canvas, with backgrounds, borders, text styles and animated effects. Type the text by hand, or plug a STRING and the note shows it on every run.",
+            about: "A note that lives on the canvas and loves to be looked at: backgrounds, borders, text styles, animated effects. Type the text by hand, or plug a STRING and it whispers it again on every run.",
             keys: [
                 { keys: "Double click", does: "Edit the note and open the style menu." },
                 { keys: "⚙", does: "The same style menu, from the gear." },

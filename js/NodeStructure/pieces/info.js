@@ -26,10 +26,16 @@ export function infoMenu({ title = "Info", about = "", keys = [], notes = [], wi
         kind: "menu_float_panel", look: "v2", size: "fit", width, dock: "free", dismiss: "outside", title,
         tree: { t: "stack_box", gap: 8, style: { padding: "10px 12px 12px" }, children: [
             ...(about ? [hint(about)] : []),
-            ...(keys.length ? [sec("Shortcuts"), ...keys.map((k) => ({ t: "row_box", gap: 8, style: { alignItems: "flex-start" }, children: [
-                { t: "badge_element", tone: "accent", text: k.keys, style: { flex: "none" } },
-                { ...hint(k.does), style: { flex: "1 1 0", minWidth: "0" } },
-            ] }))] : []),
+            // a long key label would squeeze the text into a thin column: it becomes a title with the text underneath instead
+            ...(keys.length ? [sec("Shortcuts"), ...keys.map((k) => String(k.keys).length > 22
+                ? { t: "stack_box", gap: 4, children: [
+                    { t: "badge_element", tone: "accent", text: k.keys, style: { alignSelf: "flex-start", maxWidth: "100%", whiteSpace: "normal" } },
+                    hint(k.does),
+                ] }
+                : { t: "row_box", gap: 8, style: { alignItems: "flex-start" }, children: [
+                    { t: "badge_element", tone: "accent", text: k.keys, style: { flex: "none" } },
+                    { ...hint(k.does), style: { flex: "1 1 0", minWidth: "0" } },
+                ] }))] : []),
             ...(notes.length ? [sec("Good to know"), ...notes.map(hint)] : []),
         ] },
     };

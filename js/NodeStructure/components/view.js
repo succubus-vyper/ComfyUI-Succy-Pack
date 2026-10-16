@@ -54,9 +54,30 @@ const CSS = `
 // ComfyUI forwards wheel and middle-button events over a node to the graph canvas (zoom/pan the graph) from handlers that run before
 // anything inside the node. A capture listener on the WINDOW runs before all of them: if the pointer is over a viewport, the viewport wins.
 let wired = false;
+// Windows/Chrome opens its menu bar on a LONE Alt key-UP. One guard for the whole page (D-130): an Alt gesture on any viewport
+// (wheel, press, right click) marks the Alt as USED, and its key-up is swallowed wherever the pointer is. It lives on globalThis, not in
+// a view: Vue may rebuild the node mid-scroll (a native written by Alt + wheel), and a fresh view knew nothing of the gesture — that
+// is how the menu got back in. Discreet girl: what happens under Alt stays under Alt.
+const ALT = (globalThis.__nsAltGuard ||= { used: false, at: -1e9, hooked: false });
+export const altMark = () => { ALT.used = true; ALT.at = performance.now(); };
+const isAlt = (e) => e.key === "Alt" || e.key === "AltGraph";
+function hookAlt() {
+    if (ALT.hooked) return;
+    ALT.hooked = true;
+    window.addEventListener("keydown", (e) => { if (isAlt(e) && !e.repeat) ALT.used = false; }, true);          // a fresh Alt press starts clean
+    window.addEventListener("keyup", (e) => {
+        if (!isAlt(e)) return;
+        if (ALT.used || performance.now() - ALT.at < 2500) e.preventDefault();
+        ALT.used = false;
+    }, true);
+    // any Alt gesture on a viewport or a NodeStructure panel counts, even one nobody else handles (no active tool, empty view)
+    const mark = (e) => { if (e.altKey && e.target?.closest?.(".ns-view, .ns-menu-layer")) altMark(); };
+    for (const ev of ["wheel", "pointerdown", "contextmenu"]) window.addEventListener(ev, mark, { capture: true, passive: true });
+}
 function wireGlobal() {
     if (wired) return;
     wired = true;
+    hookAlt();                                                      // BEFORE the wheel listener below: that one stops the others
     const view = (e) => e.target?.closest?.(".ns-view")?.__nsView || null;
     window.addEventListener("wheel", (e) => {
         if (e.ctrlKey || e.metaKey) return;                         // Ctrl + wheel stays the graph's zoom gesture
@@ -167,7 +188,7 @@ piece(C("view_box", {
     // wheel = zoom around the cursor
     const activeAlt = () => [...v.alts].find((g) => { try { return g.active?.(); } catch (_) { return false; } });
     const wheel = (e) => {
-        if (e.altKey) { v.altAt = performance.now(); activeAlt()?.wheel?.(e); return; }           // Alt + wheel: the active tool's own resize, never zoom (D-120)
+        if (e.altKey) { v.altAt = performance.now(); altMark(); activeAlt()?.wheel?.(e); return; }           // Alt + wheel: the active tool's own resize, never zoom (D-120)
         if (!v.W) return;
         const r = el.getBoundingClientRect();
         const z = k(), px = (e.clientX - r.left) / z, py = (e.clientY - r.top) / z;
@@ -201,19 +222,19 @@ piece(C("view_box", {
         const st = g.start?.(e);
         if (st === false) return;
         e.preventDefault(); e.stopPropagation();
-        v.altBusy = true; v.altAt = performance.now(); el.classList.add("alting");
+        v.altBusy = true; v.altAt = performance.now(); altMark(); el.classList.add("alting");
         const id = e.pointerId, sx = e.clientX, sy = e.clientY;
         const move = (m) => {
             if (m.pointerId !== id) return;
             m.stopImmediatePropagation(); m.preventDefault();
             const z = k() * v.s, px = m.clientX - sx, py = m.clientY - sy;
-            v.altAt = performance.now();
+            v.altAt = performance.now(); altMark();
             g.drag?.(st, { sx: px, sy: py, dx: px / z, dy: py / z }, m);
         };
         const end = (m) => {
             if (m.pointerId !== id) return;
             m.stopImmediatePropagation();
-            v.altBusy = false; v.altAt = performance.now(); el.classList.remove("alting");
+            v.altBusy = false; v.altAt = performance.now(); altMark(); el.classList.remove("alting");
             window.removeEventListener("pointermove", move, true); window.removeEventListener("pointerup", end, true); window.removeEventListener("pointercancel", end, true);
             g.end?.(st);
         };
@@ -246,7 +267,7 @@ piece(C("view_box", {
     // Windows/Chrome opens its menu bar on a lone Alt key-UP: so keep eating it for a moment after ANY Alt gesture here, wherever the
     // pointer ended up (the drag/wheel can carry it off the node before Alt is released) — D-121
     const altRecently = () => performance.now() - v.altAt < 2500;
-    const eatAlt = (e) => { if ((e.key === "Alt" || e.key === "AltGraph") && (nodeActive() || altRecently())) e.preventDefault(); };
+    const eatAlt = (e) => { if (isAlt(e) && (nodeActive() || altRecently())) e.preventDefault(); };
     on(window, "keydown", eatAlt, true);
     on(window, "keyup", eatAlt, true);
     on(window, "keydown", (e) => { if (v.hover && e.code === "Space" && !/INPUT|TEXTAREA/.test(document.activeElement?.tagName || "")) { e.preventDefault(); v.space = true; el.classList.add("pan"); } });
@@ -263,7 +284,8 @@ piece(C("view_box", {
         ro.observe(el);
         h.bag.add(() => ro.disconnect());
     }
-    on(img, "load", () => { if (!v.W) setSize(img.naturalWidth, img.naturalHeight); });
+    // no size given (a file the node loaded itself, D-128): the picture's own size, every time a new one arrives
+    on(img, "load", () => { if (!v.W || !(Number(h.val(node.width)) > 0)) setSize(img.naturalWidth, img.naturalHeight); });
 
     let lastSrc = "";
     const update = () => {

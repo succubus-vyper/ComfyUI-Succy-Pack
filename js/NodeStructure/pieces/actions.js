@@ -13,6 +13,18 @@ import { impl } from "../catalog/registry.js";
 const BTN = (id, text, on) => ({ t: "button_element", id, text, on });
 const actEx = (name, args, more = {}) => ex(BTN("b", "go", { click: { do: "$actions." + name, args } }), more);
 
+// a ComfyUI route, POSTing the node as it is NOW ({widgets, linked}, D-117) plus `body` (extra fields, e.g. the Crop on a wire, D-124)
+const routeFetch = (api, route, post, body) => {
+    const node = api.liveNode?.() || api.node;
+    const path = String(route).replace(/\{id\}/g, encodeURIComponent(node?.id ?? ""));
+    if (!post) return globalThis.app.api.fetchApi(path);
+    const snap = globalThis.SurvivalKit?.nodePorts?.snapshot?.(node) || { widgets: {}, linked: [] };
+    return globalThis.app.api.fetchApi(path, { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ widgets: snap.widgets, linked: snap.linked, ...(body && typeof body === "object" ? body : {}) }) });
+};
+const errOf = async (r) => { let m = `HTTP ${r.status}`; try { m = (await r.json()).error || m; } catch (_) { /* not json */ } return m; };
+const toastWarn = (summary, detail) => { try { globalThis.app?.extensionManager?.toast?.add?.({ severity: "warn", summary, detail, life: 4000 }); } catch (_) { /* no toast here */ } };
+
 const flash = (api, key, ok) => {
     api.cache.set(key, ok ? "✓" : "✗"); api.refresh();
     api.after(() => { api.cache.set(key, ""); api.refresh(); }, 1500);
@@ -21,18 +33,27 @@ const flash = (api, key, ok) => {
 piece(C("copy_system", {
     scopo: "Copia negli appunti un testo oppure un'immagine (da URL) e mostra un flash ✓/✗ nella cache.", natura: "funziona", dominio: "runtime", estado: "draft",
     tag: ["azione", "appunti"],
-    props: { kind: E(["text", "image"], "cosa copiare", "text"), text: R("testo da copiare"), url: R("URL dell'immagine (kind image)"), flash: S("chiave cache per il flash ✓/✗", "copyFlash") },
+    props: { kind: E(["text", "image"], "cosa copiare", "text"), text: R("testo da copiare"), url: R("URL dell'immagine (kind image)"), flash: S("chiave cache per il flash ✓/✗", "copyFlash"),
+        route: S("kind image, in alternativa a url: rotta di ComfyUI che risponde un PNG, {id} = id del nodo (D-124)"), post: B("con `route`: POST del nodo com'e' ORA (come download_system)", false),
+        body: R("con `post`: campi in piu' nel corpo (es. {crop: $live.peek_system.post})") },
     esempio: actEx("copy_system", { kind: "text", text: "x", flash: "cf" }),
 }), async (api, ev, el, item, a = {}) => {
     ev?.stopPropagation?.();
     const key = a.flash || "copyFlash";
     try {
-        if (a.kind === "image" && a.url) {
+        if (a.kind === "image" && a.route) {
+            // the clipboard item is handed over NOW (still inside the click) with a promise of the PNG: the browser keeps the permission
+            if (!globalThis.isSecureContext || !navigator.clipboard?.write) throw new Error("the browser only copies pictures on localhost / https: use Download");
+            let msg = "";
+            const png = (async () => { const r = await routeFetch(api, a.route, a.post, a.body); if (!r.ok) { msg = await errOf(r); throw new Error(msg); } return new Blob([await r.arrayBuffer()], { type: "image/png" }); })();
+            try { await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]); }
+            catch (e) { throw new Error(msg || e?.message || String(e)); }
+        } else if (a.kind === "image" && a.url) {
             const blob = await (await fetch(a.url)).blob();
             await navigator.clipboard.write([new ClipboardItem({ [blob.type || "image/png"]: blob })]);
         } else await navigator.clipboard.writeText(String(a.text ?? ""));
         flash(api, key, true);
-    } catch (e) { api.log?.("copy failed", e); flash(api, key, false); }
+    } catch (e) { api.log?.("copy failed", e); if (a.route) toastWarn("Copy", String(e?.message || e)); flash(api, key, false); }
 });
 
 piece(C("download_system", {
@@ -42,6 +63,7 @@ piece(C("download_system", {
         url: R("URL da scaricare"), route: S("in alternativa: rotta di ComfyUI (fetchApi), {id} = id del nodo (D-115)"),
         name: S("nome del file (vuoto: quello del server, Content-Disposition)", "download"), flash: S("chiave cache per il flash", "dlFlash"),
         post: B("con `route`: POST {widgets: valori dei widget del nodo, linked: ingressi collegati} — il server calcola dal nodo com'e' ORA (D-117)", false),
+        body: R("con `post`: campi in piu' nel corpo (es. {crop: $live.peek_system.post}, D-124)"),
     },
     esempio: actEx("download_system", { url: "data:image/gif;base64,R0lGODlhAQABAAAAACw=", name: "x.gif" }),
 }), async (api, ev, el, item, a = {}) => {
@@ -51,18 +73,10 @@ piece(C("download_system", {
     const url = pick("url"), route = pick("route");
     if (!url && !route) return;
     const key = pick("flash") || "dlFlash";
-    const toast = (detail) => { try { globalThis.app?.extensionManager?.toast?.add?.({ severity: "warn", summary: "Download", detail, life: 4000 }); } catch (_) { /* no toast here */ } };
+    const toast = (detail) => toastWarn("Download", detail);
     try {
-        const node = api.liveNode?.() || api.node;
-        const path = route ? String(route).replace(/\{id\}/g, encodeURIComponent(node?.id ?? "")) : "";
-        let opts;
-        if (route && pick("post")) {
-            const widgets = Object.fromEntries((node?.widgets || []).filter((w) => w?.name && !String(w.name).startsWith("ns_")).map((w) => [w.name, w.value]));
-            const linked = (node?.inputs || []).filter((i) => i?.link != null).map((i) => i.name);
-            opts = { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ widgets, linked }) };
-        }
-        const r = route ? await globalThis.app.api.fetchApi(path, opts) : await fetch(url);
-        if (!r.ok) { let m = `HTTP ${r.status}`; try { m = (await r.json()).error || m; } catch (_) { /* not json */ } toast(m); flash(api, key, false); return; }
+        const r = route ? await routeFetch(api, route, pick("post"), pick("body")) : await fetch(url);
+        if (!r.ok) { toast(await errOf(r)); flash(api, key, false); return; }
         const name = pick("name") || /filename="([^"]+)"/.exec(r.headers.get("Content-Disposition") || "")?.[1] || "download";
         const bu = URL.createObjectURL(await r.blob());
         const link = document.createElement("a"); link.href = bu; link.download = name;

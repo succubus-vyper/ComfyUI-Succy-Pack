@@ -3,13 +3,15 @@
 //   veil_element       a layer over the picture that covers what the mask leaves OUT (Solid colour or Alpha checkerboard): (box -> box feather) ∪ brush -> minus
 //                      eraser -> grow -> feather (D-112), computed in the browser with util/mask-math.js (the Python's own recipe, tested
 //                      pixel for pixel). Works at a reduced size (res, default 512 px on the long side) and only when something
-//                      it reads has changed. It never writes anything: pure eye candy, the natives stay the truth.
+//                      it reads has changed. It never writes a native: pure eye candy, the natives stay the truth.
+//                      `report` (D-130): one line of measures in the cache — picture · cut (where, how big) · output size (out_mp + multiple),
+//                      the Python's own arithmetic. With a report the mask is computed even while the veil is hidden.
 // The node only names the natives. Succubus was here — she shows you exactly what she'll keep, and blacks out the rest.
 // ============================================================
 import { mkEl } from "./index.js";
 import { piece } from "../catalog/registry.js";
-import { C, ex, N, R } from "../catalog/kit.js";
-import { cropMask } from "../util/mask-math.js";
+import { C, ex, N, R, S } from "../catalog/kit.js";
+import { cropMask, mpSize, snapTo } from "../util/mask-math.js";
 
 const MASKS = new Set();                       // live previews (Governor counts them)
 const MSTATS = { renders: 0, lastMs: 0 };
@@ -23,7 +25,7 @@ const CSS = `
 
 const RES = 1536;                              // preview resolution, long side (D-116: was 512, too coarse to judge a fine stroke)
 // the last veils and brush layers by what they were made of: a node rebuilt by Ctrl+Z (D-109) shows its veil in the same frame
-const SEEN = new Map(), LAYERS = new Map();
+const SEEN = new Map(), LAYERS = new Map(), CUTS = new Map();
 // and the LAST veil of every node (graph uuid + node id + piece id): a node rebuilt by Ctrl+Z shows it at once, even after a slider
 // drag pushed it out of SEEN, while the real one is computed. She never leaves you in the dark — well, not the wrong dark.
 const LAST = new Map();
@@ -52,6 +54,10 @@ piece(C("veil_element", {
         strength: N("quanto e' coperto il fuori (0..1): 1 = pieno, si leggono sfumature e opacita'", 1),
         fill: R("colore del fuori, #rrggbb (ref, es. $native.solid_color); default nero"),
         alpha: R("vero = il fuori e' trasparente nell'uscita: scacchiera al posto del colore (ref, es. $native.alpha)"),
+        report: S("chiave cache dove scrive le misure in una riga: immagine · taglio · uscita (D-130)"),
+        outMp: R("megapixel dell'uscita, 0 = misura vera (ref, es. $native.out_mp)"),
+        multiple: R("multiplo dell'uscita (ref, es. $native.multiple)"),
+        outWired: R("vero = misura dell'uscita da un filo: la riga lo dice (ref)"),
     },
     esempio: ex({ t: "view_box", children: [{ t: "veil_element", show: true, x: 8, y: 8, w: 32, h: 32, box: true }] }),
 }), (node, h) => {
@@ -59,11 +65,50 @@ piece(C("veil_element", {
     const cv = mkEl("canvas");
     wrap.appendChild(cv);
     const lkey = nodeKey(h.rt, node.id);
-    const me = { painted: false, shown: false, empty: true, W: 0, H: 0, mw: 0, mh: 0, sig: "", timer: 0, brush: { url: "", add: null, erase: null, mw: 0, token: 0 } };
+    const me = { painted: false, shown: false, empty: true, cut: null, approx: false, PW: 0, PH: 0, W: 0, H: 0, mw: 0, mh: 0, sig: "", timer: 0, brush: { url: "", add: null, erase: null, mw: 0, token: 0 } };
     MASKS.add(me);
     h.bag.add(() => { MASKS.delete(me); clearTimeout(me.timer); me.brush.token++; });
     const view = () => wrap.closest(".ns-view")?.__nsView || null;
     const num = (v, d = 0) => { const n = Number(h.val(v)); return Number.isFinite(n) ? n : d; };
+    // the measures line (D-130): picture · cut · output, like the Python counts them. me.cut = [x0, y0, x1, y1] in picture px
+    // (null = nothing chosen = whole picture, false = the eraser took it all). k < 1: measured on the smaller preview, ± a pixel.
+    let said = "";
+    const tell = () => {
+        const key = node.report; if (!key) return;
+        const W = me.PW, H = me.PH;
+        let text;
+        if (!(W > 0 && H > 0)) text = "";
+        else if (h.val(node.off)) text = `Picture ${W}×${H} · cut = the wired mask's box (known at Run)`;
+        else if (me.cut === false) text = `Picture ${W}×${H} · ⚠ the eraser took the whole selection`;
+        else {
+            const [x0, y0, x1, y1] = me.cut || [0, 0, W, H], rw = x1 - x0, rh = y1 - y0, mp = num(node.outMp), m = Math.max(1, Math.round(num(node.multiple, 1)));
+            let [ow, oh] = mp > 0 ? mpSize(rw, rh, mp) : [rw, rh];
+            ow = snapTo(ow, m); oh = snapTo(oh, m);
+            const out = h.val(node.outWired) ? "out from the wire (known at Run)" : `out ${ow}×${oh}`;
+            text = `Picture ${W}×${H} · cut ${me.approx ? "≈" : ""}${rw}×${rh} at ${x0},${y0} · ${out}`;
+        }
+        if (text === said) return;
+        said = text;
+        const c = h.rt.api.cache; c.set(key, text); h.rt.api.refresh();
+    };
+    // the hard selection box (mask px) -> the Python's crop region in picture px: padded by the feather, clamped, no context (D-130)
+    // returns { cut, approx }: a plain rectangle (no brush, no box feather) is counted EXACTLY like the Python, at full size;
+    // anything else is read off the preview mask (picture over 1536 px: ± a pixel, the line says "≈")
+    const cutOf = (r) => {
+        if (r.empty) return { cut: null, approx: false };
+        if (!r.bbox) return { cut: false, approx: false };
+        const W = me.W, H = me.H, pad = Math.max(0, Math.trunc(num(node.feather)));
+        const boxOn = node.box === undefined || !!h.val(node.box);
+        if (boxOn && !String(h.val(node.brush) || "") && !(num(node.boxFeather) > 0)) {
+            const g = Math.trunc(num(node.grow)), x0 = Math.min(Math.trunc(num(node.x)), W - 1), y0 = Math.min(Math.trunc(num(node.y)), H - 1);
+            const x1 = num(node.w) === 0 ? W : Math.min(W, x0 + Math.trunc(num(node.w))), y1 = num(node.h) === 0 ? H : Math.min(H, y0 + Math.trunc(num(node.h)));
+            const a = Math.max(0, x0 - g), b = Math.max(0, y0 - g), c = Math.min(W, x1 + g), d = Math.min(H, y1 + g);
+            if (c <= a || d <= b) return { cut: false, approx: false };
+            return { cut: [Math.max(0, a - pad), Math.max(0, b - pad), Math.min(W, c + pad), Math.min(H, d + pad)], approx: false };
+        }
+        const k = me.mw / W, [a, b, c, d] = r.bbox;
+        return { cut: [Math.max(0, Math.floor(a / k) - pad), Math.max(0, Math.floor(b / k) - pad), Math.min(W, Math.ceil(c / k) + pad), Math.min(H, Math.ceil(d / k) + pad)], approx: k < 1 };
+    };
 
     // the brush PNG -> two float layers at the preview size (stretched like the Python does, bilinear by the browser)
     const brushLayers = (url) => {
@@ -105,8 +150,10 @@ piece(C("veil_element", {
         });
         const cx = cv.getContext("2d");
         me.empty = r.empty;
+        const got = cutOf(r); me.cut = got.cut; me.approx = got.approx; tell();
+        if (me.sig) keep(CUTS, me.sig, got, 8);
         if (r.empty) { cx.clearRect(0, 0, mw + 2, mh + 2); wrap.hidden = true; me.painted = true; if (me.sig) keep(SEEN, me.sig, null, 4); keep(LAST, lkey, { img: null, mw, mh }, 12); return; }    // nothing chosen = the whole picture: no veil
-        wrap.hidden = false;
+        wrap.hidden = !me.shown;
         // the canvas is ONE mask pixel larger on every side (edge values repeated): zoomed, the picture's antialiased rim
         // stays under the veil instead of peeking out as thin lines (D-111)
         const cw = mw + 2, ch = mh + 2;
@@ -140,8 +187,11 @@ piece(C("veil_element", {
     const update = () => {
         hook();
         const V = view(); const S = V ? V.size() : { w: 0, h: 0 };
+        me.PW = S.w; me.PH = S.h;
         me.shown = !!h.val(node.show) && !h.val(node.off) && S.w > 0 && S.h > 0;
-        if (!me.shown) { wrap.hidden = true; me.sig = ""; return; }
+        // a report keeps the mask computed while the veil is hidden: the measures line needs the cut (D-130)
+        const measure = !!node.report && !h.val(node.off) && S.w > 0 && S.h > 0;
+        if (!me.shown && !measure) { wrap.hidden = true; me.sig = ""; tell(); return; }
         if (S.w !== me.W || S.h !== me.H) {
             me.W = S.w; me.H = S.h;
             const s = Math.min(1, (Number(node.res) || RES) / Math.max(S.w, S.h));
@@ -154,18 +204,18 @@ piece(C("veil_element", {
             // freshly built (undo): put this node's last veil up right now, the exact one follows
             const last = !me.painted && LAST.get(lkey);
             if (last && last.mw === me.mw && last.mh === me.mh) {
-                me.empty = !last.img; wrap.hidden = me.empty;
+                me.empty = !last.img; wrap.hidden = me.empty || !me.shown;
                 if (last.img) cv.getContext("2d").putImageData(last.img, 0, 0);
             }
         }
         const url = String(h.val(node.brush) || "");
         const sig = [h.val(node.x), h.val(node.y), h.val(node.w), h.val(node.h), h.val(node.box), h.val(node.boxFeather),
             h.val(node.grow), h.val(node.feather), url.length, hashUrl(url), me.mw, me.mh, h.val(node.fill), !!h.val(node.alpha)].join("|");
-        if (sig === me.sig) { wrap.hidden = me.empty; return; }
+        if (sig === me.sig) { wrap.hidden = me.empty || !me.shown; tell(); return; }
         me.sig = sig;
-        if (SEEN.has(sig)) {                                    // already computed (undo, a twin node): paint it now, no wait, no flash
+        if (SEEN.has(sig) && CUTS.has(sig)) {                   // already computed (undo, a twin node): paint it now, no wait, no flash
             const img = SEEN.get(sig);
-            me.empty = !img; wrap.hidden = me.empty;
+            me.empty = !img; wrap.hidden = me.empty || !me.shown; const got = CUTS.get(sig); me.cut = got.cut; me.approx = got.approx; tell();
             if (img) cv.getContext("2d").putImageData(img, 0, 0);
             me.painted = true;
             if (img || me.empty) keep(LAST, lkey, { img, mw: me.mw, mh: me.mh }, 12);

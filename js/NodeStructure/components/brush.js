@@ -61,6 +61,7 @@ piece(C("brush_element", {
         veil: R("vero = un veil_element mostra gia' la maschera: le tinte rosa/nera spariscono (il tratto in corso resta visibile)"),
         res: N("lato lungo della maschera salvata (px)", RES),
         rightErase: B("tasto destro = gomma, sinistro = pennello (niente menu del tasto destro mentre si dipinge)", false),
+        swap: R("vero = tasti scambiati: sinistro = gomma, destro = pennello (ref, es. $state.brushSwap; D-126)"),
     },
     esempio: ex({ t: "view_box", children: [{ t: "brush_element", data: "", active: false }] }),
 }), (node, h) => {
@@ -77,7 +78,7 @@ piece(C("brush_element", {
     const dataRef = parseRef(node.data), sizeRef = parseRef(node.size), hardRef = parseRef(node.hardness);
     const view = () => wrap.closest(".ns-view")?.__nsView || null;
     const num = (v, d) => { const n = Number(h.val(v)); return Number.isFinite(n) ? n : d; };
-    const tip = () => ({ size: clamp(num(node.size, 64), 1, 4096), hard: clamp(num(node.hardness, 50), 0, 100) / 100, op: clamp(num(node.opacity, 100), 1, 100) / 100, erase: !!h.val(node.erase), shape: SHAPES.includes(h.val(node.shape)) ? h.val(node.shape) : "round" });
+    const tip = () => ({ size: clamp(num(node.size, 64), 1, 4096), hard: clamp(num(node.hardness, 50), 0, 100) / 100, op: clamp(num(node.opacity, 100), 1, 100) / 100, erase: !!h.val(node.erase) !== !!h.val(node.swap), shape: SHAPES.includes(h.val(node.shape)) ? h.val(node.shape) : "round" });
 
     // ---- the two layers <-> one PNG (R = painted alpha, G = erased alpha, B = 0, A = 255: lossless both ways)
     const clearAll = () => { for (const c of [add, ers, stk]) ctx(c).clearRect(0, 0, c.width, c.height); };
@@ -169,11 +170,11 @@ piece(C("brush_element", {
     };
     const begin = (e, root) => {
         const V = view();
-        const right = e.button === 2 && node.rightErase === true;      // D-113: right button = eraser, left = brush
+        const right = e.button === 2 && node.rightErase === true;      // D-113: right button = the OTHER tool (eraser, or the brush when swapped, D-126)
         if (!me.active || !V || !me.mw || (e.button !== 0 && !right) || e.altKey || root.classList.contains("pan") || V.isBusy()) return;
         e.preventDefault(); e.stopPropagation();
         const t = tip();
-        if (right) t.erase = true;
+        if (right) t.erase = !t.erase;
         const k = me.mw / me.W, r = Math.max(0.5, (t.size / 2) * k), rgb = (t.erase ? ERS : ADD).join(",");
         const sc = ctx(stk); sc.clearRect(0, 0, me.mw, me.mh);
         stk.style.opacity = String(t.op * (t.erase ? 0.55 : 0.5));
@@ -286,8 +287,8 @@ piece(C("brush_element", {
 // ---------- behavior: load_mask ----------
 // a picture by MIME type, or by extension when the OS hands it over without one (.jfif, some .webp/.jpg from Windows)
 const EXT_RE = /\.(png|jpe?g|jfif|pjpeg|webp|gif|bmp|avif|tiff?)$/i;
-const isImg = (f) => !!f && (/^image\//.test(f.type || "") || EXT_RE.test(f.name || ""));
-const pickFile = (dt) => [...(dt?.files || [])].find(isImg) || [...(dt?.items || [])].map((i) => (i.kind === "file" ? i.getAsFile() : null)).find(isImg) || null;
+export const isImg = (f) => !!f && (/^image\//.test(f.type || "") || EXT_RE.test(f.name || ""));
+export const pickFile = (dt) => [...(dt?.files || [])].find(isImg) || [...(dt?.items || [])].map((i) => (i.kind === "file" ? i.getAsFile() : null)).find(isImg) || null;
 // a picture dragged from a web page or another node arrives as a URL, not a file
 const pickUrl = (dt) => {
     const u = (dt?.getData?.("text/uri-list") || "").split(/\r?\n/).find((l) => l && !l.startsWith("#"));
@@ -296,6 +297,42 @@ const pickUrl = (dt) => {
     return m ? m[1].replace(/&amp;/g, "&") : "";
 };
 const toast = (detail) => { try { globalThis.app?.extensionManager?.toast?.add?.({ severity: "warn", summary: "Succy Crop", detail, life: 5000 }); } catch (_) { /* no toast here */ } };
+// a PNG's tEXt chunk called `key` (latin-1), or "" (D-124: Crop's downloads carry `succy_crop` = where the picture came from)
+export async function pngText(file, key) {
+    try {
+        const b = new Uint8Array(await file.slice(0, 8 << 20).arrayBuffer());
+        if (b.length < 8 || b[0] !== 0x89 || b[1] !== 0x50 || b[2] !== 0x4e || b[3] !== 0x47) return "";
+        const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+        for (let o = 8; o + 8 <= b.length;) {
+            const len = dv.getUint32(o), type = String.fromCharCode(b[o + 4], b[o + 5], b[o + 6], b[o + 7]);
+            if (type === "IDAT" || type === "IEND") break;                       // text before the pixels: Pillow writes it there
+            if (type === "tEXt" && o + 8 + len <= b.length) {
+                const d = b.subarray(o + 8, o + 8 + len), z = d.indexOf(0);
+                if (z > 0 && String.fromCharCode(...d.subarray(0, z)) === key) return Array.from(d.subarray(z + 1), (c) => String.fromCharCode(c)).join("");
+            }
+            o += 12 + len;
+        }
+    } catch (_) { /* not a readable PNG: no note */ }
+    return "";
+}
+
+// a picture -> ComfyUI's input folder (native upload). Returns { name: "<subfolder>/<file>", w, h } (w/h 0 when unknown).
+export async function uploadPicture(file, subfolder = "succy") {
+    let w = 0, hh = 0;
+    try { const bm = await createImageBitmap(file); w = bm.width; hh = bm.height; bm.close?.(); } catch (_) { /* measured later */ }
+    const ext = ((file.type || "").split("/")[1] || (EXT_RE.exec(file.name || "")?.[1]) || "png").toLowerCase().replace("jpeg", "jpg").replace(/[^a-z0-9]/g, "");
+    // ComfyUI's /view refuses any name with ".." in it (path-traversal guard): "uhm....jpg" uploads fine and then never shows. Clean it.
+    const clean = (file.name || "").replace(/\.[^.]*$/, "").replace(/\.{2,}/g, "_").replace(/[\\/:*?"<>|]+/g, "_").replace(/^[._\s]+|[._\s]+$/g, "");
+    const base = clean && !/^image$/i.test(clean) && EXT_RE.test(file.name) ? `${clean}.${ext}` : `succy_${Date.now()}.${ext}`;
+    const up = await globalThis.SurvivalKit.compat.uploadImage(file, { name: base, subfolder, type: "input" });
+    return { name: up.subfolder ? `${up.subfolder}/${up.name}` : up.name, w, h: hh };
+}
+// "<subfolder>/<file>" in the input folder -> a /view URL
+export const inputUrl = (name) => {
+    if (!name) return "";
+    const i = name.lastIndexOf("/");
+    return globalThis.SurvivalKit?.compat?.viewUrl?.({ filename: i < 0 ? name : name.slice(i + 1), subfolder: i < 0 ? "" : name.slice(0, i), type: "input" }) || "";
+};
 
 piece(C("load_mask", {
     scopo: "Trascina, incolla o scegli un'immagine sul view_box: upload nativo in input, nome nel nativo, vista subito senza Queue.",
@@ -305,6 +342,9 @@ piece(C("load_mask", {
         view: { ...ID("id del view_box"), required: true },
         native: S("widget nativo che tiene il nome del file (cartella input)", "source"),
         subfolder: S("sottocartella di input", "succy"),
+        meta: S("widget nativo dove scrivere il tEXt `chunk` del PNG caricato (vuoto se non c'e'); assente = non si legge (D-124)"),
+        chunk: S("nome del chunk tEXt da leggere", "succy_crop"),
+        button: B("falso = niente 📂 sul view (si carica solo trascinando / incollando, D-129)", true),
     },
     esempio: exb({ t: "view_box", id: "vp", children: [] }, [{ type: "load_mask", view: "vp" }]),
 }), (rt, p) => {
@@ -326,14 +366,8 @@ piece(C("load_mask", {
         if (!isImg(file)) return;
         LOADS[how]++;
         try {
-            let w = 0, hh = 0;
-            try { const bm = await createImageBitmap(file); w = bm.width; hh = bm.height; bm.close?.(); } catch (_) { /* the view measures it itself */ }
-            const ext = ((file.type || "").split("/")[1] || (EXT_RE.exec(file.name || "")?.[1]) || "png").toLowerCase().replace("jpeg", "jpg").replace(/[^a-z0-9]/g, "");
-            // ComfyUI's /view refuses any name with ".." in it (path-traversal guard): "uhm....jpg" uploads fine and then never shows. Clean it.
-            const clean = (file.name || "").replace(/\.[^.]*$/, "").replace(/\.{2,}/g, "_").replace(/[\\/:*?"<>|]+/g, "_").replace(/^[._\s]+|[._\s]+$/g, "");
-            const base = clean && !/^image$/i.test(clean) && EXT_RE.test(file.name) ? `${clean}.${ext}` : `succy_${Date.now()}.${ext}`;
-            const up = await globalThis.SurvivalKit.compat.uploadImage(file, { name: base, subfolder: p.subfolder ?? "succy", type: "input" });
-            const name = up.subfolder ? `${up.subfolder}/${up.name}` : up.name;
+            const { name, w, h: hh } = await uploadPicture(file, p.subfolder ?? "succy");
+            if (p.meta) rt.api.native.set(p.meta, await pngText(file, p.chunk || "succy_crop"));
             rt.api.native.set(NAT, name);
             try { node().graph?.change?.(); } catch (_) {}
             show(name, w, hh);
@@ -365,6 +399,7 @@ piece(C("load_mask", {
         const r = el?.classList?.contains("ns-view") ? el : el?.querySelector?.(".ns-view");
         if (!r || r === root) return;
         root = r;
+        if (p.button === false) return;
         // 📂 next to the fit button
         const hud = r.querySelector(".ns-view-hud");
         const btn = mkEl("button"); btn.type = "button"; btn.textContent = "📂"; btn.title = "Load an image (or drop / paste it here)";

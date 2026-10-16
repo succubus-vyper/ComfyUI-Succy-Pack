@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import io
+import json
 import os
 import math
 import re
@@ -66,38 +67,110 @@ if _FIRST_LOAD:
             _NODE_STATES[str(data["node_id"])] = data.get("action")
         return web.json_response({"status": "ok"})
 
-    @PromptServer.instance.routes.post("/succy/crop/download")
-    async def _crop_download(request):
-        # ?node_id=<shown id>&which=<output>, body {widgets, linked} = the node AS IT IS NOW -> that output as a PNG.
-        # D-117: no Queue needed. The very same crop() runs on the current widgets, so the file is exactly what a Run would give.
-        # The picture: the one loaded on the node, or — when it comes from a wire — the one the last Run received.
-        nid, which = str(request.query.get("node_id", "")), request.query.get("which", "")
-        if which not in _DOWNLOADS:
-            return web.json_response({"error": f"unknown output '{which}'"}, status=400)
+    async def _outs_for(request, nid, need):
         try:
             data = await request.json()
         except Exception:
             data = {}
+        return await _outs_from(data, nid, need)
+
+    async def _outs_from(data, nid, need):
+        # body {widgets, linked} = the node AS IT IS NOW -> the outputs of the very same crop() (D-117), or the last Run's when nothing is sent.
+        # Returns (outs, None) or (None, error response). The picture: the one loaded on the node, or the one the last Run got through a wire.
         widgets, linked = data.get("widgets") or {}, set(data.get("linked") or [])
         last = _LAST.get(nid) or {}
         if not widgets:                                    # nothing sent: the last Run, as before
-            if last.get(which) is None:
-                return web.json_response({"error": "nothing to download yet: run the node once"}, status=404)
-            outs = last
-        else:
-            for inp in ("image", "mask"):
-                if inp in linked and last.get("in_" + inp) is None:
-                    return web.json_response({"error": f"the {inp} comes from a wire: run the node once, then download"}, status=404)
-            try:
-                outs = await asyncio.to_thread(_crop_now, widgets, last.get("in_image") if "image" in linked else None,
-                                               last.get("in_mask") if "mask" in linked else None, nid)
-            except Exception as exc:
-                return web.json_response({"error": str(exc).replace(_TAG, "").strip()}, status=400)
+            if last.get(need) is None:
+                return None, web.json_response({"error": "nothing to download yet: run the node once"}, status=404)
+            return last, None
+        for inp in ("image", "mask"):
+            if inp in linked and last.get("in_" + inp) is None:
+                return None, web.json_response({"error": f"the {inp} comes from a wire: run the node once, then download"}, status=404)
+        # EXT doors (D-130): a wired number is known only after a Run; until then the slider's value stands in
+        widgets = dict(widgets)
+        for inp, key in (("out_mp_in", "out_mp"), ("multiple_in", "multiple")):
+            if inp in linked and last.get("in_" + key) is not None:
+                widgets[key] = last["in_" + key]
         try:
-            body = await asyncio.to_thread(_png_bytes, outs[which])
+            outs = await asyncio.to_thread(_crop_now, widgets, last.get("in_image") if "image" in linked else None,
+                                           last.get("in_mask") if "mask" in linked else None, nid)
+        except Exception as exc:
+            return None, web.json_response({"error": str(exc).replace(_TAG, "").strip()}, status=400)
+        return outs, None
+
+    @PromptServer.instance.routes.post("/succy/crop/download")
+    async def _crop_download(request):
+        # ?node_id=<shown id>&which=<output> -> that output as a PNG. The file carries the way back in (tEXt "succy_crop", D-123).
+        nid, which = str(request.query.get("node_id", "")), request.query.get("which", "")
+        if which not in _DOWNLOADS:
+            return web.json_response({"error": f"unknown output '{which}'"}, status=400)
+        outs, err = await _outs_for(request, nid, which)
+        if err:
+            return err
+        try:
+            body = await asyncio.to_thread(_png_bytes, outs[which], _stitch_meta(outs.get("stitch")))
         except Exception as exc:
             return web.json_response({"error": f"could not encode {which}: {exc}"}, status=500)
         name = f"{outs.get('stem') or 'crop'}_{which}.png"
+        return web.Response(body=body, content_type="image/png", headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+    @PromptServer.instance.routes.post("/succy/crop/stitch")
+    async def _crop_stitch(request):
+        # What Stitch's live preview needs from a Crop, no Queue (D-123). ?node_id=<Crop shown id>&what=
+        #   info = JSON {region, selection, orig_size, work_size} · base = the ORIGINAL region as PNG · mask = the crop's mask over the region as PNG
+        nid, what = str(request.query.get("node_id", "")), request.query.get("what", "")
+        outs, err = await _outs_for(request, nid, "crop_img")
+        if err:
+            return err
+        st = outs.get("stitch")
+        if st is None:
+            st = (_LAST.get(nid) or {}).get("stitch")
+        if st is None:
+            return web.json_response({"error": "this Crop has no stitch yet: run it once"}, status=404)
+        try:
+            if what == "info":
+                return web.json_response(_stitch_meta(st, as_dict=True))
+            rx0, ry0, rx1, ry1 = st["region"]
+            if what == "base":
+                body = await asyncio.to_thread(_png_bytes, st["image"][:1, ry0:ry1, rx0:rx1, :])
+            elif what == "mask":
+                body = await asyncio.to_thread(_png_bytes, st["mask"][:1])
+            else:
+                return web.json_response({"error": f"unknown what '{what}'"}, status=400)
+        except Exception as exc:
+            return web.json_response({"error": f"could not encode {what}: {exc}"}, status=500)
+        return web.Response(body=body, content_type="image/png")
+
+    @PromptServer.instance.routes.post("/succy/stitch/render")
+    async def _stitch_render(request):
+        # Stitch's Copy / Download (D-124): the FULL-resolution result, no Queue, computed by Succy_Stitch.stitch itself (pixel = Queue).
+        # ?node_id=<Stitch shown id> · body {widgets, linked} of the Stitch + crop: {node_id, widgets, linked} of the Crop on its wire.
+        nid = str(request.query.get("node_id", ""))
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        crop = data.get("crop") or {}
+        st, outs = None, {}
+        if crop.get("node_id") is not None:
+            outs, err = await _outs_from(crop, str(crop["node_id"]), "crop_img")
+            if err:
+                return err
+            st = outs.get("stitch") or (_LAST.get(str(crop["node_id"])) or {}).get("stitch")
+        widgets, linked = data.get("widgets") or {}, set(data.get("linked") or [])
+        last = _LAST.get(nid) or {}
+        wired = {}
+        for inp, key in (("replacement", "st_image"), ("base_image", "st_base"), ("mask", "st_mask")):
+            if inp in linked:
+                if last.get(key) is None:
+                    return web.json_response({"error": f"the {inp.replace('_', ' ')} comes from a wire: run the node once, then copy / download"}, status=404)
+                wired[inp] = last[key]
+        try:
+            img = await asyncio.to_thread(_stitch_now, st, wired, widgets)
+            body = await asyncio.to_thread(_png_bytes, img)
+        except Exception as exc:
+            return web.json_response({"error": str(exc).replace(_TAG, "").strip()}, status=400)
+        name = f"{outs.get('stem') or 'stitch'}_stitched.png"
         return web.Response(body=body, content_type="image/png", headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 
@@ -118,10 +191,20 @@ def _crop_now(widgets, image, mask, nid):
     kw.setdefault("x", 0); kw.setdefault("y", 0); kw.setdefault("w", 0); kw.setdefault("h", 0)
     kw.setdefault("context", 0); kw.setdefault("multiple", 1)
     with torch.inference_mode():
-        res = Succy_Crop().crop(**kw, image=image, mask=mask, unique_id=nid, _quiet=True)
-    outs = dict(zip(Succy_Crop.RETURN_NAMES, res))
+        outs = Succy_Crop().crop(**kw, image=image, mask=mask, unique_id=nid, _quiet=True, _all=True)
     outs["stem"] = _stem(kw.get("source", ""))
     return outs
+
+
+def _stitch_now(st, wired, widgets):
+    """Run Succy_Stitch.stitch on the widgets the browser sent (D-124). Quiet: no preview, does not touch _LAST. wired = last Run's wired inputs."""
+    kw = {k: widgets[k] for k in ("feather_mode", "feather_curve", "aspect_mismatch", "source", "base_file", "mask_file", "brush", "place") if widgets.get(k) is not None}
+    for k, d in (("feather", 24), ("color_match", 0.0), ("opacity", 1.0), ("sharpness_match", 0.0), ("grain_match", 0.0),
+                 ("offset_x", 0), ("offset_y", 0), ("scale", 100.0)):
+        kw[k] = type(d)(widgets.get(k, d) if widgets.get(k) is not None else d)
+    kw.setdefault("feather_mode", "inside"); kw.setdefault("feather_curve", "smooth"); kw.setdefault("aspect_mismatch", "auto")
+    with torch.inference_mode():
+        return Succy_Stitch().stitch(stitch=st, _quiet=True, **wired, **kw)[0]
 
 
 def _stem(source):
@@ -129,14 +212,31 @@ def _stem(source):
     return re.sub(r"[^0-9A-Za-z_-]", "_", st)[:60]
 
 
-def _png_bytes(t):
-    """IMAGE [B,H,W,3|4] or MASK [B,H,W] -> PNG bytes of the first item (RGB, RGBA or greyscale), fast compression."""
+def _stitch_meta(st, as_dict=False):
+    """The way back in, as plain numbers: region (selection + context) in ORIGINAL pixels and the original size (D-123).
+    Stitch reads it from a PNG that came home with its tEXt intact; many outside services strip it, hence the wire to Crop too."""
+    if not st:
+        return None
+    rx0, ry0, rx1, ry1 = st["region"]
+    d = {"v": 1, "x": rx0, "y": ry0, "w": rx1 - rx0, "h": ry1 - ry0, "orig_w": st["orig_size"][0], "orig_h": st["orig_size"][1],
+         "work_w": st["work_size"][0], "work_h": st["work_size"][1]}
+    return d if as_dict else json.dumps(d)
+
+
+def _png_bytes(t, meta=None):
+    """IMAGE [B,H,W,3|4] or MASK [B,H,W] -> PNG bytes of the first item (RGB, RGBA or greyscale), fast compression.
+    meta (a JSON string) goes into a tEXt chunk called succy_crop."""
     a = t[0] if t.dim() >= 3 else t
     a = (a.detach().float().clamp(0, 1) * 255.0).round().to(torch.uint8).cpu().numpy()
     if a.ndim == 3 and a.shape[-1] not in (3, 4):
         a = a[..., :3]
     buf = io.BytesIO()
-    Image.fromarray(a).save(buf, format="PNG", compress_level=1)          # uint8 HxW / HxWx3 / HxWx4 = L / RGB / RGBA
+    info = None
+    if meta:
+        from PIL.PngImagePlugin import PngInfo
+        info = PngInfo()
+        info.add_text("succy_crop", meta)
+    Image.fromarray(a).save(buf, format="PNG", compress_level=1, pnginfo=info)          # uint8 HxW / HxWx3 / HxWx4 = L / RGB / RGBA
     return buf.getvalue()
 
 
@@ -338,6 +438,9 @@ class Succy_Crop:
             "optional": {
                 "image": ("IMAGE", {"tooltip": "Wins over a picture loaded on the node"}),
                 "mask": ("MASK", {"tooltip": "If connected, the selection is its bounding box and the output mask keeps its shape"}),
+                # EXT chip doors (D-130): a wire here wins over the slider on the node
+                "out_mp_in": ("FLOAT", {"forceInput": True, "tooltip": "Resize crop (megapixels) from a wire: wins over the slider"}),
+                "multiple_in": ("INT", {"forceInput": True, "tooltip": "Multiple of, from a wire: wins over the slider"}),
             },
             "hidden": {"unique_id": "UNIQUE_ID", "dynprompt": "DYNPROMPT"},
         }
@@ -349,19 +452,24 @@ class Succy_Crop:
             return float("nan")
         return "passthrough"
 
-    # D-118/D-120: six outputs, in the order the user reaches for them. Defaults (megapixels 0, multiple 1) = everything at REAL resolution.
+    # D-118/D-120: six pictures, in the order the user reaches for them. Defaults (megapixels 0, multiple 1) = everything at REAL resolution.
     #   stitch     everything Succy Stitch needs to put the worked crop back
     #   full_img   the whole picture AT WORKSPACE SIZE (workspace_mp; = the input when 0): the canvas, mask and stitch all live here
     #   cutout     crop_img with crop_mask applied (Alpha = transparent outside, Solid = the chosen colour)
     #   mask       the final mask over the WHOLE picture (same size as the input): use it on the original
     #   crop_img   the crop (selection + context), resized only if work size / multiple ask for it
     #   crop_mask  the same mask, cut and sized like crop_img
-    RETURN_TYPES = ("STITCH", "IMAGE", "IMAGE", "MASK", "IMAGE", "MASK")
-    RETURN_NAMES = ("stitch", "full_img", "cutout", "mask", "crop_img", "crop_mask")
+    # D-128 (the user's call): the graph gets stitch, mask and cutout; ⬇ still hands out every picture (full_img, cutout, mask, crop_img, crop_mask)
+    RETURN_TYPES = ("STITCH", "MASK", "IMAGE")
+    RETURN_NAMES = ("stitch", "mask", "cutout")
     FUNCTION = "crop"
 
     def crop(self, x, y, w, h, context, workspace_mp, out_mp, multiple, box_snap=1, alpha=False, solid_color="#000000", box=True, box_feather=0, mask_grow=0, mask_feather=0, hold=False, hold_timeout=300,
-             run_id="", source="", brush="", image=None, mask=None, unique_id=None, dynprompt=None, _quiet=False):
+             run_id="", source="", brush="", image=None, mask=None, out_mp_in=None, multiple_in=None, unique_id=None, dynprompt=None, _quiet=False, _all=False):
+        if out_mp_in is not None:                          # EXT (D-130): the wire wins over the slider
+            out_mp = max(0.0, float(out_mp_in))
+        if multiple_in is not None:
+            multiple = max(1, int(multiple_in))
         if image is None:
             image = _load_source(source)
         if image is None:
@@ -458,25 +566,32 @@ class Succy_Crop:
         full_mask = sel.clamp(0.0, 1.0)[None]                                 # [1, H, W]: the whole picture, soft edges and all
         if not _quiet:
             _LAST[did] = {"full_img": image, "cutout": cutout, "mask": full_mask, "crop_img": out_img, "crop_mask": out_mask,
-                          "stem": _stem(source), "in_image": in_image, "in_mask": mask}
-        return (stitch, image, cutout, full_mask, out_img, out_mask)
+                          "stem": _stem(source), "in_image": in_image, "in_mask": mask, "stitch": stitch,
+                          "in_out_mp": out_mp_in, "in_multiple": multiple_in}
+        if _all:                                   # the downloads (D-117) want every picture
+            return {"stitch": stitch, "full_img": image, "cutout": cutout, "mask": full_mask, "crop_img": out_img, "crop_mask": out_mask}
+        return (stitch, full_mask, cutout)
 
 
 # ---------------------------------------------------------------------------
 # Stitch helpers (pure torch, testable without ComfyUI)
 # ---------------------------------------------------------------------------
 
-def _fit_to_region(work, rh, rw, mode, base):
-    """Bring the worked crop (BCHW) to the region's size. Returns (BCHW, fit_mask or None)."""
-    h, w = work.shape[-2:]
+def _fit_mode(w, h, rw, rh, mode):
+    """auto -> crop_center under 2% difference in proportions, otherwise stretch (with a warning). Same rule in the browser."""
+    if mode != "auto":
+        return mode
     diff = abs((w / h) / (rw / rh) - 1.0)
-    if mode == "auto":
-        if diff < 0.02:
-            mode = "crop_center"
-        else:
-            print(f"{_TAG} worked image is {w}x{h} but the crop region is {rw}x{rh} "
-                  f"({diff * 100:.1f}% off in proportions): stretching it. Pick crop_center / fit to change that.")
-            mode = "stretch"
+    if diff < 0.02:
+        return "crop_center"
+    print(f"{_TAG} worked image is {w}x{h} but the crop region is {rw}x{rh} "
+          f"({diff * 100:.1f}% off in proportions): stretching it. Pick crop_center / fit to change that.")
+    return "stretch"
+
+
+def _fit_to_region(work, rh, rw, mode, base):
+    """Bring the worked crop (BCHW) to the region's size. Returns (BCHW, fit_mask or None). mode: stretch | crop_center | fit."""
+    h, w = work.shape[-2:]
 
     if mode == "stretch":
         return _resize(work, rh, rw), None
@@ -565,13 +680,126 @@ def _color_match(work, base, sel, strength):
     return (work + strength * (matched - work)).clamp(0.0, 1.0)
 
 
+def _box(x, k):
+    # separable box mean k x k, replicate padding, same size out (BCHW)
+    k = int(k)
+    if k <= 1:
+        return x
+    p = k // 2
+    x = F.pad(x, (p, p, p, p), mode="replicate")
+    return F.avg_pool2d(F.avg_pool2d(x, (1, k), stride=1), (k, 1), stride=1)
+
+
+SHARP_K, GRAIN_K = 5, 3          # high-pass scales (region px): detail = x - box5(x), grain = x - box3(x)
+
+
+def _hp_energy(x, k, ring):
+    # std of the luminance high-pass over the weights -> [B,1,1,1]
+    lum = x.mean(dim=1, keepdim=True)
+    return _wstats(lum - _box(lum, k), ring)[1]
+
+
+def _detail_area(sel):
+    """Where detail is measured (D-130): the selection itself, original vs worked in the same place. The context ring (D-129) is where
+    the sampler leaves the original alone, so there the ratio sat at ~1 and the sliders did next to nothing. Tiny selection: the region."""
+    rh, rw = sel.shape[-2:]
+    area = (sel >= 0.5).float()
+    return area if area.sum() >= 0.01 * rh * rw else torch.ones_like(area)
+
+
+def _detail_match(work, base, sel, sharp, grain, seed=0x5CC):
+    """Sharpness / grain match (D-129, D-130): the worked crop's fine detail scaled to the original's (measured on the selection: a soft
+    upscale gets sharpened, an over-crisp one calmed), then the grain it still lacks added as monochrome noise. sharp 1 = the original's
+    detail energy for real (one secant step corrects the unsharp gain). Both 0..1 (D-130: a percentage stops at 100)."""
+    area = _detail_area(sel)
+    if sharp > 0:
+        low = _box(work, SHARP_K)
+        ew = _hp_energy(work, SHARP_K, area).clamp_min(1e-4)
+        ratio = (_hp_energy(base, SHARP_K, area) / ew).clamp(0.25, 4.0)
+        e1 = _hp_energy(low + (work - low) * ratio, SHARP_K, area)
+        # e1 - ew = what gain `ratio` really moved; scale the push so the target (ratio - 1) * ew is met
+        d1 = e1 - ew
+        ok = d1.abs() > 1e-6
+        gain = torch.where(ok, 1.0 + (ratio - 1.0) * (ratio - 1.0) * ew / torch.where(ok, d1, torch.ones_like(d1)), ratio).clamp(0.0, 8.0)
+        work = low + (work - low) * (1.0 + sharp * (gain - 1.0)).clamp_min(0.0)
+    if grain > 0:
+        gb, gw = _hp_energy(base, GRAIN_K, area), _hp_energy(work, GRAIN_K, area)
+        amt = (gb * gb - gw * gw).clamp_min(0.0).sqrt() * grain
+        gen = torch.Generator(device="cpu").manual_seed(seed)
+        noise = torch.randn((1, 1, *work.shape[-2:]), generator=gen).to(work.device)
+        g = noise * amt                                   # colour channels only: an alpha stays clean
+        work = torch.cat([work[:, :3] + g, work[:, 3:]], dim=1) if work.shape[1] > 3 else work + g
+    return work.clamp(0.0, 1.0)
+
+
+def _place(work, base, fm, ox, oy, scale):
+    """Move / scale the fitted worked crop inside the region (D-129): offset in region px, scale around the centre.
+    What it leaves uncovered shows the original (fit mask 0 there). Same geometry as the browser's preview."""
+    if ox == 0 and oy == 0 and scale == 1.0:
+        return work, fm
+    B, _, rh, rw = work.shape
+    if fm is None:
+        fm = torch.ones((1, 1, rh, rw), device=work.device)
+    nh, nw = max(1, round(rh * scale)), max(1, round(rw * scale))
+    if (nh, nw) != (rh, rw):
+        work, fm = _resize(work, nh, nw), F.interpolate(fm, size=(nh, nw), mode="nearest")
+    x0, y0 = (rw - nw) // 2 + int(ox), (rh - nh) // 2 + int(oy)
+    canvas = base.expand(B, -1, -1, -1).clone()
+    ofm = torch.zeros((1, 1, rh, rw), device=work.device)
+    cx0, cy0, cx1, cy1 = max(0, x0), max(0, y0), min(rw, x0 + nw), min(rh, y0 + nh)
+    if cx1 > cx0 and cy1 > cy0:
+        canvas[..., cy0:cy1, cx0:cx1] = work[..., cy0 - y0:cy1 - y0, cx0 - x0:cx1 - x0]
+        ofm[..., cy0:cy1, cx0:cx1] = fm[..., cy0 - y0:cy1 - y0, cx0 - x0:cx1 - x0]
+    return canvas, ofm
+
+
+def _load_mask(name):
+    """A mask loaded on Stitch (input folder): white = replace. Luminance, or the alpha when the file has transparency. -> [1,H,W] or None."""
+    if not name:
+        return None
+    root = os.path.realpath(folder_paths.get_input_directory())
+    path = os.path.realpath(os.path.join(root, name))
+    if not path.startswith(root + os.sep) or not os.path.isfile(path):
+        raise FileNotFoundError(f"{_TAG} mask '{name}' not found in the input folder. Load it again on the node.")
+    im = ImageOps.exif_transpose(Image.open(path))
+    if im.mode in ("RGBA", "LA") and im.getchannel("A").getextrema()[0] < 255:
+        arr = np.asarray(im.getchannel("A"))
+    else:
+        arr = np.asarray(im.convert("L"))
+    return torch.from_numpy(arr.astype(np.float32) / 255.0)[None]
+
+
+def _resolve_stitch(st, base, mask):
+    """The stitch Stitch works with (D-128): Crop's, with a base image and / or a mask that win over it.
+    A mask (whole picture, white = replace) makes the cut its bounding box, no context. Without a stitch both are needed."""
+    if base is None and mask is None:
+        if st is None:
+            raise ValueError(f"{_TAG} nothing to stitch into: wire a Succy Crop (stitch), or give a base image + a mask.")
+        return st
+    orig = base if base is not None else (st["image"] if st is not None else None)
+    if orig is None:
+        raise ValueError(f"{_TAG} a mask without a base image: load / connect the base image too (or wire a Succy Crop).")
+    H, W = int(orig.shape[1]), int(orig.shape[2])
+    if mask is None:                                       # a new base for Crop's cut: it must be the same picture, same size
+        oW, oH = st["orig_size"]
+        if (W, H) != (oW, oH):
+            print(f"{_TAG} base image is {W}x{H}, the Crop worked at {oW}x{oH}: resizing the base to fit the cut.")
+            orig = _resize(orig.permute(0, 3, 1, 2), oH, oW).permute(0, 2, 3, 1).contiguous()
+        return {**st, "image": orig}
+    m = _prep_mask(mask, H, W).to(orig.device)
+    ys, xs = torch.nonzero(m > 0.01, as_tuple=True)
+    if ys.numel() == 0:
+        raise ValueError(f"{_TAG} the mask is empty: nothing to replace.")
+    x0, x1, y0, y1 = int(xs.min()), int(xs.max()) + 1, int(ys.min()), int(ys.max()) + 1
+    return {"version": 1, "image": orig, "region": (x0, y0, x1, y1), "selection": (x0, y0, x1, y1), "orig_size": (W, H),
+            "work_size": (x1 - x0, y1 - y0), "mask": m[y0:y1, x0:x1][None]}
+
+
 class Succy_Stitch:
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "stitch": ("STITCH",),
-                "image": ("IMAGE", {"tooltip": "The worked crop. Any size: it is scaled back to the crop region by itself"}),
                 "feather": ("INT", {"default": 24, "min": 0, "max": 2048, "step": 1,
                                     "tooltip": "Seam softness in region pixels (0 = hard edge)"}),
                 "feather_mode": (["inside", "outside", "centered"], {"default": "inside"}),
@@ -579,16 +807,64 @@ class Succy_Stitch:
                 "color_match": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 100.0, "step": 1.0,
                                           "tooltip": "% of colour correction taken from the context ring"}),
                 "opacity": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "sharpness_match": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 100.0, "step": 1.0,
+                                              "tooltip": "% of the way to the original's fine detail (100 = the same detail as the original)"}),
+                "grain_match": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 100.0, "step": 1.0,
+                                          "tooltip": "% of the grain the worked crop lacks, added back as monochrome noise"}),
+                "offset_x": ("INT", {"default": 0, "min": -16384, "max": 16384, "step": 1, "tooltip": "Move the replacement inside the cut (px)"}),
+                "offset_y": ("INT", {"default": 0, "min": -16384, "max": 16384, "step": 1, "tooltip": "Move the replacement inside the cut (px)"}),
+                "scale": ("FLOAT", {"default": 100.0, "min": 10.0, "max": 400.0, "step": 0.1, "tooltip": "Scale the replacement around the cut's centre (%)"}),
                 "aspect_mismatch": (["auto", "stretch", "crop_center", "fit"], {"default": "auto",
                                     "tooltip": "auto = crop_center under 2% difference, otherwise warn + stretch"}),
-            }
+                "source": ("STRING", {"default": "", "tooltip": "REPLACEMENT loaded on the node (input folder). A connected replacement wins"}),
+                "base_file": ("STRING", {"default": "", "tooltip": "BASE IMAGE loaded on the node (input folder). Wins over the stitch's picture; a connected base_image wins over it"}),
+                "mask_file": ("STRING", {"default": "", "tooltip": "MASK loaded on the node (white = replace). Wins over the stitch's mask; a connected mask wins over it"}),
+                "brush": ("STRING", {"default": "", "tooltip": "Retouch of the seam, drawn on the live result over the whole picture (managed by the frontend)"}),
+                "place": ("STRING", {"default": "", "tooltip": "Where the dropped PNG says it belongs (tEXt succy_crop, managed by the frontend)"}),
+                "hold": ("BOOLEAN", {"default": False, "label_on": "Stop every run", "label_off": "Reuse retouch",
+                                     "tooltip": "On: wait on every Run so you can retouch the seam on the fresh result"}),
+                "hold_timeout": ("INT", {"default": 300, "min": 1, "max": 3600, "step": 1,
+                                         "tooltip": "Seconds to wait before carrying on with the current retouch"}),
+                "run_id": ("STRING", {"default": "0_manual", "tooltip": "Managed by the frontend"}),
+            },
+            "optional": {
+                "stitch": ("STITCH", {"tooltip": "From Succy Crop: the base image, where the cut was and its mask"}),
+                "base_image": ("IMAGE", {"tooltip": "The picture to stitch INTO. Wins over the stitch's picture"}),
+                "mask": ("MASK", {"tooltip": "Where the replacement goes (whole picture, white = replace). Wins over the stitch's mask: the cut becomes its bounding box"}),
+                "replacement": ("IMAGE", {"tooltip": "The worked crop. Any size: it is scaled back to the cut by itself. Wins over a picture loaded on the node"}),
+            },
+            "hidden": {"unique_id": "UNIQUE_ID", "dynprompt": "DYNPROMPT"},
         }
 
-    RETURN_TYPES = ("IMAGE", "MASK")
-    RETURN_NAMES = ("image", "mask")
-    FUNCTION = "stitch"
+    @classmethod
+    def IS_CHANGED(cls, hold=False, run_id="", **kwargs):
+        # same rule as Crop: a node that must stop never comes from the cache; a "<ts>_continue" transit may
+        if hold and not str(run_id).endswith("_continue"):
+            return float("nan")
+        return "passthrough"
 
-    def stitch(self, stitch, image, feather, feather_mode, feather_curve, color_match, opacity, aspect_mismatch):
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("composite",)
+    FUNCTION = "stitch"
+    OUTPUT_NODE = True             # D-125: the end of a workflow, it runs (and shows the result) even with nothing after it
+
+    def stitch(self, feather, feather_mode, feather_curve, color_match, opacity, aspect_mismatch, sharpness_match=0.0, grain_match=0.0,
+               offset_x=0, offset_y=0, scale=100.0, source="", base_file="", mask_file="", brush="", place="",
+               hold=False, hold_timeout=300, run_id="", stitch=None, base_image=None, mask=None, replacement=None,
+               unique_id=None, dynprompt=None, _quiet=False):
+        image = replacement if replacement is not None else _load_source(source)
+        if image is None:
+            raise ValueError(f"{_TAG} no replacement: connect one, or drop / paste / load it on the node.")
+        base_in = base_image if base_image is not None else _load_source(base_file)
+        mask_in = mask if mask is not None else _load_mask(mask_file)
+        stitch = _resolve_stitch(stitch, base_in, mask_in)
+        if not _quiet:                                     # the node shows the replacement that came in; Copy / Download re-run from it (D-124)
+            did = _display_id(dynprompt, unique_id)
+            _LAST[did] = {"st_image": image, "st_base": base_image, "st_mask": mask}
+            _send_preview(did, image, 0, 0, 0, 0)
+            if hold and not str(run_id).endswith("_continue"):            # retouch on the fresh result, then ▶ (same shield as Crop / Pause)
+                print(f"{_TAG} node {did} waiting up to {hold_timeout}s for a retouch...")
+                _hold(did, hold_timeout)
         orig = stitch["image"]
         B_o, H, W, C = orig.shape
         rx0, ry0, rx1, ry1 = stitch["region"]
@@ -609,14 +885,28 @@ class Succy_Stitch:
             work = torch.cat([work, torch.ones((*work.shape[:3], C - cw), device=dev)], dim=3)
 
         base = orig[:, ry0:ry1, rx0:rx1, :].permute(0, 3, 1, 2)             # BCHW
-        work, fit_mask = _fit_to_region(work.permute(0, 3, 1, 2), rh, rw, aspect_mismatch, base.expand(B, -1, -1, -1))
+        wh, ww = int(work.shape[1]), int(work.shape[2])
+        mode = _fit_mode(ww, wh, rw, rh, aspect_mismatch)
+        work, fit_mask = _fit_to_region(work.permute(0, 3, 1, 2), rh, rw, mode, base.expand(B, -1, -1, -1))
+        work, fit_mask = _place(work, base, fit_mask, offset_x, offset_y, float(scale) / 100.0)
+        # the retouch brush is painted on the live result, over the WHOLE picture (D-125): stretched to it, then cut to the region
+        add, erase = _decode_brush(brush, H, W, dev)
+        if add is not None:
+            add, erase = add[ry0:ry1, rx0:rx1].clamp(0, 1), erase[ry0:ry1, rx0:rx1].clamp(0, 1)
 
         sel = stitch["mask"].to(dev)[None]                                    # [1,1,rh,rw]
         if color_match > 0:
             work = _color_match(work, base, sel, color_match / 100.0)
+        if sharpness_match > 0 or grain_match > 0:
+            work = _detail_match(work, base, sel, sharpness_match / 100.0, grain_match / 100.0)
 
         borders = (rx0 == 0, ry0 == 0, rx1 == W, ry1 == H)
         M = _feather(sel, feather, feather_mode, feather_curve, borders)
+        # retouch (D-124): painted = the worked picture wins there, erased = the original stays, AFTER the feather (the brush has its own soft tip)
+        if add is not None:
+            M = torch.maximum(M, add[None, None])
+        if erase is not None:
+            M = M * (1.0 - erase[None, None])
         if fit_mask is not None:
             M = M * fit_mask
         M = (M * opacity).clamp(0.0, 1.0)
@@ -625,6 +915,4 @@ class Succy_Stitch:
         out = orig.expand(B, -1, -1, -1).clone()
         out[:, ry0:ry1, rx0:rx1, :] = blended.expand(B, -1, -1, -1).permute(0, 2, 3, 1)
 
-        full = torch.zeros((1, H, W), device=dev)
-        full[0, ry0:ry1, rx0:rx1] = M[0, 0]
-        return (out, full)
+        return (out,)

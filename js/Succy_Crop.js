@@ -12,14 +12,17 @@
 //   Stop every run / Reuse ....................................................... SurvivalKit.hold via `hold_node` (same shield as Pause)
 //   ▶ Continue / ■ Stop ........................................................... `release_graph`
 //   Alpha / Solid (one button) + colour: the `cutout` output (mask applied) ...... `$native.alpha`, `$native.solid_color` (D-111/D-113)
-//   Mask view on/off (button) · tools under the picture fold (start folded) ...... `flip_node` on `$state.maskView` / `$state.tools`
-//   Free hand: LEFT button paints, RIGHT button erases ............................ `brush_element` rightErase
+//   Mask view on/off (button) ....................................................... `flip_node` on `$state.maskView`
+//   Free hand: LEFT button paints, RIGHT button erases (⇄ Swap buttons flips them) . `brush_element` rightErase + swap
 //   live veil over what the final mask leaves out (box feather, grow, feather...) . `veil_element` (Python's recipe, D-107)
 //   right click in Rectangle / Alt + right click / ⚙: the tools menu ............. `open_float` (contextmenu, alt) + menu v2 `tools`
 //   Alt + drag / Alt + wheel (D-120) .............................................. rectangle: resize from the centre · brush: size + hardness
 //   freeze the rectangle's width / height (sides turn red) + its Multiple ......... `boxlock_element` (menu) -> `$state.lockW/lockH`, `$native.box_snap`
 //   brush tip (round / solid / square / solid square) ............................. `swatch_element` (menu) -> `$state.brushShape`
-//   WORKSPACE (whole picture, megapixels) · Cropped area (context, output size) ... natives `workspace_mp`, `context`, `out_mp`, `multiple`
+//   one fixed row under the picture: Resize crop (MP) · Multiple of (D-130) ......... `slider_element` on natives `out_mp`, `multiple`
+//   EXT on either: the slider steps aside, a real input with a chip takes it ....... `ext_node` (mode chip) + `chip_input` out_mp_in / multiple_in
+//   the measures line: picture · cut (where, how big) · output size ................ `veil_element` report -> `$cache.cropInfo`
+//   workspace_mp and context: gone from the UI (D-130), held at 0 ................... `onSetup` / `onRestore` -> `zeroGone`
 //   ⬇ on the picture: download any output, no Queue needed ....................... menu `downloads` + Python route /succy/crop/download
 //   every input and output ....................................................... `chip_input` / `chip_output`
 // Backend: Succy_Crop_Stitch/Succy_Crop_Stitch.py. Natives stay REAL (Python validates them) — only hidden; the controls below drive them.
@@ -28,16 +31,32 @@ import { SurvivalKit } from "./SurvivalKit/survival-kit.js";
 import { NodeStructure } from "./NodeStructure/index.js";
 
 const TYPE = "Succy_Crop";
+// workspace_mp and context left the UI (D-130, the user's call): hidden and held at 0 (a picture is cut as it is, no ring around it)
+const GONE = ["workspace_mp", "context"];
 const NATIVES = ["x", "y", "w", "h", "context", "workspace_mp", "out_mp", "multiple", "box_snap", "alpha", "solid_color", "box", "box_feather", "mask_grow", "mask_feather",
     "hold", "hold_timeout", "run_id", "source", "brush"];
 
-const stepper = (id, label, bind, min, max, step = 1) => ({
+// numbers as sliders with the value inside (D-129): drag, click to type; `soft` = where the bar ends, typing goes up to max
+const slider = (id, label, bind, min, max, step = 1, soft) => ({
     t: "stack_box", id: id + "Box", gap: 2, style: { flex: "1 1 0", minWidth: "0" }, children: [
         { t: "label_element", variant: "caption", text: label },
-        { t: "stepper_element", id, bind, min, max, step, style: { flex: "none" } },
+        { t: "slider_element", id, bind, min, max, step, ...(soft ? { soft } : {}), style: { flex: "none" } },
     ],
 });
-const nat = (id, label, native, min, max, step) => stepper(id, label, "$native." + native, min, max, step);
+const nat = (id, label, native, min, max, step, soft) => slider(id, label, "$native." + native, min, max, step, soft);
+// a slider that EXT can hand to a wire (D-130): EXT lit = the slider steps aside and a real input with a chip appears on the node
+const extSlider = (id, label, native, flag, input, min, max, step, soft, title) => ({
+    t: "stack_box", id: id + "Box", gap: 2, style: { flex: "1 1 0", minWidth: "0" }, title, children: [
+        { t: "row_box", gap: 4, children: [
+            { t: "label_element", variant: "caption", text: label, style: { flex: "1 1 auto", minWidth: "0" } },
+            { t: "button_element", id: id + "Ext", class: "ns-btn-act ns-slim", text: "EXT", style: { flex: "0 0 auto" }, classIf: { "ns-on": "$state." + flag },
+                title: `EXT: take ${label} from a wire (the “${input}” input on top, with its chip) instead of the slider`,
+                on: { click: { do: "$actions.flip_node", args: { key: flag } } } },
+        ] },
+        { t: "slider_element", id, bind: "$native." + native, min, max, step, ...(soft ? { soft } : {}), visible: "!$state." + flag, style: { flex: "none" } },
+        { t: "label_element", variant: "hint", visible: "$state." + flag, text: `From the “${input}” input ↑ — its chip picks the source` },
+    ],
+});
 const clear = (id, text, native, value) => ({ t: "button_element", id, class: "ns-btn", text, style: { flex: "1 1 0" },
     on: { click: { do: "$actions.set_node", args: { native, value } } } });
 
@@ -56,8 +75,6 @@ const modeSeg = (id) => ({ t: "segmented_element", id, bind: "$state.paint", sty
     { value: true, label: "Free hand", tone: "warn" },
 ] });
 const maskTgl = (id) => ({ t: "toggle_element", id, label: "Mask view", bind: "$state.maskView", style: { flex: "none" } });
-// fold the settings under the picture (D-113): folded = one big Expand row, the picture gets the room. Start open (D-115).
-const foldBtn = (id, text, style) => ({ t: "button_element", id, class: "ns-btn", text, style, on: { click: { do: "$actions.flip_node", args: { key: "tools" } } } });
 // Hardness = the stroke's own feather (100 = hard edge, 0 = all soft): Photoshop's name, kept on purpose (D-107).
 // Box feather = the RECTANGLE's own soft edge. Mask feather = the soft edge of the FINAL mask (box + strokes, minus eraser).
 
@@ -78,14 +95,15 @@ const MENU_TREE = { t: "stack_box", gap: 8, style: { padding: "10px 12px 12px" }
     { t: "stack_box", gap: 8, visible: "!$state.paint", children: [
         sec("Rectangle"),
         { t: "label_element", variant: "hint", text: "Drag on the picture. Alt + drag or Alt + wheel resize it from the centre." },
-        { t: "row_box", gap: 6, children: [nat("xStepM", "X", "x", 0, 16384), nat("yStepM", "Y", "y", 0, 16384)] },
-        { t: "row_box", gap: 6, children: [nat("wStepM", "W (0 = edge)", "w", 0, 16384), nat("hStepM", "H (0 = edge)", "h", 0, 16384)] },
+        { t: "row_box", gap: 6, children: [nat("xStepM", "X", "x", 0, 16384, 1, 4096), nat("yStepM", "Y", "y", 0, 16384, 1, 4096)] },
+        { t: "row_box", gap: 6, children: [nat("wStepM", "W (0 = edge)", "w", 0, 16384, 1, 4096), nat("hStepM", "H (0 = edge)", "h", 0, 16384, 1, 4096)] },
         slide("Box feather", "$native.box_feather", 0, 256),
         clear("clrBoxM", "Clear box", "box", false),
     ] },
     { t: "stack_box", gap: 8, visible: "$state.paint", children: [
         sec("Free hand"),
-        { t: "label_element", variant: "hint", text: "Left button paints · right button erases · Alt + drag: size ↔ hardness · Alt + wheel: size" },
+        { t: "toggle_element", id: "swapTglM", label: "⇄ Swap buttons", bind: "$state.brushSwap", title: "On: LEFT button erases, RIGHT button paints (the other way round)" },
+        { t: "label_element", variant: "hint", text: "Left button paints · right button erases (⇄ swaps them) · Alt + drag: size ↔ hardness · Alt + wheel: size" },
         slide("Size ( [ ] )", "$state.brushSize", 1, 1024),
         slide("Hardness %", "$state.brushHard", 0, 100),
         slide("Opacity %", "$state.brushOp", 1, 100),
@@ -106,6 +124,9 @@ const MENU_TREE = { t: "stack_box", gap: 8, style: { padding: "10px 12px 12px" }
         { t: "swatch_element", bind: "$state.brushShape", rows: 3, options: TIPS },
     ] },
 ] };
+
+// an old workflow may still carry a workspace / context: nobody can see them any more, so they go back to 0 (only when not 0 already)
+const zeroGone = (api) => { for (const k of GONE) if (Number(api.native.get(k)) !== 0) api.native.set(k, 0); };
 
 /* ---------- spec ---------- */
 export const SPEC = {
@@ -135,6 +156,8 @@ export const SPEC = {
                         on: { click: { do: "$actions.release_graph", args: { do: "stop" } } } },
                 ] },
                 { t: "status_element", id: "status", size: "m", visible: "!$cache.holdOff", label: "$cache.holdText", value: "$cache.holdTimer", tone: "$cache.holdTone", labelTone: "$cache.holdTone" },
+                // the measures, like Stitch's line (D-130): picture · cut · output
+                { t: "label_element", id: "say", variant: "hint", text: "{{$cache.cropInfo}}" },
               ] },
               // the viewport: all the room the node has left (min 180 px)
               { t: "view_box", id: "vp", dblfit: false, buttons: [
@@ -147,25 +170,17 @@ export const SPEC = {
                     { t: "veil_element", id: "mv", show: "$state.maskView", off: "$live.maskWired",
                         x: "$native.x", y: "$native.y", w: "$native.w", h: "$native.h", box: "$native.box", boxFeather: "$native.box_feather",
                         brush: "$native.brush", grow: "$native.mask_grow", feather: "$native.mask_feather",
-                        fill: "$native.solid_color", alpha: "$native.alpha" },
+                        fill: "$native.solid_color", alpha: "$native.alpha",
+                        report: "cropInfo", outMp: "$native.out_mp", multiple: "$native.multiple", outWired: "$live.outWired" },
                     { t: "brush_element", id: "br", data: "$native.brush", active: "$state.paint",
-                        size: "$state.brushSize", hardness: "$state.brushHard", opacity: "$state.brushOp", shape: "$state.brushShape", rightErase: true, veil: "$state.maskView" },
+                        size: "$state.brushSize", hardness: "$state.brushHard", opacity: "$state.brushOp", shape: "$state.brushShape", rightErase: true, swap: "$state.brushSwap", veil: "$state.maskView" },
                     { t: "marquee_element", id: "mq", x: "$native.x", y: "$native.y", w: "$native.w", h: "$native.h", context: "$native.context",
                         enabled: "$native.box", locked: "$state.paint", snap: "$native.box_snap", lockX: "$state.lockW", lockY: "$state.lockH" },
                 ] },
-              // under the picture, foldable (starts folded): GLOBAL settings only — the method's options live in the tools menu (D-114)
-              { t: "group_box", id: "box", gap: 6, style: { flex: "none" }, children: [
-                { ...foldBtn("expandBtn", "Expand ▾", { width: "100%" }), visible: "!$state.tools" },
-                { t: "stack_box", gap: 6, visible: "$state.tools", children: [
-                  foldBtn("foldBtn", "Collapse ▴", { width: "100%" }),
-                  // WORKSPACE: the whole picture is resized FIRST, the canvas and every output live at that size (D-120)
-                  sec("WORKSPACE"),
-                  { t: "label_element", variant: "hint", text: "Resizes the whole picture before cropping: canvas, mask and outputs all use this size." },
-                  { t: "row_box", gap: 6, children: [nat("wsStep", "Resize (megapixels, 0 = real)", "workspace_mp", 0, 400, 0.1)] },
-                  sec("Cropped area"),
-                  { t: "row_box", gap: 6, children: [nat("ctxStep", "Increase area by (px)", "context", 0, 16384), nat("mulStep", "MULTIPLE by", "multiple", 1, 256)] },
-                  { t: "row_box", gap: 6, children: [nat("outStep", "Resize output (megapixels, 0 = real)", "out_mp", 0, 400, 0.1)] },
-                ] },
+              // under the picture, ONE fixed row (D-130: no Expand any more): the output size. Each one can go to a wire with EXT.
+              { t: "row_box", id: "outRow", gap: 6, style: { flex: "none", alignItems: "flex-start" }, children: [
+                  extSlider("outStep", "Resize crop (MP)", "out_mp", "extMp", "megapixels", 0, 400, 0.1, 16, "The cut that leaves the node, resized to this many megapixels (0 = its real size)"),
+                  extSlider("mulStep", "Multiple of", "multiple", "extMul", "multiple", 1, 256, 1, 64, "Snap the output's sides to a multiple of this (8, 64...)"),
               ] },
             ] },
         },
@@ -205,8 +220,9 @@ export const SPEC = {
             ],
             notes: [
                 "Red box edges = locked. Freeze the width or the height in ⚙ → Box lock; moving stays free, only stretching is refused.",
-                "WORKSPACE resizes the whole picture first (in megapixels, 0 = untouched): the canvas, the mask and every output then play at that size. Cropped area shapes only the cut that leaves me.",
-                "Outputs: stitch · full_img · cutout · mask · crop_img · crop_mask. ⬇ downloads any of them, no Queue needed.",
+                "Under the picture: Resize crop (megapixels, 0 = real size) and Multiple of shape only the cut that leaves me. EXT on either one hands it to a wire: a real input with a chip.",
+                "The line above the picture: the picture's size · where the cut is and how big · the output's size.",
+                "Outputs: stitch · mask · cutout. ⬇ downloads every picture (full image, cutout, mask, crop image, crop mask), no Queue needed.",
             ],
         }),
     },
@@ -226,12 +242,14 @@ export const SPEC = {
         // chips on every socket: pick a source / see the destinations without dragging wires across the graph
         { type: "chip_input", input: "image", types: ["IMAGE"] },
         { type: "chip_input", input: "mask", types: ["MASK"] },
+        // EXT (D-130): chip doors only (no widget door: the slider IS the widget), shown while EXT is lit
+        { type: "ext_node", when: "$state.extMp", mode: "chip", natives: ["out_mp"], sockets: [{ name: "out_mp_in", type: "FLOAT" }] },
+        { type: "ext_node", when: "$state.extMul", mode: "chip", natives: ["multiple"], sockets: [{ name: "multiple_in", type: "INT" }] },
+        { type: "chip_input", input: "out_mp_in", label: "megapixels", types: ["FLOAT"] },
+        { type: "chip_input", input: "multiple_in", label: "multiple", types: ["INT"] },
         { type: "chip_output", output: "stitch" },
-        { type: "chip_output", output: "full_img" },
-        { type: "chip_output", output: "cutout" },
         { type: "chip_output", output: "mask" },
-        { type: "chip_output", output: "crop_img" },
-        { type: "chip_output", output: "crop_mask" },
+        { type: "chip_output", output: "cutout" },
     ],
 };
 
@@ -248,11 +266,15 @@ NodeStructure.define(TYPE, {
         maskView: { policy: "ui", default: true },
         lockW: { policy: "ui", default: false }, lockH: { policy: "ui", default: false },      // rectangle width / height frozen (D-120)
         brushShape: { policy: "ui", default: "round" },
-        tools: { policy: "ui", default: false },                 // global settings under the picture: start FOLDED (D-121)
+        brushSwap: { policy: "ui", default: false },              // swapped buttons: left erases, right paints (D-126)
+        extMp: { policy: "immediate", default: false },          // EXT on Resize crop: a wire gives the megapixels (D-130)
+        extMul: { policy: "immediate", default: false },         // EXT on Multiple of
     },
     live: {
         // a wired mask replaces the box at Run time: the browser cannot know its shape, so the veil steps aside
         maskWired: (api) => { const n = api.liveNode?.() || api.node; return n?.inputs?.find?.((i) => i.name === "mask")?.link != null; },
+        // the output size comes from a wire (EXT lit and wired): the measures line can't know it before a Run
+        outWired: (api) => { const n = api.liveNode?.() || api.node; return ["out_mp_in", "multiple_in"].some((x) => n?.inputs?.find?.((i) => i.name === x)?.link != null); },
     },
     actions: {
         // ⚙ on the picture: the tools menu, anchored to the button
@@ -261,9 +283,9 @@ NodeStructure.define(TYPE, {
     },
     spec: SPEC,
     hooks: {
-        onSetup(api) { api.native.hide(NATIVES); },
+        onSetup(api) { api.native.hide(NATIVES); zeroGone(api); },
         refreshFromNative(api) { api.native.hide(NATIVES); },
-        onRestore(api) { api.native.hide(NATIVES); },
+        onRestore(api) { api.native.hide(NATIVES); zeroGone(api); },
     },
 });
 

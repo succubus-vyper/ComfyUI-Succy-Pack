@@ -79,7 +79,8 @@ export function blur(m, w, h, px) {
 /**
  * The final Crop mask at w x h (any scale: `k` = mask pixels per ORIGINAL pixel, sizes in original pixels are scaled by it).
  * o = { box: {x,y,w,h} | null, boxFeather, add: Float32Array | null, erase: Float32Array | null, grow, feather, k }
- * Returns { mask, empty } — empty = nothing chosen: the Python then takes the whole picture.
+ * Returns { mask, empty, bbox } — empty = nothing chosen: the Python then takes the whole picture. bbox = [x0, y0, x1, y1] in mask px of
+ * the HARD selection (after grow, before feather: the Python pads it by the feather), null if the eraser left nothing (D-130).
  */
 export function cropMask(w, h, o) {
     const k = o.k || 1;
@@ -97,6 +98,23 @@ export function cropMask(w, h, o) {
     if (!any) return { mask: new Float32Array(w * h).fill(1), empty: true };
     if (o.erase) for (let i = 0; i < sel.length; i++) sel[i] *= 1 - o.erase[i];
     sel = grow(sel, w, h, (o.grow || 0) * k);              // after the eraser: grow/shrink moves the erased edge too (D-112)
+    let x0 = w, y0 = h, x1 = -1, y1 = -1;
+    for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) if (sel[yy * w + xx] > 0.01) {
+        if (xx < x0) x0 = xx; if (xx > x1) x1 = xx; if (yy < y0) y0 = yy; if (yy > y1) y1 = yy;
+    }
+    const bbox = x1 < 0 ? null : [x0, y0, x1 + 1, y1 + 1];
     if (o.feather > 0) sel = blur(sel, w, h, o.feather * k);
-    return { mask: sel, empty: false };
+    return { mask: sel, empty: false, bbox };
 }
+
+// Python's round(): halves go to the even neighbour (banker's), so the sizes below match the Python to the pixel
+const pyRound = (v) => { const f = Math.floor(v), d = v - f; return d > 0.5 ? f + 1 : d < 0.5 ? f : (f % 2 === 0 ? f : f + 1); };
+
+/** Python `_mp_size`: (w, h) scaled to `mp` megapixels, same aspect, never 0 px. */
+export function mpSize(w, h, mp) {
+    const s = Math.sqrt(mp * 1e6 / Math.max(1, w * h));
+    return [Math.max(1, pyRound(w * s)), Math.max(1, pyRound(h * s))];
+}
+
+/** Python `_snap`: nearest multiple of m, never below m. */
+export const snapTo = (v, m) => Math.max(m, pyRound(v / m) * m);

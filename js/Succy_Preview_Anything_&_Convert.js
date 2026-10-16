@@ -68,7 +68,7 @@ export const SPEC = {
     menus: {
         info: NodeStructure.infoMenu({
             title: "Succy Preview — look at anything, change its type",
-            about: "Plug anything in: you see it in the box, and you get it back converted to the type you choose. It works as a viewer, as a converter, or both.",
+            about: "Plug anything in and I'll show you everything, no secrets in the box. Then I'll hand it back dressed as whatever type you fancy. Viewer, converter, or both at once: I'm flexible.",
             keys: [
                 { keys: "Preview On / Off", does: "Off hides the box and the node shrinks. The conversion still works." },
                 { keys: "Convert To", does: "The type of the output: STRING, INT, FLOAT, BOOLEAN, LIST, DICT, ARRAY, JSON, COMBO, and IMAGE ↔ MASK for pictures." },

@@ -18,6 +18,8 @@ import "./components/crop-tools.js";
 import { viewStats } from "./components/view.js";
 import { brushStats } from "./components/brush.js";
 import { maskStats } from "./components/veil.js";
+import { stitchStats } from "./components/stitch.js";
+import { dropStats } from "./components/drop.js";
 import { ShotFeed } from "./runtime/shot-feed.js";
 import "./behaviors/builtin.js";
 import "./pieces/panes.js";
@@ -110,7 +112,7 @@ export const NodeStructure = {
     // editable tables (table_box, D-67): state of the live tables ("Tables" light)
     tables: Tables,
     // viewport + picture feed of Crop (view_box / shot_system, D-105): zoomed stages and pictures held (Governor HEALTH light)
-    view: { stats: viewStats, shots: ShotFeed.stats, brush: brushStats, mask: maskStats },
+    view: { stats: viewStats, shots: ShotFeed.stats, brush: brushStats, mask: maskStats, stitch: stitchStats, drop: dropStats },
 
     instanceOf: (node) => INSTANCES.get(node) || null,
     instances: liveRuntimes,

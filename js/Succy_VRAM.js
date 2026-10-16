@@ -37,7 +37,7 @@ export const SPEC = {
     menus: {
         info: NodeStructure.infoMenu({
             title: "Succy Clean VRAM — make some room",
-            about: "Drop it in the middle of a chain: your data passes through untouched, and on the way it clears GPU memory so the next heavy node has space to breathe. It runs on every Queue, never skipped by the cache.",
+            about: "Drop it in the middle of a chain: your data passes through untouched, while I strip your GPU memory bare so the next heavy node has room to move. It runs on every Queue, never skipped by the cache: I never say no.",
             keys: [
                 { keys: "Soft", does: "Light touch: runs garbage collection and empties the CUDA cache. Models stay loaded, so nothing needs reloading afterwards." },
                 { keys: "Hard", does: "Soft, plus it unloads ALL models from VRAM. The next node that needs a model loads it again (slower, but VRAM really is free)." },

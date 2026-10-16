@@ -81,7 +81,7 @@ export const SPECS = {
 const INFO = {
     Succy_LoopStart: {
         title: "Succy Loop Start — round and round",
-        about: "Opens a loop: everything between Loop Start and Loop End runs again and again, and the loop finishes when it has done all its turns. Wire flow into Loop End.",
+        about: "Opens a loop: everything between Loop Start and Loop End goes again and again, harder every turn, until the last round has had its fill. Wire flow into Loop End.",
         keys: [
             { keys: "Simple", does: "N turns, one after the other. iteration_index counts 0, 1, 2…" },
             { keys: "For", does: "Same count; use iteration_index to drive your own maths." },
@@ -99,7 +99,7 @@ const INFO = {
     },
     Succy_LoopEnd: {
         title: "Succy Loop End — and back again",
-        about: "Closes the loop opened by Loop Start: hand it the result of the turn and it sends the loop round again until the last turn, then it delivers.",
+        about: "Closes the loop opened by Loop Start: hand it the result of the turn and it sends you back for more, until the very last turn. Then it delivers. Worth the wait.",
         keys: [
             { keys: "output_value", does: "The result of this turn." },
             { keys: "next_iteration_value", does: "Optional: what the next turn should receive. If empty, output_value is carried on." },
@@ -111,7 +111,7 @@ const INFO = {
     },
     Succy_WhileStart: {
         title: "Succy While Start — as long as it holds",
-        about: "Opens a while loop: it repeats until the condition at While End turns false. Up to five values travel round and round.",
+        about: "Opens a while loop: it keeps going until the condition at While End says enough. Up to five values get passed around meanwhile. Nobody's counting.",
         keys: [
             { keys: "initial_value0…4", does: "Starting values (plug only the ones you need). On later turns they are replaced by what While End hands back." },
             { keys: "value0…4", does: "The values for THIS turn, to use inside the loop." },
@@ -120,7 +120,7 @@ const INFO = {
     },
     Succy_WhileEnd: {
         title: "Succy While End — until you say stop",
-        about: "Closes the while loop. If condition is true, the loop goes round again carrying the new values; when it's false, the loop ends and delivers them.",
+        about: "Closes the while loop. Condition true: it goes round again, carrying the new values. Condition false: it finishes and delivers them. Know when to stop.",
         keys: [
             { keys: "condition", does: "True = another turn. False = done. It needs a BOOLEAN wired in." },
             { keys: "initial_value0…4", does: "The new values at the end of the turn: they become value0…4 of the next turn, and the final outputs when it stops." },

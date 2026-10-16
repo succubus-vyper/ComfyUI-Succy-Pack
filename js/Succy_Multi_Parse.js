@@ -207,7 +207,7 @@ export const SPEC = {
     menus: {
         info: NodeStructure.infoMenu({
             title: "Succy Multi Parse — text, taken apart",
-            about: "Up to 15 text operations over the inputs a..j (the next input appears when you plug the previous one). Each operation has a Mode, a few fields and an output format, and comes out as its own output (r1, r2…). Later operations can use earlier results. A broken one gives a neutral value and a red line in Debug.",
+            about: "Up to 15 text operations over the inputs a..j (the next input appears when you plug the previous one). Each one has a Mode, a few fields and an output format, and comes out as its own output (r1, r2…). Later operations can use earlier results: I take your text apart, piece by piece, and you decide what goes back together. A broken one gives a neutral value and a red line in Debug.",
             keys: [
                 { keys: "Concat", does: "Builds text from a template: Hello @a, you are @b." },
                 { keys: "Replace", does: "Source, text to find, text to put instead." },

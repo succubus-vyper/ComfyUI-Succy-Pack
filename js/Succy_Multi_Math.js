@@ -110,7 +110,7 @@ export const SPEC = {
     menus: {
         info: NodeStructure.infoMenu({
             title: "Succy Multi Math — a pocket calculator, chained",
-            about: "Up to 15 equations over the inputs a..j (the next input appears when you plug the previous one). Each equation is its own output (r1, r2…), and each can use the ones above it. A broken formula gives 0 and a red line in Debug: it never kills the Queue.",
+            about: "Up to 15 equations over the inputs a..j (the next input appears when you plug the previous one). Each equation is its own output (r1, r2…), and each can use the ones above it: results build on each other, one climax after another. A broken formula gives 0 and a red line in Debug: it never kills the Queue, it just sulks.",
             keys: [
                 { keys: "@", does: "Type @ in a formula to insert an input or an earlier result by name." },
                 { keys: "+ − * / // % ^", does: "Add, subtract, multiply, divide, whole-number divide, remainder, power." },

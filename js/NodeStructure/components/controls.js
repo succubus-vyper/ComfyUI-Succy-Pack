@@ -13,6 +13,8 @@ import { C, ex, E, N, S, B, R, J } from "../catalog/kit.js";
 const TXT_CSS = `
 .ns-label-mono{font:10px monospace;color:#8a8;text-transform:none;letter-spacing:0}
 .ns-label-section{font:bold 10px monospace;letter-spacing:.8px;text-transform:uppercase;color:#888}
+/* group title (class "ns-label-head", D-128): big, coloured left bar; colour = the element's own style.color */
+.ns-label.ns-label-head{display:block;font:bold 14px monospace;letter-spacing:1.2px;text-transform:uppercase;color:var(--ns-t-info);border-left:3px solid currentColor;padding:2px 0 2px 7px;margin-top:2px}
 .ns-label-warn{color:var(--ns-warn);text-transform:none;letter-spacing:0;white-space:normal;font-size:11px}
 .ns-label-error{color:var(--ns-danger);text-transform:none;letter-spacing:0;white-space:pre-wrap;font:10px monospace}
 .ns-label-hint{color:var(--ns-fg-faint);text-transform:none;letter-spacing:0;font-size:10px;white-space:normal}
@@ -226,6 +228,101 @@ piece(C("stepper_element", {
             set: (v) => { inp.value = String(clamp(v)); },
             events: ["change"],
             // the renderer registers its commit here for the +/- clicks
+            onCommit: (fn) => { onCommit = fn; },
+        },
+    };
+});
+
+// ---------- slider:  a bar that fills, the number inside (D-129) ----------
+// drag sideways = change it (Shift = 10x finer) · click = type the number · ‹ › on hover = one step · arrows / Enter when focused.
+// `soft`: where the bar ends; typing goes on up to `max` (Feather 0..256 on the bar, up to 2048 by hand). No wheel on purpose:
+// scrolling the graph over a node must never change a number by accident.
+piece(C("slider_element", {
+    scopo: "Barra che si riempie col numero dentro: trascina per cambiarlo, clic per scriverlo, frecce di un passo; legabile con bind.", estado: "draft", archetipo: "trigger",
+    tag: ["controllo", "numero", "slider"], alias: ["slider"],
+    props: { min: N("minimo", 0), max: N("massimo", 100), step: N("passo", 1), soft: N("fine della barra (oltre si scrive a mano), default = max"), softMin: N("inizio della barra (sotto si scrive a mano), default = min"), int: B("solo interi", false) },
+    esempio: ex({ t: "slider_element", min: 0, max: 2048, soft: 256, bind: "$cache.n" }),
+}), (node, h) => {
+    const el = mkEl("div", "ns-slider"); el.tabIndex = 0;
+    const fill = mkEl("div", "ns-slider-fill"), val = mkEl("span", "ns-slider-val");
+    const lt = mkEl("button", "ns-slider-arr"), rt = mkEl("button", "ns-slider-arr");
+    lt.type = rt.type = "button"; lt.textContent = "‹"; rt.textContent = "›";
+    const inp = mkEl("input", "ns-slider-input"); inp.type = "text"; inp.inputMode = "decimal"; inp.hidden = true;
+    el.append(fill, lt, val, rt, inp);
+    const lim = () => {
+        const min = num(h, node.min, 0), max = num(h, node.max, 100), step = num(h, node.step, 1) || 1;
+        const soft = Math.min(max, num(h, node.soft, max)), lo = Math.max(min, num(h, node.softMin, min));
+        return { min, max, step, lo: lo < soft ? lo : min, top: soft > lo ? soft : max, int: h.val(node.int) === true || Number.isInteger(step) };
+    };
+    const decs = () => { const st = String(lim().step); return st.includes(".") ? st.split(".")[1].length : 0; };
+    const clamp = (x) => {
+        const { min, max, step, int } = lim();
+        let n = Number(x);
+        if (!Number.isFinite(n)) n = cur;
+        n = Math.round((n - min) / step) * step + min;
+        n = Number(n.toFixed(decs()));
+        if (int) n = Math.round(n);
+        return Math.max(min, Math.min(max, n));
+    };
+    let cur = 0, onCommit = null;
+    const paint = () => {
+        const { lo, top } = lim();
+        val.textContent = cur.toFixed(decs());
+        fill.style.width = (Math.max(0, Math.min(1, (cur - lo) / ((top - lo) || 1))) * 100) + "%";
+    };
+    const put = (v, mode) => { const n = clamp(v); if (n === cur) return; cur = n; paint(); onCommit?.(mode); };
+    const nudge = (d, e) => put(cur + d * lim().step * (e?.shiftKey ? 10 : 1));
+    for (const [b, d] of [[lt, -1], [rt, 1]]) {
+        h.listen(b, "pointerdown", (e) => e.stopPropagation());
+        h.listen(b, "click", (e) => { e.stopPropagation(); nudge(d, e); });
+    }
+    // drag: relative, so grabbing never jumps the value; a press that does not move opens the typing box
+    h.listen(el, "pointerdown", (e) => {
+        if (e.button !== 0 || !inp.hidden || e.target === lt || e.target === rt) return;
+        e.preventDefault(); e.stopPropagation();
+        try { el.focus({ preventScroll: true }); } catch (_) { /* not focusable right now */ }
+        const id = e.pointerId, x0 = e.clientX, v0 = cur, { lo, top } = lim();
+        const w = el.getBoundingClientRect().width || 1;
+        let moved = false;
+        const move = (m) => {
+            if (m.pointerId !== id) return;
+            m.preventDefault(); m.stopImmediatePropagation();
+            const dx = m.clientX - x0;
+            if (!moved && Math.abs(dx) < 3) return;
+            moved = true;
+            put(v0 + dx * ((top - lo) / w) * (m.shiftKey ? 0.1 : 1), "live");
+        };
+        const end = (m) => {
+            if (m.pointerId !== id) return;
+            window.removeEventListener("pointermove", move, true); window.removeEventListener("pointerup", end, true); window.removeEventListener("pointercancel", end, true);
+            if (moved) onCommit?.(); else edit();
+        };
+        window.addEventListener("pointermove", move, true); window.addEventListener("pointerup", end, true); window.addEventListener("pointercancel", end, true);
+    });
+    // typing: Enter / leaving = keep it, Esc = never mind
+    const edit = () => { inp.value = cur.toFixed(decs()); inp.hidden = false; el.classList.add("editing"); inp.focus(); inp.select(); };
+    const done = (keep) => { if (inp.hidden) return; inp.hidden = true; el.classList.remove("editing"); if (keep) put(inp.value.replace(",", ".")); };
+    h.listen(inp, "pointerdown", (e) => e.stopPropagation());
+    h.listen(inp, "blur", () => done(true));
+    for (const ev of ["keyup", "keypress"]) h.listen(inp, ev, (e) => e.stopPropagation());
+    h.listen(inp, "keydown", (e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") { e.preventDefault(); done(true); el.focus(); }
+        else if (e.key === "Escape") { e.preventDefault(); done(false); el.focus(); }
+    });
+    h.listen(el, "keydown", (e) => {
+        if (!inp.hidden) return;
+        if (e.key === "ArrowLeft" || e.key === "ArrowDown") { e.preventDefault(); e.stopPropagation(); nudge(-1, e); }
+        else if (e.key === "ArrowRight" || e.key === "ArrowUp") { e.preventDefault(); e.stopPropagation(); nudge(1, e); }
+        else if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); edit(); }
+    });
+    paint();
+    return {
+        el, update: paint, handlesText: true,
+        value: {
+            get: () => cur,
+            set: (v) => { const n = Number(v); cur = Number.isFinite(n) ? Math.max(lim().min, Math.min(lim().max, n)) : 0; paint(); },
+            events: [],
             onCommit: (fn) => { onCommit = fn; },
         },
     };
