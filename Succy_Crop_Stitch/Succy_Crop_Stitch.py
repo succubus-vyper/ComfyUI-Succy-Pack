@@ -1,5 +1,6 @@
 import asyncio
 import json
+import math
 import os
 import re
 import time
@@ -16,7 +17,8 @@ from _succy_common import same_origin, LiveWait, live_touch   # the shared drawe
 from _succy_image import (display_id as _display_id, png_bytes as _png_bytes, snap as _snap, mp_size as _mp_size, resize as _resize,
                           prep_mask as _prep_mask, load_source as _load_source, decode_brush as _decode_brush, runmax as _runmax,
                           hex_rgb as _hex_rgb, grow as _grow, box1 as _box1, blur as _blur, load_mask as _load_mask,
-                          send_preview, live_input, live_empty)
+                          send_preview, live_input, live_empty, parse_warp as _parse_warp, warp_quad as _warp_quad,
+                          homography as _homography, rect_pts as _rect_pts, bend_quad as _bend_quad, warp_corners as _warp_corners, remap as _remap, quad_mask as _quad_mask, quad_region as _quad_region)
 
 # ===================================================
 # Succy Crop & Stitch — phase 1 (backend only, native widgets)
@@ -62,7 +64,7 @@ def _send_preview(did, image, *_box):
     send_preview(did, image, _TAG)
 
 
-_DOWNLOADS = ("full_img", "cutout", "mask", "crop_img", "crop_mask")
+_DOWNLOADS = ("full_img", "cutout", "mask", "crop_img", "crop_mask", "straight_img")
 
 
 if _FIRST_LOAD:
@@ -123,6 +125,8 @@ if _FIRST_LOAD:
         outs, err = await _outs_for(request, nid, which)
         if err:
             return err
+        if outs.get(which) is None:                        # straight_img exists only for a box with dragged corners (D-188)
+            return web.json_response({"error": "the straight cut needs a box with dragged corners (Ctrl + corner, or rotate)"}, status=400)
         try:
             body = await asyncio.to_thread(_png_bytes, outs[which], _stitch_meta(outs.get("stitch")))
         except Exception as exc:
@@ -158,7 +162,7 @@ if _FIRST_LOAD:
                 return web.json_response(_stitch_meta(st, as_dict=True))
             rx0, ry0, rx1, ry1 = st["region"]
             if what == "base":
-                body = await asyncio.to_thread(_png_bytes, st["image"][:1, ry0:ry1, rx0:rx1, :])
+                body = await asyncio.to_thread(_png_bytes, _stitch_base(st)[:1].permute(0, 2, 3, 1))
             elif what == "mask":
                 body = await asyncio.to_thread(_png_bytes, st["mask"][:1])
             else:
@@ -259,7 +263,7 @@ def _crop_now(widgets, image, mask, nid):
     for k in ("alpha", "box"):
         if k in widgets:
             kw[k] = widgets[k] in (True, "true", 1)
-    for k in ("solid_color", "source", "brush"):
+    for k in ("solid_color", "source", "brush", "quad"):
         if k in widgets:
             kw[k] = str(widgets[k] or "")
     kw.setdefault("x", 0); kw.setdefault("y", 0); kw.setdefault("w", 0); kw.setdefault("h", 0)
@@ -272,8 +276,8 @@ def _crop_now(widgets, image, mask, nid):
 
 def _stitch_now(st, wired, widgets):
     """Run Succy_Stitch.stitch on the widgets the browser sent (D-124). Quiet: no preview, does not touch _LAST. wired = last Run's wired inputs."""
-    kw = {k: widgets[k] for k in ("feather_mode", "feather_curve", "aspect_mismatch", "source", "base_file", "mask_file", "brush", "place") if widgets.get(k) is not None}
-    for k, d in (("feather", 24), ("color_match", 0.0), ("opacity", 1.0), ("sharpness_match", 0.0), ("grain_match", 0.0),
+    kw = {k: widgets[k] for k in ("feather_mode", "feather_curve", "aspect_mismatch", "source", "base_file", "mask_file", "brush", "place", "warp", "hole", "item_brush") if widgets.get(k) is not None}
+    for k, d in (("feather", 0), ("color_match", 0.0), ("opacity", 1.0), ("sharpness_match", 0.0), ("grain_match", 0.0),
                  ("offset_x", 0), ("offset_y", 0), ("scale", 100.0)):
         kw[k] = type(d)(widgets.get(k, d) if widgets.get(k) is not None else d)
     kw.setdefault("feather_mode", "inside"); kw.setdefault("feather_curve", "smooth"); kw.setdefault("aspect_mismatch", "auto")
@@ -294,7 +298,23 @@ def _stitch_meta(st, as_dict=False):
     rx0, ry0, rx1, ry1 = st["region"]
     d = {"v": 1, "x": rx0, "y": ry0, "w": rx1 - rx0, "h": ry1 - ry0, "orig_w": st["orig_size"][0], "orig_h": st["orig_size"][1],
          "work_w": st["work_size"][0], "work_h": st["work_size"][1]}
+    if st.get("shape"):                                    # D-189: the slanted box's corners, picture px (Free Edit Mask's handles)
+        d["shape"] = [round(float(v), 4) for p in st["shape"] for v in p]
+    if st.get("quad"):                                     # perspective crop (D-178): x y w h = the box around it, the cut is the quad
+        d["quad"] = [round(float(v), 4) for p in st["quad"] for v in p]
+        d["sw"], d["sh"] = st["straight"]
     return d if as_dict else json.dumps(d)
+
+
+def _stitch_base(st):
+    """The original under the cut, BCHW, in the cut's OWN frame: the region as it is, or — perspective crop (D-178) — the quad
+    straightened to its straight size, the same pixels the Crop handed out."""
+    rx0, ry0, rx1, ry1 = st["region"]
+    img = st["image"]
+    if not st.get("quad"):
+        return img[:, ry0:ry1, rx0:rx1, :].permute(0, 3, 1, 2)
+    rw, rh = st["straight"]
+    return _remap(img.permute(0, 3, 1, 2), None, _homography(_rect_pts(0, 0, rw, rh), st["quad"]), rw, rh)[0]
 
 
 def _hold(display_id, timeout):
@@ -357,6 +377,8 @@ class Succy_Crop:
                 "run_id": ("STRING", {"default": "0_manual", "tooltip": "Managed by the frontend"}),
                 "source": ("STRING", {"default": "", "tooltip": "Picture dropped / pasted / loaded on the node (input folder). A connected image wins"}),
                 "brush": ("STRING", {"default": "", "tooltip": "Free hand mask drawn on the node (managed by the frontend)"}),
+                # last on purpose (D-178): an old workflow's widget values still line up, the missing one takes its default
+                "quad": ("STRING", {"default": "", "tooltip": "Free Edit Selection: where the rectangle's 4 corners were dragged (perspective crop, managed by the frontend)"}),
             },
             "optional": {
                 "image": ("IMAGE", {"tooltip": "Wins over a picture loaded on the node"}),
@@ -383,12 +405,14 @@ class Succy_Crop:
     #   crop_img   the crop (selection + context), resized only if work size / multiple ask for it
     #   crop_mask  the same mask, cut and sized like crop_img
     # D-128 (the user's call): the graph gets stitch, mask and cutout; ⬇ still hands out every picture (full_img, cutout, mask, crop_img, crop_mask)
-    RETURN_TYPES = ("STITCH", "MASK", "IMAGE")
-    RETURN_NAMES = ("stitch", "mask", "cutout")
+    # D-189 (her call): crop_img is an output again, as `crop` — the photo all around the shape, what an outside generator needs to see.
+    # Last on purpose: a workflow wired to `cutout` keeps its wire on cutout.
+    RETURN_TYPES = ("STITCH", "MASK", "IMAGE", "IMAGE")
+    RETURN_NAMES = ("stitch", "mask", "cutout", "crop")
     FUNCTION = "crop"
 
     # LIVE LINK (D-156): the outputs a Succy node on the other end of the wire sees as they are now, no Queue
-    SUCCY_LIVE = ("stitch", "mask", "cutout")
+    SUCCY_LIVE = ("stitch", "mask", "cutout", "crop")
 
     @classmethod
     def succy_live(cls, widgets, inputs, node_id):
@@ -410,10 +434,10 @@ class Succy_Crop:
             if inputs.linked(inp) and last.get("in_" + key) is not None:
                 widgets[key] = last["in_" + key]
         outs = _crop_now(widgets, got.get("image"), got.get("mask"), node_id)
-        return {"mask": outs["mask"], "cutout": outs["cutout"], "stitch": outs["stitch"]}
+        return {"mask": outs["mask"], "cutout": outs["cutout"], "stitch": outs["stitch"], "crop": outs["crop_img"]}
 
     def crop(self, x, y, w, h, context, workspace_mp, out_mp, multiple, box_snap=1, alpha=True, solid_color="#000000", box=True, box_feather=0, mask_grow=0, mask_feather=0, hold=False, hold_timeout=300,
-             run_id="", source="", brush="", image=None, mask=None, out_mp_in=None, multiple_in=None, unique_id=None, dynprompt=None, _quiet=False, _all=False):
+             run_id="", source="", brush="", quad="", image=None, mask=None, out_mp_in=None, multiple_in=None, unique_id=None, dynprompt=None, _quiet=False, _all=False):
         if out_mp_in is not None:                          # EXT (D-130): the wire wins over the slider
             out_mp = max(0.0, float(out_mp_in))
         if multiple_in is not None:
@@ -444,6 +468,8 @@ class Succy_Crop:
         #     edge too, like every other edge of the mask (D-112, the user's call).
         #     The node's live preview runs the SAME recipe in the browser: js/NodeStructure/util/mask-math.js (cropMask).
         dev = image.device
+        # Free Edit Selection (D-178): the rectangle's corners dragged = a perspective crop. Only with a drawn box; nothing dragged = as before
+        qd = _parse_warp(quad) if box and w > 0 and h > 0 else None
         base = None
         if mask is not None:
             m = _prep_mask(mask, H, W).to(dev)
@@ -453,8 +479,11 @@ class Succy_Crop:
             x0 = min(x, W - 1)
             y0 = min(y, H - 1)
             x1, y1 = min(W, x0 + w), min(H, y0 + h)
-            r = torch.zeros((H, W), device=dev)
-            r[y0:y1, x0:x1] = 1.0
+            if qd is not None:
+                r = _quad_mask(W, H, (x, y, w, h), qd, dev)                   # the dragged quad, anti-aliased edge
+            else:
+                r = torch.zeros((H, W), device=dev)
+                r[y0:y1, x0:x1] = 1.0
             if box_feather > 0:
                 r = _blur(r, int(box_feather))                                # the rectangle's own soft edge (D-107), centred on its border
             base = r if base is None else torch.maximum(base, r)
@@ -478,11 +507,12 @@ class Succy_Crop:
             pad = int(mask_feather)
             x0, y0, x1, y1 = max(0, x0 - pad), max(0, y0 - pad), min(W, x1 + pad), min(H, y1 + pad)
 
-        # --- region = selection + context, clamped to the image
+        # --- region = selection + context, clamped to the image. A box with dragged corners (D-188, her call) is cut AS IT IS:
+        #     the slanted quad inside the rectangle around it, alpha / colour outside its shape — the cutout goes out (sampler,
+        #     upscale, an outside service) and comes back as Stitch's replacement, the same rectangle; the quad's mask decides.
         rx0, ry0 = max(0, x0 - context), max(0, y0 - context)
         rx1, ry1 = min(W, x1 + context), min(H, y1 + context)
         rw, rh = rx1 - rx0, ry1 - ry0
-
         # region-native mask: 1 where the sampler should work, 0 in the context ring
         rmask = sel[ry0:ry1, rx0:rx1].clone()
 
@@ -503,6 +533,8 @@ class Succy_Crop:
             "work_size": (ow, oh),
             "mask": rmask[None],                 # [1, rh, rw] at region-native resolution
         }
+        if qd is not None:                       # D-189: the slanted box's own corners (picture px): Stitch's Free Edit Mask grabs THEM
+            stitch["shape"] = [tuple(map(float, p)) for p in _warp_corners((x, y, w, h), qd)[1]]
         # cutout = the crop with the mask APPLIED (to take it out of ComfyUI); `image` stays clean for the sampler.
         # Alpha: the mask becomes the alpha channel. Solid: `solid_color` outside the mask (soft edges fade into it, D-111).
         a = out_mask.to(out_img.device)[..., None].expand(out_img.shape[0], -1, -1, -1)
@@ -519,8 +551,14 @@ class Succy_Crop:
                             "stem": _stem(source), "in_image": in_image, "in_mask": mask, "stitch": stitch,
                             "in_out_mp": out_mp_in, "in_multiple": multiple_in})
         if _all:                                   # the downloads (D-117) want every picture
-            return {"stitch": stitch, "full_img": image, "cutout": cutout, "mask": full_mask, "crop_img": out_img, "crop_mask": out_mask}
-        return (stitch, full_mask, cutout)
+            outs = {"stitch": stitch, "full_img": image, "cutout": cutout, "mask": full_mask, "crop_img": out_img, "crop_mask": out_mask}
+            if qd is not None:                     # perspective box: the quad straightened too (Photoshop's perspective crop), only as a file
+                geo = _quad_region((x, y, w, h), qd, 0)
+                if geo is not None:
+                    rq, sw, sh = geo
+                    outs["straight_img"] = _remap(image.permute(0, 3, 1, 2), None, _homography(_rect_pts(0, 0, sw, sh), rq), sw, sh)[0].permute(0, 2, 3, 1).contiguous()
+            return outs
+        return (stitch, full_mask, cutout, out_img)
 
 
 # ---------------------------------------------------------------------------
@@ -570,6 +608,20 @@ def _fit_to_region(work, rh, rw, mode, base):
 
 
 def _feather(m, f, mode, curve, borders):
+    """`_feather_once`, with one guard (D-185): Inside fades the edge INTO the mask, so a mask thinner than ~2 x feather used to vanish
+    whole (a 30 px dab under a 24 px feather = nothing stitched). The feather halves until the mask's core survives: a small mask gets
+    the softest edge it can still carry. Same rule in the browser (blend-math.js `feather`)."""
+    out = _feather_once(m, f, mode, curve, borders)
+    if mode != "inside" or f <= 1:
+        return out
+    top = float(m.clamp(0.0, 1.0).max())
+    while f > 1 and float(out.max()) < 0.98 * top:
+        f = int(f) // 2
+        out = _feather_once(m, f, mode, curve, borders)
+    return out
+
+
+def _feather_once(m, f, mode, curve, borders):
     """Soften the edges of m ([1,1,rh,rw]) over ~f px. borders = (left, top, right, bottom): region
     sides that sit on the image border (nothing exists beyond them, so no fade there)."""
     m = m.clamp(0.0, 1.0)
@@ -611,9 +663,15 @@ def _wstats(x, w):
     return mu, (var + 1e-8).sqrt()
 
 
-def _color_match(work, base, sel, strength):
+def _roi(x, roi):
+    return x if roi is None else x[..., roi[1]:roi[1] + roi[3], roi[0]:roi[0] + roi[2]]
+
+
+def _color_match(work, base, sel, strength, roi=None):
     """Pull the worked crop's colour toward the original using the pixels AROUND the selection
-    (the context ring: the sampler's VAE round trip drifts colour everywhere, the ring shows by how much)."""
+    (the context ring: the sampler's VAE round trip drifts colour everywhere, the ring shows by how much).
+    roi = (x, y, w, h): measured on the Crop's region only, applied everywhere (D-190: the work area may be bigger)."""
+    full, work, base, sel = work, _roi(work, roi), _roi(base, roi), _roi(sel, roi)
     rh, rw = work.shape[-2:]
     ring = (sel < 0.5).float()
     if ring.sum() < 0.01 * rh * rw:               # no context at all: use a thin band along the region edge
@@ -626,8 +684,8 @@ def _color_match(work, base, sel, strength):
     mu_w, sd_w = _wstats(work, ring)
     mu_o, sd_o = _wstats(base, ring)
     scale = (sd_o / sd_w.clamp_min(1e-4)).clamp(0.5, 2.0)
-    matched = (work - mu_w) * scale + mu_o
-    return (work + strength * (matched - work)).clamp(0.0, 1.0)
+    matched = (full - mu_w) * scale + mu_o
+    return (full + strength * (matched - full)).clamp(0.0, 1.0)
 
 
 def _box(x, k):
@@ -657,23 +715,23 @@ def _detail_area(sel):
     return area if area.sum() >= 0.01 * rh * rw else torch.ones_like(area)
 
 
-def _detail_match(work, base, sel, sharp, grain, seed=0x5CC):
+def _detail_match(work, base, sel, sharp, grain, seed=0x5CC, roi=None):
     """Sharpness / grain match (D-129, D-130): the worked crop's fine detail scaled to the original's (measured on the selection: a soft
     upscale gets sharpened, an over-crisp one calmed), then the grain it still lacks added as monochrome noise. sharp 1 = the original's
     detail energy for real (one secant step corrects the unsharp gain). Both 0..1 (D-130: a percentage stops at 100)."""
-    area = _detail_area(sel)
+    area = _detail_area(_roi(sel, roi))                   # D-190: measured on the Crop's region, applied to the whole work area
     if sharp > 0:
         low = _box(work, SHARP_K)
-        ew = _hp_energy(work, SHARP_K, area).clamp_min(1e-4)
-        ratio = (_hp_energy(base, SHARP_K, area) / ew).clamp(0.25, 4.0)
-        e1 = _hp_energy(low + (work - low) * ratio, SHARP_K, area)
+        ew = _hp_energy(_roi(work, roi), SHARP_K, area).clamp_min(1e-4)
+        ratio = (_hp_energy(_roi(base, roi), SHARP_K, area) / ew).clamp(0.25, 4.0)
+        e1 = _hp_energy(_roi(low + (work - low) * ratio, roi), SHARP_K, area)
         # e1 - ew = what gain `ratio` really moved; scale the push so the target (ratio - 1) * ew is met
         d1 = e1 - ew
         ok = d1.abs() > 1e-6
         gain = torch.where(ok, 1.0 + (ratio - 1.0) * (ratio - 1.0) * ew / torch.where(ok, d1, torch.ones_like(d1)), ratio).clamp(0.0, 8.0)
         work = low + (work - low) * (1.0 + sharp * (gain - 1.0)).clamp_min(0.0)
     if grain > 0:
-        gb, gw = _hp_energy(base, GRAIN_K, area), _hp_energy(work, GRAIN_K, area)
+        gb, gw = _hp_energy(_roi(base, roi), GRAIN_K, area), _hp_energy(_roi(work, roi), GRAIN_K, area)
         amt = (gb * gb - gw * gw).clamp_min(0.0).sqrt() * grain
         gen = torch.Generator(device="cpu").manual_seed(seed)
         noise = torch.randn((1, 1, *work.shape[-2:]), generator=gen).to(work.device)
@@ -682,25 +740,34 @@ def _detail_match(work, base, sel, sharp, grain, seed=0x5CC):
     return work.clamp(0.0, 1.0)
 
 
-def _place(work, base, fm, ox, oy, scale):
+def _place(work, base, fm, ox, oy, scale, off=(0, 0)):
     """Move / scale the fitted worked crop inside the region (D-129): offset in region px, scale around the centre.
-    What it leaves uncovered shows the original (fit mask 0 there). Same geometry as the browser's preview."""
-    if ox == 0 and oy == 0 and scale == 1.0:
-        return work, fm
+    What it leaves uncovered shows the original (fit mask 0 there). Same geometry as the browser's preview.
+    base may be the bigger WORK AREA (D-190) with the region at `off` in it: the item is no longer clipped to the region."""
     B, _, rh, rw = work.shape
+    EH, EW = int(base.shape[-2]), int(base.shape[-1])
+    if ox == 0 and oy == 0 and scale == 1.0 and (EH, EW) == (rh, rw):
+        return work, fm
     if fm is None:
         fm = torch.ones((1, 1, rh, rw), device=work.device)
     nh, nw = max(1, round(rh * scale)), max(1, round(rw * scale))
     if (nh, nw) != (rh, rw):
         work, fm = _resize(work, nh, nw), F.interpolate(fm, size=(nh, nw), mode="nearest")
-    x0, y0 = (rw - nw) // 2 + int(ox), (rh - nh) // 2 + int(oy)
+    x0, y0 = (rw - nw) // 2 + int(ox) + off[0], (rh - nh) // 2 + int(oy) + off[1]
     canvas = base.expand(B, -1, -1, -1).clone()
-    ofm = torch.zeros((1, 1, rh, rw), device=work.device)
-    cx0, cy0, cx1, cy1 = max(0, x0), max(0, y0), min(rw, x0 + nw), min(rh, y0 + nh)
+    ofm = torch.zeros((1, 1, EH, EW), device=work.device)
+    cx0, cy0, cx1, cy1 = max(0, x0), max(0, y0), min(EW, x0 + nw), min(EH, y0 + nh)
     if cx1 > cx0 and cy1 > cy0:
         canvas[..., cy0:cy1, cx0:cx1] = work[..., cy0 - y0:cy1 - y0, cx0 - x0:cx1 - x0]
         ofm[..., cy0:cy1, cx0:cx1] = fm[..., cy0 - y0:cy1 - y0, cx0 - x0:cx1 - x0]
     return canvas, ofm
+
+
+def _place_rect(rw, rh, ox, oy, scale):
+    """Where `_place` puts the worked crop (x, y, w, h) in region px: the rectangle Free Edit's four corners start from (D-176).
+    Same numbers as the browser's placeRect."""
+    nw, nh = max(1, round(rw * scale)), max(1, round(rh * scale))
+    return ((rw - nw) // 2 + int(ox), (rh - nh) // 2 + int(oy), nw, nh)
 
 
 def _resolve_stitch(st, base, mask):
@@ -734,7 +801,7 @@ class Succy_Stitch:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "feather": ("INT", {"default": 24, "min": 0, "max": 2048, "step": 1,
+                "feather": ("INT", {"default": 0, "min": 0, "max": 2048, "step": 1,
                                     "tooltip": "Seam softness in region pixels (0 = hard edge)"}),
                 "feather_mode": (["inside", "outside", "centered"], {"default": "inside"}),
                 "feather_curve": (["smooth", "linear"], {"default": "smooth"}),
@@ -760,6 +827,10 @@ class Succy_Stitch:
                 "hold_timeout": ("INT", {"default": 300, "min": 1, "max": 3600, "step": 1,
                                          "tooltip": "Seconds to wait before carrying on with the current retouch"}),
                 "run_id": ("STRING", {"default": "0_manual", "tooltip": "Managed by the frontend"}),
+                # last on purpose: an old workflow's widget values still line up, the missing one takes its default
+                "warp": ("STRING", {"default": "", "tooltip": "Free Edit Item: where the replacement's 4 corners were dragged (managed by the frontend)"}),
+                "hole": ("STRING", {"default": "", "tooltip": "Free Edit Selection: where the cut's 4 corners were dragged — the hole bends, the replacement stays (managed by the frontend)"}),
+                "item_brush": ("STRING", {"default": "", "tooltip": "✎ on Edit Item: parts of the replacement erased / brought back, in the replacement's own pixels — they follow it when it moves, scales or bends (managed by the frontend)"}),
             },
             "optional": {
                 "stitch": ("STITCH", {"tooltip": "From Succy Crop: the base image, where the cut was and its mask"}),
@@ -811,9 +882,9 @@ class Succy_Stitch:
 
     def stitch(self, feather, feather_mode, feather_curve, color_match, opacity, aspect_mismatch, sharpness_match=0.0, grain_match=0.0,
                offset_x=0, offset_y=0, scale=100.0, source="", base_file="", mask_file="", brush="", place="",
-               hold=False, hold_timeout=300, run_id="", stitch=None, base_image=None, mask=None, replacement=None,
+               hold=False, hold_timeout=300, run_id="", warp="", hole="", item_brush="", stitch=None, base_image=None, mask=None, replacement=None,
                unique_id=None, dynprompt=None, _quiet=False):
-        image = replacement if replacement is not None else _load_source(source)
+        image = replacement if replacement is not None else _load_source(source, alpha=True)
         if image is None:
             raise ValueError(f"{_TAG} no replacement: connect one, or drop / paste / load it on the node.")
         base_in = base_image if base_image is not None else _load_source(base_file)
@@ -829,7 +900,8 @@ class Succy_Stitch:
         orig = stitch["image"]
         B_o, H, W, C = orig.shape
         rx0, ry0, rx1, ry1 = stitch["region"]
-        rh, rw = ry1 - ry0, rx1 - rx0
+        quad = stitch.get("quad")                          # perspective crop (D-178): everything below runs in the cut's STRAIGHT frame
+        rw, rh = stitch["straight"] if quad else (rx1 - rx0, ry1 - ry0)
         dev = orig.device
 
         work = image.to(dev).float()
@@ -838,6 +910,9 @@ class Succy_Stitch:
             raise ValueError(f"{_TAG} batch mismatch: original has {B_o} images, worked has {B_w}.")
         B = max(B_o, B_w)
 
+        # D-189: a replacement with transparency (a cutout come home) into an RGB original = transparent means NOTHING there: the
+        # original shows through, never the black hidden under the alpha
+        alpha_keep = work[..., 3].clamp(0.0, 1.0) if work.shape[3] == 4 and C == 3 else None
         # channel count follows the original (RGB worked into RGBA original and vice versa)
         cw = work.shape[3]
         if cw > C:
@@ -845,35 +920,95 @@ class Succy_Stitch:
         elif cw < C:
             work = torch.cat([work, torch.ones((*work.shape[:3], C - cw), device=dev)], dim=3)
 
-        base = orig[:, ry0:ry1, rx0:rx1, :].permute(0, 3, 1, 2)             # BCHW
+        base = _stitch_base(stitch)                                           # BCHW, the cut's own frame
         wh, ww = int(work.shape[1]), int(work.shape[2])
-        mode = _fit_mode(ww, wh, rw, rh, aspect_mismatch)
-        work, fit_mask = _fit_to_region(work.permute(0, 3, 1, 2), rh, rw, mode, base.expand(B, -1, -1, -1))
-        work, fit_mask = _place(work, base, fit_mask, offset_x, offset_y, float(scale) / 100.0)
-        # the retouch brush is painted on the live result, over the WHOLE picture (D-125): stretched to it, then cut to the region
+        sc = float(scale) / 100.0
+        pr = _place_rect(rw, rh, offset_x, offset_y, sc)
+        wd, hd = _parse_warp(warp), _parse_warp(hole)
+        # on a slanted box (D-189) the hole's handles are the SHAPE's corners: the rhombus itself bends, not the rectangle around it
+        hsrc = [(px - rx0, py - ry0) for px, py in stitch["shape"]] if stitch.get("shape") and not quad else _rect_pts(0, 0, rw, rh)
+        # the mask brush is painted on the live result, over the WHOLE picture, in the picture's own px (D-125): the picture is the
+        # limit of everything. ◇ moving the mask moves the strokes too — the browser carries them along when the gesture ends (D-192c)
         add, erase = _decode_brush(brush, H, W, dev)
-        if add is not None:
-            add, erase = add[ry0:ry1, rx0:rx1].clamp(0, 1), erase[ry0:ry1, rx0:rx1].clamp(0, 1)
+        hq = _homography(_rect_pts(0, 0, rw, rh), quad) if quad else None                       # straight px -> picture px
 
+        # --- the WORK AREA (D-190, her rule: Edit Mask edits the mask, anywhere — like a Load editing the mask it inherited).
+        #     The Crop's rectangle, grown to wherever the mask brush, the hole's handles or the item (moved, scaled, bent) reach.
+        #     Mask AND item there = the item shows; mask without item = the original. Nothing reaching out = the rectangle, as before.
+        ex0, ey0, ex1, ey1 = rx0, ry0, rx1, ry1
+        if not quad:
+            pts = [(px + rx0, py + ry0) for px, py in (_warp_corners((pr[0], pr[1], pr[2], pr[3]), wd)[1] if wd else _rect_pts(*pr))]
+            if hd:
+                pts += [(px + rx0 + hd[2 * i], py + ry0 + hd[2 * i + 1]) for i, (px, py) in enumerate(hsrc)]
+            if add is not None:
+                ys, xs = torch.nonzero(add > 0.01, as_tuple=True)
+                if ys.numel():
+                    pts += [(int(xs.min()), int(ys.min())), (int(xs.max()) + 1, int(ys.max()) + 1)]
+            ex0 = max(0, min(ex0, int(math.floor(min(p[0] for p in pts)))))
+            ey0 = max(0, min(ey0, int(math.floor(min(p[1] for p in pts)))))
+            ex1 = min(W, max(ex1, int(math.ceil(max(p[0] for p in pts)))))
+            ey1 = min(H, max(ey1, int(math.ceil(max(p[1] for p in pts)))))
+        off = (rx0 - ex0, ry0 - ey0)                                          # the region inside the work area
+        ew, eh = (ex1 - ex0, ey1 - ey0) if not quad else (rw, rh)
+        baseE = orig[:, ey0:ey1, ex0:ex1, :].permute(0, 3, 1, 2) if not quad else base
+
+        # ✎ on Edit Item (D-188): the erased parts live in the REPLACEMENT's pixels. They ride along as one more channel through fit,
+        # place and Free Edit, so they follow the item wherever it goes; the mask (the hole) stays where Edit Mask put it
+        _, item_erase = _decode_brush(item_brush, wh, ww, dev)
+        ikeep = None if item_erase is None else (1.0 - item_erase)[None, :, :, None].expand(B_w, -1, -1, -1)
+        if alpha_keep is not None:                         # the replacement's own alpha rides the same channel (D-189)
+            ikeep = alpha_keep[..., None] if ikeep is None else ikeep * alpha_keep[..., None]
+        wbase, wbaseE = base, baseE
+        if ikeep is not None:
+            work = torch.cat([work, ikeep], dim=3)
+            wbase = torch.cat([base, torch.zeros_like(base[:, :1])], dim=1)
+            wbaseE = torch.cat([baseE, torch.zeros_like(baseE[:, :1])], dim=1)
+        mode = _fit_mode(ww, wh, rw, rh, aspect_mismatch)
+        work, fit_mask = _fit_to_region(work.permute(0, 3, 1, 2), rh, rw, mode, wbase.expand(B, -1, -1, -1))
+        work, fit_mask = _place(work, wbaseE, fit_mask, offset_x, offset_y, sc, off)
+        # Free Edit Item (D-176): the placed rectangle's corners dragged one by one -> perspective. Nothing dragged = nothing done
+        work, fit_mask = _warp_quad(work, fit_mask, (pr[0] + off[0], pr[1] + off[1], pr[2], pr[3]), wd)
+        if ikeep is not None:                              # the kept part of the item joins the fit mask: erased = the original shows
+            keep = work[:1, C:C + 1].clamp(0.0, 1.0)
+            work = work[:, :C]
+            fit_mask = keep if fit_mask is None else fit_mask * keep
         sel = stitch["mask"].to(dev)[None]                                    # [1,1,rh,rw]
-        if color_match > 0:
-            work = _color_match(work, base, sel, color_match / 100.0)
-        if sharpness_match > 0 or grain_match > 0:
-            work = _detail_match(work, base, sel, sharpness_match / 100.0, grain_match / 100.0)
-
-        borders = (rx0 == 0, ry0 == 0, rx1 == W, ry1 == H)
-        M = _feather(sel, feather, feather_mode, feather_curve, borders)
-        # retouch (D-124): painted = the worked picture wins there, erased = the original stays, AFTER the feather (the brush has its own soft tip)
+        if (ew, eh) != (rw, rh):
+            sel = F.pad(sel, (off[0], ew - rw - off[0], off[1], eh - rh - off[1]))
+        # Free Edit Selection (D-178): the HOLE's corners dragged — the Crop's mask bends, the replacement stays where it is
+        _, sel = _bend_quad(None, sel, [(px + off[0], py + off[1]) for px, py in hsrc], hd)
+        # ONE mask (D-192, her rule): the bent mask + painted − erased (the eraser bites the Crop's mask too), THEN feather / fit /
+        # opacity on the whole. Before, the brush came after the feather: no soft edge
         if add is not None:
-            M = torch.maximum(M, add[None, None])
-        if erase is not None:
-            M = M * (1.0 - erase[None, None])
+            if quad:                                       # the cut's straight frame: the strokes go through the same perspective
+                _, a2 = _remap(None, add[None, None], hq, rw, rh)
+                _, e2 = _remap(None, erase[None, None], hq, rw, rh)
+            else:
+                a2, e2 = add[None, None, ey0:ey1, ex0:ex1], erase[None, None, ey0:ey1, ex0:ex1]
+            sel = (torch.maximum(sel, a2.clamp(0, 1)) * (1.0 - e2.clamp(0, 1))).clamp(0.0, 1.0)
+        roi = None if (ew, eh) == (rw, rh) else (off[0], off[1], rw, rh)
+        if color_match > 0:
+            work = _color_match(work, baseE, sel, color_match / 100.0, roi=roi)
+        if sharpness_match > 0 or grain_match > 0:
+            work = _detail_match(work, baseE, sel, sharpness_match / 100.0, grain_match / 100.0, roi=roi)
+
+        # a straightened cut has no side lying on the picture's edge (D-178): it fades on all four
+        borders = (False,) * 4 if quad else (ex0 == 0, ey0 == 0, ex1 == W, ey1 == H)
+        M = _feather(sel, feather, feather_mode, feather_curve, borders)
+        base = baseE
+        if quad:
+            # back from the straight frame into the box around the quad: work and seam bent the other way, nothing outside the quad
+            bw, bh = rx1 - rx0, ry1 - ry0
+            hb = _homography([(px - rx0, py - ry0) for px, py in quad], _rect_pts(0, 0, rw, rh))
+            work, M = _remap(work, M, hb, bw, bh)
+            _, fit_mask = _remap(None, fit_mask if fit_mask is not None else torch.ones((1, 1, rh, rw), device=dev), hb, bw, bh)
+            base = orig[:, ry0:ry1, rx0:rx1, :].permute(0, 3, 1, 2)
         if fit_mask is not None:
             M = M * fit_mask
         M = (M * opacity).clamp(0.0, 1.0)
 
         blended = (base * (1.0 - M) + work * M).clamp(0.0, 1.0)             # broadcasts over the batch
         out = orig.expand(B, -1, -1, -1).clone()
-        out[:, ry0:ry1, rx0:rx1, :] = blended.expand(B, -1, -1, -1).permute(0, 2, 3, 1)
+        out[:, ey0:ey1, ex0:ex1, :] = blended.expand(B, -1, -1, -1).permute(0, 2, 3, 1)
 
         return (out,)

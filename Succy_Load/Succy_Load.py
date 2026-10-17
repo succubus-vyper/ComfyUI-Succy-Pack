@@ -14,7 +14,7 @@ from server import PromptServer
 
 from _succy_common import LiveWait, coerce_widgets, live_touch, same_origin
 from _succy_image import (IMAGE_EXT, blur, decode_brush, display_id, grow, hex_rgb, input_path, load_picture, mp_size, send_preview,
-                          snap)
+                          snap, parse_warp, quad_mask)
 
 # ===================================================
 # Succy Load Image & Resize (D-156)
@@ -216,8 +216,12 @@ def drawn_mask(H, W, base, kw, device):
     if kw.get("box") and bw > 0 and bh > 0:                 # 0 wide or 0 high = no rectangle drawn yet (D-164)
         x0, y0 = min(int(kw.get("x", 0)), W - 1), min(int(kw.get("y", 0)), H - 1)
         x1, y1 = min(W, x0 + bw), min(H, y0 + bh)
-        r = torch.zeros((H, W), device=device)
-        r[y0:y1, x0:x1] = 1.0
+        qd = parse_warp(kw.get("quad", ""))
+        if qd is not None:                                  # the box's corners dragged (D-178): the same quad as the Crop's
+            r = quad_mask(W, H, (int(kw.get("x", 0)), int(kw.get("y", 0)), bw, bh), qd, device)
+        else:
+            r = torch.zeros((H, W), device=device)
+            r[y0:y1, x0:x1] = 1.0
         if int(kw.get("box_feather", 0)) > 0:
             r = blur(r, int(kw["box_feather"]))
     add, erase = decode_brush(kw.get("brush", ""), H, W, device)
@@ -394,7 +398,7 @@ class Succy_Load_Image_Resize:
                 "anchor": (list(_ANCHORS), {"default": "center", "tooltip": "fill / pad: which side stays"}),
                 "pad_color": ("STRING", {"default": "#000000", "tooltip": "pad: colour of the borders (#rrggbb)"}),
                 "outpaint": ("BOOLEAN", {"default": False, "tooltip": "pad: the borders are 1 in the mask (ready for an outpaint)"}),
-                "megapixels": ("INT", {"default": 0, "min": 0, "max": 400, "step": 1, "tooltip": "scale: first to this many megapixels (0 = as it is)"}),
+                "megapixels": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 400.0, "step": 0.01, "tooltip": "scale: first to this many megapixels (0 = as it is)"}),
                 "scale_by": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 16.0, "step": 0.01, "tooltip": "scale: then times this, on each side"}),
                 "multiple": ("INT", {"default": 1, "min": 1, "max": 256, "step": 1, "tooltip": "Snap the sides to a multiple of this (1 = untouched)"}),
                 "interpolation": (_INTERP, {"default": "lanczos"}),
@@ -407,6 +411,8 @@ class Succy_Load_Image_Resize:
                 "mask_grow": ("INT", {"default": 0, "min": -1024, "max": 1024, "step": 1, "tooltip": "Grow (+) or shrink (-) the drawn mask"}),
                 "mask_feather": ("INT", {"default": 0, "min": 0, "max": 1024, "step": 1, "tooltip": "Soft edge of the drawn mask"}),
                 "brush": ("STRING", {"default": "", "tooltip": "Free hand mask drawn on the node (managed by the frontend)"}),
+                # last on purpose (D-178): old workflows keep their widget values in line
+                "quad": ("STRING", {"default": "", "tooltip": "The box's corners dragged: Ctrl + corner / rotate (managed by the frontend)"}),
             },
             "optional": {
                 "image": ("IMAGE", {"tooltip": "Resize this picture instead (the folder steps aside)"}),

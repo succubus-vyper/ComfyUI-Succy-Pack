@@ -10,6 +10,7 @@ Images are ComfyUI BHWC floats in [0,1]; masks BHW.
 import asyncio
 import base64
 import io
+import json
 import math
 import os
 import re
@@ -83,12 +84,18 @@ def _open(path):
     return im
 
 
-def load_source(name):
-    """A picture dropped / pasted / loaded on the node: lives in ComfyUI's input folder (native upload). -> [1,H,W,3] or None."""
+def load_source(name, alpha=False):
+    """A picture dropped / pasted / loaded on the node: lives in ComfyUI's input folder (native upload). -> [1,H,W,3] or None.
+    alpha=True: a picture with real transparency comes back [1,H,W,4] (Stitch's replacement, D-189: transparent = nothing there)."""
     if not name:
         return None
-    im = _open(input_path(name)).convert("RGB")
-    return torch.from_numpy(np.asarray(im).astype(np.float32) / 255.0)[None]
+    im = _open(input_path(name))
+    if alpha:
+        if im.mode == "P" and "transparency" in im.info:
+            im = im.convert("RGBA")
+        if "A" in im.getbands() and im.getchannel("A").getextrema()[0] < 255:
+            return torch.from_numpy(np.asarray(im.convert("RGBA")).astype(np.float32) / 255.0)[None]
+    return torch.from_numpy(np.asarray(im.convert("RGB")).astype(np.float32) / 255.0)[None]
 
 
 def load_picture(path):
@@ -189,6 +196,161 @@ def blur(m, px):
     for _ in range(3):
         x = box1(box1(x, r, 1), r, 0)
     return x.clamp(0.0, 1.0)
+
+
+# ---------------- Free Edit (D-176): four corners, one homography ----------------
+# The browser runs the very same formulas (NodeStructure/util/blend-math.js homography / warpQuad): what you drag is what you get.
+
+def parse_warp(s):
+    """The `warp` native -> 8 floats (dx, dy of the corners top-left, top-right, bottom-right, bottom-left, in region px), or None.
+    Empty, unreadable or all zero = no Free Edit: old workflows stay exactly as they were."""
+    try:
+        v = json.loads(s) if isinstance(s, str) else s
+        v = [float(x) for x in v]
+    except (TypeError, ValueError):
+        return None
+    if len(v) != 8 or not all(math.isfinite(x) for x in v) or all(abs(x) < 1e-9 for x in v):
+        return None
+    return v
+
+
+def homography(src, dst):
+    """3x3 (row-major list, h33 = 1) that sends the 4 points src -> dst. Plain Gaussian elimination with partial pivoting,
+    written exactly like the browser's, so both sides land on the same numbers. None when the four points are degenerate."""
+    a = []
+    for (x, y), (u, v) in zip(src, dst):
+        a.append([x, y, 1.0, 0.0, 0.0, 0.0, -u * x, -u * y, u])
+        a.append([0.0, 0.0, 0.0, x, y, 1.0, -v * x, -v * y, v])
+    for c in range(8):
+        p = max(range(c, 8), key=lambda r: abs(a[r][c]))
+        if abs(a[p][c]) < 1e-12:
+            return None
+        a[c], a[p] = a[p], a[c]
+        for r in range(8):
+            if r != c and a[r][c] != 0.0:
+                f = a[r][c] / a[c][c]
+                a[r] = [a[r][k] - f * a[c][k] for k in range(9)]
+    h = [a[i][8] / a[i][i] for i in range(8)] + [1.0]
+    # D-188: h33 = 1 fixes the scale, not its SIGN. With the picture's origin beyond the horizon the denominator went negative inside
+    # the shape itself and `project` threw every pixel away (the rhombus whose mask came and went). Positive at src's centre.
+    cx, cy = sum(p[0] for p in src) / 4.0, sum(p[1] for p in src) / 4.0
+    return [-v for v in h] if h[6] * cx + h[7] * cy + 1.0 < 0 else h
+
+
+def warp_corners(rect, d):
+    """rect (x, y, w, h) + the 8 deltas -> the 4 corners (TL, TR, BR, BL) where they were and where they are now."""
+    x, y, w, h = rect
+    src = [(x, y), (x + w, y), (x + w, y + h), (x, y + h)]
+    return src, [(px + d[2 * i], py + d[2 * i + 1]) for i, (px, py) in enumerate(src)]
+
+
+def project(hm, x, y):
+    """A point through a homography, or None when it falls behind the horizon. Same test as the browser's `project`."""
+    den = hm[6] * x + hm[7] * y + hm[8]
+    if den <= 1e-9:
+        return None
+    return ((hm[0] * x + hm[1] * y + hm[2]) / den, (hm[3] * x + hm[4] * y + hm[5]) / den)
+
+
+def rect_pts(x, y, w, h):
+    """The 4 corners of a rectangle, TL TR BR BL: the order every Free Edit list uses."""
+    return [(x, y), (x + w, y), (x + w, y + h), (x, y + h)]
+
+
+def remap(img, fm, hm, ow, oh):
+    """Sample img (BCHW, or None) and fm ([1,1,H,W] = where it is really there, None = everywhere) at ow x oh through hm
+    (3x3: OUTPUT pixel -> SOURCE pixel, pixel centres). Colour: border padding; fm: zero outside the source, so what the
+    output sees beyond the picture (or behind the horizon) is 0. Bilinear, grid_sample(align_corners=False) — the browser's `remap`.
+    -> (img or None, fm). The one door every Free Edit goes through: warp, straighten, put back."""
+    ref = img if img is not None else fm
+    H, W = int(ref.shape[-2]), int(ref.shape[-1])
+    dev = ref.device
+    ys, xs = torch.meshgrid(torch.arange(oh, device=dev, dtype=torch.float64) + 0.5,
+                            torch.arange(ow, device=dev, dtype=torch.float64) + 0.5, indexing="ij")
+    den = hm[6] * xs + hm[7] * ys + hm[8]
+    ok = den > 1e-9
+    den = torch.where(ok, den, torch.ones_like(den))
+    sx = (hm[0] * xs + hm[1] * ys + hm[2]) / den
+    sy = (hm[3] * xs + hm[4] * ys + hm[5]) / den
+    sx = torch.where(ok, sx, torch.full_like(sx, -4.0 * W))
+    grid = torch.stack([2.0 * sx / W - 1.0, 2.0 * sy / H - 1.0], dim=-1).float()[None]
+    out = None
+    if img is not None:
+        out = F.grid_sample(img, grid.expand(img.shape[0], -1, -1, -1), mode="bilinear", padding_mode="border", align_corners=False)
+    m = fm if fm is not None else torch.ones((1, 1, H, W), device=dev)
+    om = F.grid_sample(m.float(), grid, mode="bilinear", padding_mode="zeros", align_corners=False)
+    return out, om.clamp(0.0, 1.0)
+
+
+def warp_quad(img, fm, rect, d):
+    """Free Edit (D-176): the picture inside `rect` (region px) goes where its 4 corners were dragged.
+    img BCHW (region size, or None: only fm), fm [1,1,H,W] = where it is really there (None = everywhere). Returns (img, fm): outside the
+    new quad fm is 0, so the blend shows the original there. Bilinear, pixel centres (align_corners=False). Corners folded over = nothing there.
+    She bends, she tilts, she leans into perspective — and never leaves a seam where you can see it."""
+    if d is None:
+        return img, fm
+    src, dst = warp_corners(rect, d)
+    hi = homography(dst, src)                              # every output pixel asks where it came from
+    ref = img if img is not None else fm
+    H, W = int(ref.shape[-2]), int(ref.shape[-1])
+    if hi is None:
+        return img, torch.zeros((1, 1, H, W), device=ref.device)
+    return remap(img, fm, hi, W, H)
+
+
+def bend_quad(img, fm, src, d):
+    """Free Edit Mask on a slanted cut (D-189): the four points `src` (TL TR BR BL, region px — the shape's own corners, not the box's)
+    moved by the 8 deltas `d`; the picture / mask bends with them. warp_quad is the same with src = a rectangle's corners."""
+    if d is None:
+        return img, fm
+    dst = [(px + d[2 * i], py + d[2 * i + 1]) for i, (px, py) in enumerate(src)]
+    hi = homography(dst, src)
+    ref = img if img is not None else fm
+    H, W = int(ref.shape[-2]), int(ref.shape[-1])
+    if hi is None:
+        return img, torch.zeros((1, 1, H, W), device=ref.device)
+    return remap(img, fm, hi, W, H)
+
+
+def quad_size(q):
+    """The straight size (w, h) of a quad TL TR BR BL: the mean of its opposite sides, like Photoshop's perspective crop. Never 0."""
+    d = lambda a, b: math.hypot(b[0] - a[0], b[1] - a[1])
+    return (max(1, round((d(q[0], q[1]) + d(q[3], q[2])) / 2)), max(1, round((d(q[0], q[3]) + d(q[1], q[2])) / 2)))
+
+
+def quad_mask(W, H, rect, d, device=None):
+    """Free Edit Selection of the Crop (D-178): the rectangle `rect` with its corners dragged by `d`, as a [H, W] mask with an
+    anti-aliased edge (each pixel centre measured in the rectangle's own frame). Folded / degenerate corners = an empty mask.
+    The browser's `quadMask`, number for number."""
+    src, dst = warp_corners(rect, d)
+    hi = homography(dst, src)
+    if hi is None:
+        return torch.zeros((H, W), device=device)
+    x, y, w, h = rect
+    ys, xs = torch.meshgrid(torch.arange(H, device=device, dtype=torch.float64) + 0.5,
+                            torch.arange(W, device=device, dtype=torch.float64) + 0.5, indexing="ij")
+    den = hi[6] * xs + hi[7] * ys + hi[8]
+    ok = den > 1e-9
+    den = torch.where(ok, den, torch.ones_like(den))
+    sx = (hi[0] * xs + hi[1] * ys + hi[2]) / den
+    sy = (hi[3] * xs + hi[4] * ys + hi[5]) / den
+    cx = (torch.minimum(sx - x, x + w - sx) + 0.5).clamp(0.0, 1.0)
+    cy = (torch.minimum(sy - y, y + h - sy) + 0.5).clamp(0.0, 1.0)
+    return torch.where(ok, cx * cy, torch.zeros_like(cx)).float()
+
+
+def quad_region(rect, d, pad):
+    """The perspective crop's geometry (D-178): the dragged quad straightened, `pad` straight px around it (context, grow, feather).
+    -> (region quad TL TR BR BL in picture px, straight w, straight h), or None when the corners are degenerate."""
+    _, q = warp_corners(rect, d)
+    sw, sh = quad_size(q)
+    hs = homography(rect_pts(0, 0, sw, sh), q)
+    if hs is None:
+        return None
+    rq = [project(hs, px, py) for px, py in rect_pts(-pad, -pad, sw + 2 * pad, sh + 2 * pad)]
+    if any(p is None for p in rq):
+        return None
+    return rq, sw + 2 * pad, sh + 2 * pad
 
 
 def png_bytes(t, meta=None):
