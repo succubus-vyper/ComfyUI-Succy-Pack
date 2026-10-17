@@ -50,7 +50,7 @@ async def succy_css_proxy(request):
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=headers) as resp:
                 css = await resp.text()
-                css = css.replace("url(https://", "url(/succy/font_proxy?url=https://")
+                css = css.replace("url(https://", f"url(/succy/font_proxy?v={_FONT_CACHE_V}&url=https://")      # a new v = every browser forgets the font copies it kept (D-175)
                 return web.Response(
                     text=css,
                     content_type="text/css",
@@ -63,7 +63,20 @@ async def succy_css_proxy(request):
 # Only Google's font CDN may pass through: this route is NOT a general URL fetcher (no SSRF, no LAN peeking).
 _FONT_HOSTS = ("fonts.gstatic.com",)
 _FONT_MAX_BYTES = 5 * 1024 * 1024
+_FONT_CACHE_V = 2        # raise it whenever the proxy ever handed out a bad font: the browser keeps fonts for a day (max-age), a new number makes it ask again
+_FONT_MAGIC = (b"\x00\x01\x00\x00", b"OTTO", b"true", b"ttcf", b"wOFF", b"wOF2")      # TrueType / OpenType / collection / WOFF / WOFF2
 _FONT_TYPES = ("font/", "application/font", "application/x-font", "application/octet-stream")
+
+
+async def _read_capped(content, cap):
+    """The WHOLE body, or None when it passes `cap` bytes. (StreamReader.read(n) hands back only what has arrived so far: a big font came out
+    cut in half and the browser said "Failed to decode downloaded font" — D-175.)"""
+    buf = bytearray()
+    async for chunk in content.iter_chunked(65536):
+        buf += chunk
+        if len(buf) > cap:
+            return None
+    return bytes(buf)
 
 
 @routes.get("/succy/font_proxy")
@@ -79,17 +92,24 @@ async def succy_font_proxy(request):
             return web.Response(status=403)
         async with aiohttp.ClientSession() as session:
             # allow_redirects=False: an allowed host must not bounce us to somewhere that is not
-            async with session.get(url, allow_redirects=False, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+            # identity: no gzip / brotli / zstd to decode on the way (one less thing that can hand the browser garbage, D-175)
+            async with session.get(url, allow_redirects=False, headers={"Accept-Encoding": "identity", "User-Agent": "Mozilla/5.0"},
+                                   timeout=aiohttp.ClientTimeout(total=10)) as resp:
                 if resp.status != 200:
                     return web.Response(status=404)
                 ctype = (resp.content_type or "").lower()
                 if not ctype.startswith(_FONT_TYPES):
                     return web.Response(status=403)
-                data = await resp.content.read(_FONT_MAX_BYTES + 1)
-                if len(data) > _FONT_MAX_BYTES:
+                data = await _read_capped(resp.content, _FONT_MAX_BYTES)
+                if data is None:
                     return web.Response(status=413)
+                if data[:4] not in _FONT_MAGIC:                 # not a font at all: say so in the console, hand out nothing the browser would choke on
+                    print(f"[Succy_Label] font_proxy: {u.path} is not a font file (first bytes {data[:8].hex()}, {len(data)} bytes, "
+                          f"type {ctype}, encoding {resp.headers.get('Content-Encoding')})")
+                    return web.Response(status=502)
                 return web.Response(body=data, content_type=ctype, headers={"Cache-Control": "public, max-age=86400"})
-    except Exception:
+    except Exception as e:
+        print(f"[Succy_Label] font_proxy failed: {e}")
         return web.Response(status=404)
 
 
