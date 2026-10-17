@@ -44,7 +44,15 @@ No extra Python packages needed (`regex` is optional and recommended: see below)
 ## The nodes
 
 ### 📄 Preview Anything & Convert
-Plug in anything and see what it really is. The node shows a live preview of text, numbers, lists, dicts, JSON or images, and converts the value to the type you pick: `STRING`, `INT`, `FLOAT`, `BOOLEAN`, `LIST`, `DICT`, `ARRAY`, `JSON`, `COMBO`, `IMAGE`, `MASK`. The outputs reshape themselves to match: one socket for text, four for an image. Includes a one-click copy and a preview toggle.
+*A viewer, a video trimmer, a frame extractor, an audio cutter and a format converter. One body, many talents.* 😏
+Plug in anything and see what it really is: text, numbers, lists, dicts, JSON, images, masks, **videos and audio**. Convert starts as the type coming in (an INT stays an INT, a MASK stays a MASK, nothing gets converted behind your back); pick another type to convert. The outputs reshape themselves to match: one socket for text, four for an image (with width, height, megapixels).
+- **🎬 Video trimmer**: a player with a **timeline** under it. Drag the green and red handles to keep only the piece you want, or set Start / End / Current in seconds *and* frames — drag them, step with ‹ › (exactly one frame) or type them. Nothing outside the clip is accepted, Current never wanders outside the piece you keep, and ▶ loops your selection until you're satisfied. Start green, End red, Current yellow: even half asleep you know who's who.
+- **🖼️ Frame extractor**: `frame` hands out the frame under the yellow Current marker as a real IMAGE. Scrub, stop, there's your still. Only decoded when `frame` is actually wired, because I don't do work nobody asked for.
+- **🔄 Format converter**: Convert To *is* the container. It starts as the format the video already is; pick **mp4, webm, mkv, mov, avi or gif** and `output` is a real file in that format, not a renamed one. **Split audio** strips the sound from `output` and gives it to you on its own `audio` socket. `duration` tells you how long `output` lasts (seconds, 3 decimals).
+- **🎧 Audio**: a compact player with its **waveform**, the same timeline (10 ms steps), `output` = just the piece you kept, `duration` = how long it is, and Convert To picks the format your download comes out in: **wav, mp3, flac, ogg, m4a**.
+- **Download** saves the picture, or exactly what `output` is — trimmed, converted, undressed of its audio if you asked.
+- **Sizes that make sense**: text = the blue handle sets the height · picture / video = stretch the node, only the picture grows (the timeline stays compact at the bottom) · audio = a slim strip, only the width changes.
+- **Everything you see is saved in the workflow**: the text, the numbers, the trim. Reopen an old workflow and it's all still there, right where you left it. Pictures and clips live in ComfyUI's temp folder: after a restart they say *Expired* until the next Run. Decoding a video into frames stops at ~4 GB with a clear message (make the selection shorter — greedy is cute, but not *that* greedy).
 
 ### 🧮 Multi Math
 Up to **15 chained equations** in a single node, over up to **10 inputs** (`a`…`j`) that open one at a time as you connect them.
@@ -84,9 +92,14 @@ A small spreadsheet inside a node. Rows × columns, each column with its own typ
 - Choose the row from the widget, or drive it from another node through a real input socket.
 
 ### ✂️ Crop & 🧵 Stitch
-Cut a piece out of a picture, work on it, and sew it back so well nobody finds the seam.
-- **Crop**: draw the selection right on the node (move, resize, snap, feather the edge). Work at your own resolution (**workspace** and **Resize crop (MP)**, sizes snap to a *Multiple of*), add a **context** ring around the cut, grow or soften the mask. Outputs: `stitch` (the "how to sew it back" package), the full-picture `mask`, and the `cutout`. A **⬇** menu hands you the original, the crop, the masks or the cutout as PNG without queueing anything.
-- **Stitch**: puts the retouched crop back in place. Feathered, border-aware blending, **colour match** from the context ring, **sharpness and grain match** so the patch has the same skin as its surroundings. A live **A | B** preview re-runs the very same code as the real run, so what you see is what you get. Optional **pause for a retouch**, and the file remembers where it came from, so you can drop the PNG back in later. Something missing? The preview tells you exactly which input and why (no picture yet, or it needs a Run).
+Cut a piece out of a picture, work on it, and sew it back so well nobody finds the seam. I like my secrets well hidden.
+- **Crop**: draw the selection right on the node (move, resize, snap, feather the edge), or switch to **Brush** and paint it. Work at your own resolution (**workspace** and **Resize crop (MP)**, sizes snap to a *Multiple of*), add a **context** ring around the cut, grow or soften the mask. Outputs: `stitch` (the "how to sew it back" package), the full-picture `mask`, and the `cutout`. A **⬇** menu hands you the original, the crop, the masks or the cutout as PNG without queueing anything.
+- **Bend the box (perspective)**: **Ctrl / ⌘ + a corner** moves only that corner, grab just outside a corner to **rotate**, double-click a corner to put it back. A tilted cut stays tilted in the cutout, and Stitch puts it back exactly where — and how crooked — it was. Same box, same tricks, in **Load Image & Resize** too.
+- **Stitch**: puts the retouched crop back in place. Feathered, border-aware blending, **colour match** from the context ring, **sharpness and grain match** so the patch has the same skin as its surroundings. A live **A | B** preview re-runs the very same code as the real run, so what you see is what you get. Optional **pause for a retouch**, and the file remembers where it came from, so you can drop the PNG back in later. Something missing? The preview tells you exactly which input and why.
+- **Two moods in Stitch**: **Edit Mask** (the hole: feather, opacity, blend mode, curve, and **◇ Free Edit Mask** to bend the hole by its corners) and **Edit Item** (the piece: colour, sharpness, grain, offset, scale, and **◇ Free Edit Item** — four corners, one perspective, Photoshop-style: inside = move, corner = scale, Shift = keep proportions, Alt = from the centre, Ctrl = one corner alone, just outside = rotate). Corners refuse to fold over themselves, so nothing ever vanishes on you.
+- **A brush that knows what you want**: hold **Ctrl** and the brush becomes the eraser (and the eraser the brush), even mid-stroke. **✒ Pen pressure** for drawing tablets: press lightly for a fine tip, harder for a fat one. Soft hardness really is soft.
+- **Move around like you own the place** (every Crop, Stitch and Load view): wheel = zoom, middle button or **Ctrl + Alt + drag** = pan, **Ctrl + Shift + drag** = zoom (perfect with a pen). Or click **✋** / **🔍** on the left to lock pan or zoom. Forgot a key? **I** shows the keys for what you're doing right now, **I** again hides them.
+- **Every gesture is one Ctrl+Z.** A whole brush stroke, a whole corner drag: one step back, instantly, no reload.
 
 ### 🖼️ Load Image & Resize
 One loader that also resizes, and shares what it holds with the rest of the pack **live**, no Queue.
@@ -114,6 +127,13 @@ Not a node: it upgrades ComfyUI's **native reroutes**.
 - A **Connections** panel to see and change where a reroute comes from and where it goes.
 - Easier grabbing and snapping of wires.
 
+### 🖱️ Right-click, darling
+Not a node: a few extra treats on top of ComfyUI's **right-click on the empty canvas**. ComfyUI's own menu stays exactly where it was, just under mine. 💋
+- **▶️ Queue** when nothing is running — and the moment something runs it turns into **🛑 Force Stop Queue**: the queue is wiped and the job is interrupted. A custom node that ignores the polite stop gets the interrupt thrown *inside* its own thread; if it's stuck somewhere nothing can reach (one endless GPU call), I tell you so and offer a reboot. No more killing the whole console window.
+- **✨ Free VRAM — soft**: empties the CUDA cache, your models stay loaded. A quick breath, usually a little room. **🔥 Free VRAM — unload all**: every model out, cache dropped, a clean bed. Both tell you how many GB they freed.
+- **⏻ Reboot ComfyUI**: restarts the server **in the tab you're in** — no new browser tab popping up every time. The tab waits, and reloads itself the moment ComfyUI is back, even if you wandered off to another tab meanwhile. It asks first only if there's something in the queue. (ComfyUI Desktop uses its own restart.)
+- **💎 Succy - Primitive** and **📄 Succy - Preview**: dropped right where you clicked. Because some things are needed *all the time*.
+
 ### ✨ Everywhere
 Every input and output name becomes a **chip**: click it and pick what to connect from a filtered list, no wire dragging across half the canvas. A connected chip shows **Node (output)**, so you always know who's feeding whom.
 
@@ -125,6 +145,7 @@ Every input and output name becomes a **chip**: click it and pick what to connec
 - **Load Image & Resize, Folder mode**: a full path can point anywhere on the computer that runs ComfyUI (like other folder loaders). Its thumbnails route only answers ComfyUI's own page and only with picture files of that folder.
 - **Live link**: Succy nodes ask each other for a reduced picture while you edit; the full size is computed only on Run, Copy and Download. Primitive (Image / Mask), Any, Load, Crop and Stitch send; Crop, Stitch, Load, Any and Preview receive. **Empty → Block** needs a ComfyUI that has `ExecutionBlocker` (anything recent); otherwise it hands out nothing, as in the plain mode.
 - **Regex safety**: install the optional `regex` package and Multi Parse gets a real 2-second timeout. Without it, dangerous nested patterns are refused instead.
+- **Reboot from the menu** relaunches ComfyUI with the same command line plus `--disable-auto-launch`, so the browser isn't opened a second time. **Force Stop**'s inside-the-thread interrupt is the same `InterruptProcessingException` ComfyUI uses for its own Stop: the run ends as "interrupted", nothing else is touched.
 - **If a ComfyUI frontend update ever breaks something** the pack draws or patches: press Ctrl+Shift+D (the Monitor says which piece and which file), or switch the whole UI layer off with `SuccyKill.on()` in the console + F5 (`?succy=off` in the address does it for one visit). The nodes keep working with plain ComfyUI widgets. A console line also warns you when your frontend is newer than the one the pack was tested on.
 
 ---

@@ -1,7 +1,11 @@
 import json
+import math
 import os
 import random
 import re
+import wave
+import weakref
+from collections import OrderedDict
 
 import folder_paths
 import numpy as np
@@ -11,7 +15,11 @@ from PIL import Image
 
 from _succy_common import ANY, parse_bool, parse_float, parse_int, to_container   # the shared drawer (loaded once by __init__.py)
 
-_PREVIEW_FILES = {}     # node key -> the temp PNG it currently shows (so the next run can delete it)
+_PREVIEW_FILES = OrderedDict()   # node key -> the temp files it currently shows (the next run deletes the ones it no longer needs)
+_PLAYER = OrderedDict()          # node key -> (weak ref to the source video/audio, its player file): same source = no re-save
+_FILES_MAX = 256                 # node keys remembered; the oldest goes (and takes its files along). Every closet has a limit.
+_MAX_DECODE_BYTES = 4 << 30      # decoding a video window into float frames: past ~4 GB we refuse and say so (trim shorter)
+_AUDIO_PEAKS = 600               # bars of the waveform drawn under an audio clip
 
 
 class _SkipPreview(Exception):
@@ -55,6 +63,409 @@ def _parse_float(value) -> float:
 
 
 # ------------------------------------------------------------------ #
+#  Media helpers (VIDEO / AUDIO): pure maths first, then the files   #
+# ------------------------------------------------------------------ #
+def media_kind(value) -> str:
+    """'audio' for ComfyUI's AUDIO dict, 'video' for a VIDEO object (VideoInput duck type), '' otherwise."""
+    if isinstance(value, dict) and isinstance(value.get("waveform"), torch.Tensor) and "sample_rate" in value:
+        return "audio"
+    if callable(getattr(value, "get_components", None)) and callable(getattr(value, "save_to", None)):
+        return "video"
+    return ""
+
+
+def trim_window(duration, fps, start, end):
+    """The kept window in seconds -> (start, end, trimmed). end <= 0 or past the clip = up to the end; the window is at
+    least one frame (or 1 ms without fps) and never leaves the clip. The browser does the same sums (timeline_element)."""
+    duration = max(0.0, float(duration or 0.0))
+    step = (1.0 / fps) if fps and fps > 0 else 0.001
+    s = min(max(0.0, float(start or 0.0)), duration)
+    e = float(end or 0.0)
+    e = duration if e <= 0 or e > duration else e
+    if e - s < step:
+        s = max(0.0, min(s, duration - step))
+        e = min(duration, s + step)
+    trimmed = s > 1e-6 or e < duration - 1e-6
+    return s, e, trimmed
+
+
+def frame_range(start, end, fps, count):
+    """Seconds -> frame indexes [f0, f1) (f1 excluded): f0 = round(start * fps), f1 = round(end * fps), at least one frame."""
+    count = max(1, int(count))
+    f0 = min(max(0, int(round(start * fps))), count - 1)
+    f1 = min(max(f0 + 1, int(round(end * fps))), count)
+    return f0, f1
+
+
+def frame_at(t, fps, count):
+    """The frame on screen at time t (the one that started last), inside the clip. Half a millisecond of slack: the widget
+    keeps 3 decimals, so frame 5 at 24 fps is stored as 0.208 (not 0.20833) and must still read as frame 5."""
+    return min(max(0, int(math.floor((float(t or 0.0) + 0.0005) * fps + 1e-6))), max(0, int(count) - 1))
+
+
+def slice_audio(audio, start, end):
+    """AUDIO dict cut to [start, end) seconds (same sample rate); None stays None."""
+    if not audio:
+        return None
+    sr = int(audio["sample_rate"])
+    wf = audio["waveform"]
+    a0 = max(0, int(round(start * sr)))
+    a1 = max(a0 + 1, int(round(end * sr)))
+    return {"waveform": wf[..., a0:a1], "sample_rate": sr}
+
+
+def silent_audio(seconds, sr=44100):
+    """Stand-in for a video with no sound track: silence as long as the window, so the next node still gets an AUDIO."""
+    return {"waveform": torch.zeros(1, 1, max(1, int(round(seconds * sr)))), "sample_rate": sr}
+
+
+def audio_peaks(waveform, bins=_AUDIO_PEAKS):
+    """Loudest sample per bar (first item of the batch, all channels), 0..1 with 3 decimals: what the timeline draws."""
+    x = waveform[0].abs().float()
+    x = x.amax(0) if x.dim() == 2 else x.reshape(-1)
+    n_s = int(x.shape[0])
+    if n_s == 0:
+        return []
+    n = min(int(bins), n_s)
+    k = -(-n_s // n)
+    x = torch.nn.functional.pad(x, (0, k * n - n_s)).reshape(n, k).amax(1)
+    top = float(x.max()) or 1.0
+    return [round(float(v) / top, 3) for v in x]
+
+
+def wired_outputs(prompt, unique_id):
+    """Output slots of this node that some node downstream reads. None = can't tell (then everything gets computed)."""
+    if not isinstance(prompt, dict) or unique_id is None or str(unique_id) not in prompt:
+        return None
+    uid, out = str(unique_id), set()
+    for n in prompt.values():
+        for v in ((n or {}).get("inputs") or {}).values():
+            if isinstance(v, list) and len(v) == 2 and str(v[0]) == uid:
+                try:
+                    out.add(int(v[1]))
+                except (TypeError, ValueError):
+                    pass
+    return out
+
+
+def _video_classes():
+    """(VideoFromComponents, VideoComponents) from whichever comfy_api this ComfyUI has, or (None, None)."""
+    for mod_in, mod_ut in (("comfy_api.latest._input_impl", "comfy_api.latest._util"), ("comfy_api.input_impl", "comfy_api.util")):
+        try:
+            a = __import__(mod_in, fromlist=["VideoFromComponents"])
+            b = __import__(mod_ut, fromlist=["VideoComponents"])
+            return a.VideoFromComponents, b.VideoComponents
+        except Exception:
+            continue
+    return None, None
+
+
+def _make_video(images, audio, frame_rate):
+    vfc, vc = _video_classes()
+    if vfc is None:
+        raise RuntimeError("Succy Preview: this ComfyUI has no VideoFromComponents (comfy_api) - update ComfyUI to cut videos")
+    return vfc(vc(images=images, audio=audio, frame_rate=frame_rate))
+
+
+class _VideoInfo:
+    """What we know about a VIDEO, asking the cheap questions first (fps, duration, size) and decoding only when forced."""
+
+    def __init__(self, video):
+        self.video = video
+        self._comps = None
+        self.fps = self.duration = 0.0
+        self.frames = self.width = self.height = 0
+        self.has_audio = None
+        try:
+            self.fps = float(video.get_frame_rate())
+        except Exception:
+            pass
+        try:
+            self.duration = float(video.get_duration())
+        except Exception:
+            pass
+        try:
+            self.frames = int(video.get_frame_count())
+        except Exception:
+            pass
+        try:
+            self.width, self.height = (int(x) for x in video.get_dimensions())
+        except Exception:
+            pass
+        if not (self.fps > 0 and self.frames > 0 and self.width > 0):      # an old ComfyUI: only the components know
+            c = self.components()
+            self.fps = float(c.frame_rate) if c.frame_rate else 24.0
+            self.frames = int(c.images.shape[0])
+            self.height, self.width = int(c.images.shape[1]), int(c.images.shape[2])
+        if not self.duration > 0:
+            self.duration = self.frames / self.fps if self.fps else 0.0
+        if self._comps is not None:
+            self.has_audio = self._comps.audio is not None
+        else:
+            self.has_audio = _probe_audio(video)
+
+    def components(self):
+        if self._comps is None:
+            self._comps = self.video.get_components()
+        return self._comps
+
+    def check_decode(self, n_frames):
+        need = int(n_frames) * max(1, self.width) * max(1, self.height) * 3 * 4
+        if need > _MAX_DECODE_BYTES:
+            raise ValueError(f"Succy Preview: decoding {n_frames} frames of {self.width}x{self.height} needs ~{need / (1 << 30):.1f} GB "
+                             f"(limit {_MAX_DECODE_BYTES >> 30} GB). Make the selection shorter.")
+
+    def window(self, f0, f1):
+        """The video cut to frames [f0, f1): lazy (as_trimmed, nothing decoded) when ComfyUI can, otherwise sliced tensors."""
+        if f0 == 0 and f1 >= self.frames:
+            return self.video
+        fn = getattr(self.video, "as_trimmed", None)
+        if callable(fn) and self._comps is None:
+            # half a frame of margin on both sides: the decoder keeps start <= pts < end, so frame f0 is in and f1 is out
+            s, d = max(0.0, (f0 - 0.5) / self.fps), (f1 - f0) / self.fps
+            try:
+                cut = fn(start_time=s, duration=d, strict_duration=False)
+                if cut is not None:
+                    return cut
+            except Exception:
+                pass
+        self.check_decode(self.frames)
+        c = self.components()
+        return _make_video(c.images[f0:f1], slice_audio(c.audio, f0 / self.fps, f1 / self.fps), c.frame_rate)
+
+    def frame(self, fc):
+        """Frame fc as an IMAGE [1, H, W, C]: only that frame is decoded when ComfyUI can trim."""
+        if self._comps is None and self.frames > 1:
+            cut = self.window(fc, fc + 1)
+            if cut is not self.video:
+                try:
+                    img = cut.get_components().images
+                    if img is not None and img.shape[0] >= 1:
+                        return img[:1]
+                except Exception:
+                    pass
+        self.check_decode(self.frames)
+        return self.components().images[fc:fc + 1]
+
+
+def _probe_audio(video):
+    """Does the file carry a sound track? Asked to the container (no decoding). None = can't tell."""
+    try:
+        import av
+        src = video.get_stream_source()
+        with av.open(src, mode="r") as c:
+            return len(c.streams.audio) > 0
+    except Exception:
+        return None
+
+
+def _node_key(unique_id):
+    return re.sub(r"[^A-Za-z0-9_-]", "_", str(unique_id)) if unique_id is not None else "x"
+
+
+def _keep_files(node_key, files):
+    """This node now shows `files`: the ones it showed before and no longer needs are deleted. Capped at _FILES_MAX nodes."""
+    temp_dir = folder_paths.get_temp_directory()
+    old = _PREVIEW_FILES.pop(node_key, [])
+    _PREVIEW_FILES[node_key] = list(files)
+    drop = [f for f in old if f not in files]
+    while len(_PREVIEW_FILES) > _FILES_MAX:
+        k, gone = _PREVIEW_FILES.popitem(last=False)
+        _PLAYER.pop(k, None)
+        drop += gone
+    for f in drop:
+        try:
+            os.remove(os.path.join(temp_dir, f))
+        except OSError:
+            pass
+
+
+def _temp_name(node_key, tag, ext):
+    return f"succy_preview_{node_key}_{tag}_{random.randint(0, 99999999)}.{ext}"
+
+
+def _save_video(video, path):
+    """VIDEO -> mp4 the browser can play. Tries the newest save_to signature first, then older ones."""
+    try:
+        from comfy_api.latest import Types
+        return video.save_to(path, format=Types.VideoContainer.MP4, codec=Types.VideoCodec.AUTO)
+    except ImportError:
+        pass
+    try:
+        from comfy_api.util import VideoContainer, VideoCodec
+        return video.save_to(path, format=VideoContainer.MP4, codec=VideoCodec.AUTO)
+    except ImportError:
+        return video.save_to(path)
+
+
+def write_wav(path, audio):
+    """AUDIO (first item of the batch, up to 2 channels) -> 16-bit PCM WAV: no codec needed, every browser plays it."""
+    wf = audio["waveform"][0][:2].detach().float().cpu().clamp(-1.0, 1.0)
+    data = (wf * 32767.0).round().to(torch.int16).t().contiguous().numpy().tobytes()
+    with wave.open(path, "wb") as w:
+        w.setnchannels(int(wf.shape[0]))
+        w.setsampwidth(2)
+        w.setframerate(int(audio["sample_rate"]))
+        w.writeframes(data)
+
+
+def _player_file(node_key, source, tag, ext, writer):
+    """The file the player shows for `source`: re-used while the very same object comes back (a trim change re-runs the node
+    with the same upstream output), written again otherwise."""
+    temp_dir = folder_paths.get_temp_directory()
+    hit = _PLAYER.get(node_key)
+    if hit:
+        ref, name = hit
+        try:
+            same = ref() is source
+        except Exception:
+            same = False
+        if same and os.path.isfile(os.path.join(temp_dir, name)):
+            return name
+    name = _temp_name(node_key, tag, ext)
+    writer(os.path.join(temp_dir, name))
+    try:
+        _PLAYER[node_key] = (weakref.ref(source), name)
+    except TypeError:                       # not weak-referenceable (a plain dict): remember nothing, write every time
+        _PLAYER.pop(node_key, None)
+    return name
+
+
+def _saved(name):
+    return {"filename": name, "subfolder": "", "type": "temp"}
+
+
+# ---- formats (D-198): Convert To for clips = the container / file format ----
+# Video: what ComfyUI's LoadVideo opens AND we can write back. "video.auto" = as it came (the frontend swaps it for the real
+# format after the first run). Audio: an AUDIO is raw samples, so the format is the download file's (the output stays samples).
+VIDEO_FORMATS = ["video.auto", "video.mp4", "video.webm", "video.mkv", "video.mov", "video.avi", "video.gif"]
+AUDIO_FORMATS = ["audio.wav", "audio.mp3", "audio.flac", "audio.ogg", "audio.m4a"]
+# container -> (av format, video codec, pixel format, audio codec or None)
+_VENC = {"mp4": ("mp4", "libx264", "yuv420p", "aac"), "mkv": ("matroska", "libx264", "yuv420p", "aac"),
+         "webm": ("webm", "libvpx-vp9", "yuv420p", "libopus"), "mov": ("mov", "libx264", "yuv420p", "aac"),
+         "avi": ("avi", "mpeg4", "yuv420p", "pcm_s16le"), "gif": ("gif", "gif", "rgb8", None)}
+# audio file -> (av format, codec, sample rates the codec takes or None)
+_AENC = {"mp3": ("mp3", "libmp3lame"), "flac": ("flac", "flac"), "ogg": ("ogg", "libopus"), "m4a": ("ipod", "aac")}
+# sample rates each codec takes (first = the one we resample to); missing = any
+_RATES = {"libopus": (48000, 24000, 16000, 12000, 8000),
+          "aac": (48000, 44100, 96000, 88200, 64000, 32000, 24000, 22050, 16000, 12000, 11025, 8000),
+          "libmp3lame": (48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000)}
+
+
+def _fit_rate(audio, codec):
+    rates = _RATES.get(codec)
+    return audio if not rates or int(audio["sample_rate"]) in rates else _resample(audio, rates[0])
+
+
+def fmt_ext(value, default):
+    """'video.mp4' -> 'mp4'; anything else (old 'VIDEO', 'auto') -> default."""
+    v = str(value or "")
+    ext = v.split(".", 1)[1].lower() if "." in v else ""
+    return ext if ext and ext != "auto" else default
+
+
+def video_format_of(video):
+    """The container a VIDEO came in: the file's extension first, then the demuxer's name. 'mp4' when nobody can tell."""
+    try:
+        src = video.get_stream_source()
+        if isinstance(src, str):
+            ext = os.path.splitext(src)[1].lower().lstrip(".")
+            if ext in _VENC:
+                return ext
+            if ext == "m4v":
+                return "mp4"
+    except Exception:
+        pass
+    try:
+        name = str(video.get_container_format() or "").lower()
+    except Exception:
+        name = ""
+    for key, ext in (("gif", "gif"), ("avi", "avi"), ("webm", "webm"), ("matroska", "mkv"), ("mov", "mp4"), ("mp4", "mp4")):
+        if key in name:
+            return ext
+    return "mp4"
+
+
+def _video_from_file(path):
+    for mod in ("comfy_api.latest._input_impl", "comfy_api.input_impl"):
+        try:
+            return __import__(mod, fromlist=["VideoFromFile"]).VideoFromFile(path)
+        except Exception:
+            continue
+    raise RuntimeError("Succy Preview: this ComfyUI has no VideoFromFile (comfy_api) - update ComfyUI to convert videos")
+
+
+def encode_video(images, audio, fps, path, ext):
+    """Frames [N, H, W, C] (+ AUDIO) -> a file in container `ext`, with PyAV (what ComfyUI itself uses)."""
+    import av
+    from fractions import Fraction
+    fmt, vcodec, pix, acodec = _VENC[ext]
+    n, h, w = int(images.shape[0]), int(images.shape[1]), int(images.shape[2])
+    rate = Fraction(fps).limit_denominator(1001) if fps else Fraction(24)
+    with av.open(path, mode="w", format=fmt) as out:
+        vs = out.add_stream(vcodec, rate=rate)
+        vs.width, vs.height = (w // 2) * 2 if vcodec != "gif" else w, (h // 2) * 2 if vcodec != "gif" else h
+        vs.pix_fmt = pix
+        aus = None
+        if audio is not None and acodec:
+            audio = _fit_rate(audio, acodec)
+            ch = min(2, int(audio["waveform"].shape[1]))
+            aus = out.add_stream(acodec, rate=int(audio["sample_rate"]), layout="stereo" if ch == 2 else "mono")
+        for i in range(n):
+            arr = (images[i, : vs.height, : vs.width, :3].clamp(0, 1) * 255).round().to(torch.uint8).cpu().numpy()
+            for pkt in vs.encode(av.VideoFrame.from_ndarray(arr, format="rgb24")):
+                out.mux(pkt)
+        for pkt in vs.encode():
+            out.mux(pkt)
+        if aus is not None:
+            _mux_audio(out, aus, audio)
+
+
+def _resample(audio, sr):
+    wf = audio["waveform"]
+    n = max(1, int(round(wf.shape[-1] * sr / int(audio["sample_rate"]))))
+    return {"waveform": torch.nn.functional.interpolate(wf.float(), size=n, mode="linear", align_corners=False), "sample_rate": sr}
+
+
+def _mux_audio(out, stream, audio):
+    import av
+    wf = audio["waveform"][0][:2].detach().float().cpu().clamp(-1, 1).contiguous()
+    frame = av.AudioFrame.from_ndarray(wf.numpy(), format="fltp", layout="stereo" if wf.shape[0] == 2 else "mono")
+    frame.sample_rate = int(audio["sample_rate"])
+    for pkt in stream.encode(frame):
+        out.mux(pkt)
+    for pkt in stream.encode():
+        out.mux(pkt)
+
+
+def _save_as(video, path, ext, comps, fps, keep_audio=True):
+    """VIDEO -> file in container `ext`: ComfyUI's own save_to for mp4 / mkv / webm (stream copy when it can), our PyAV
+    encoder for the rest or when the sound must go (split)."""
+    if ext in ("mp4", "mkv", "webm") and keep_audio and callable(getattr(video, "save_to", None)):
+        try:
+            from comfy_api.latest import Types
+            return video.save_to(path, format=Types.VideoContainer(ext), codec=Types.VideoCodec.AUTO)
+        except Exception:
+            pass
+    c = comps()
+    encode_video(c.images, c.audio if keep_audio and ext != "gif" else None, fps, path, ext)
+
+
+def write_audio(path, audio, ext):
+    """AUDIO -> file: WAV by hand (no codec), the rest with PyAV."""
+    if ext == "wav":
+        return write_wav(path, audio)
+    import av
+    fmt, codec = _AENC[ext]
+    audio = _fit_rate(audio, codec)
+    ch = min(2, int(audio["waveform"].shape[1]))
+    with av.open(path, mode="w", format=fmt) as out:
+        st = out.add_stream(codec, rate=int(audio["sample_rate"]), layout="stereo" if ch == 2 else "mono")
+        _mux_audio(out, st, audio)
+
+
+
+# ------------------------------------------------------------------ #
 #  Node                                                              #
 # ------------------------------------------------------------------ #
 class Succy_Preview_Anything_Convert:
@@ -68,21 +479,36 @@ class Succy_Preview_Anything_Convert:
                     "label_off": "Off",
                 }),
                 "source": (ANY, {"tooltip": "Attach anything here."}),
-                "output_type": (_OUTPUT_TYPES, {"default": "STRING"}),
+                # clips use the format entries (VIDEO_FORMATS / AUDIO_FORMATS): the frontend shows only the list of the mode
+                "output_type": (_OUTPUT_TYPES + VIDEO_FORMATS + AUDIO_FORMATS, {"default": "STRING"}),
                 # only meaningful with output_type MASK: flips the mask (1 - m). The frontend shows it as the INVERT button.
                 "invert_mask": ("BOOLEAN", {"default": False}),
+                # VIDEO / AUDIO only (the frontend's timeline writes them): the kept window in seconds (end 0 = up to the end)
+                # and the frame that goes out of `frame`. Split audio = the video goes out silent and its sound has its own output.
+                "trim_start": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1e7, "step": 0.001}),
+                "trim_end": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1e7, "step": 0.001}),
+                "current_time": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1e7, "step": 0.001}),
+                "split_audio": ("BOOLEAN", {"default": False}),
             },
-            # the node's id: one picture file per node, the old one goes away when the new one lands (no PNG pile-up in temp/)
-            "hidden": {"unique_id": "UNIQUE_ID"},
+            # the node's id: one set of preview files per node, the old ones go away when the new ones land (no pile-up in temp/).
+            # prompt: to see which outputs are wired, so a frame nobody reads is never decoded.
+            "hidden": {"unique_id": "UNIQUE_ID", "prompt": "PROMPT"},
         }
 
-    RETURN_TYPES = (ANY, "INT", "INT", "FLOAT")
-    RETURN_NAMES = ("output", "width", "height", "megapixels")
+    # The slots change with the input: "*" so every shape type-checks; the sockets the user sees are typed by the frontend
+    # (shape_output). text: output · image: output, width, height, megapixels · audio: output, duration ·
+    # video: output, frame, duration (+ audio with split_audio).
+    RETURN_TYPES = (ANY, ANY, ANY, ANY, ANY)
+    RETURN_NAMES = ("output", "width", "height", "megapixels", "audio")
     FUNCTION = "execute"
     OUTPUT_NODE = True
 
     # -------------------------------------------------------------- #
-    def execute(self, preview, source, output_type, invert_mask=False, unique_id=None):
+    def execute(self, preview, source, output_type, invert_mask=False, trim_start=0.0, trim_end=0.0, current_time=0.0,
+                split_audio=False, unique_id=None, prompt=None):
+        kind = media_kind(source)
+        if kind:
+            return self._media(kind, preview, source, output_type, trim_start, trim_end, current_time, split_audio, unique_id, prompt)
         converted = source
         width = height = 0
         megapixels = 0.0
@@ -93,7 +519,7 @@ class Succy_Preview_Anything_Convert:
         if source is None:
             return {
                 "ui": {"succy_text": ["No input detected."]},
-                "result": (converted, width, height, megapixels),
+                "result": (converted, width, height, megapixels, None),
             }
 
         # ---------- IMAGE / MASK ----------
@@ -157,8 +583,8 @@ class Succy_Preview_Anything_Convert:
                     if not preview:
                         raise _SkipPreview()
                     temp_dir = folder_paths.get_temp_directory()
-                    node_key = re.sub(r"[^A-Za-z0-9_-]", "_", str(unique_id)) if unique_id is not None else "x"
-                    filename = f"succy_preview_{node_key}_{random.randint(0, 99999999)}.png"
+                    node_key = _node_key(unique_id)
+                    filename = _temp_name(node_key, "img", "png")
                     file_path = os.path.join(temp_dir, filename)
 
                     shown = converted if invert_shown else source      # inverted mask: preview what comes out
@@ -175,13 +601,8 @@ class Succy_Preview_Anything_Convert:
                             arr = arr[..., :3]
                         pil_img = Image.fromarray(arr, mode="RGBA" if arr.shape[-1] == 4 else "RGB")
                     pil_img.save(file_path, compress_level=4)
-                    old = _PREVIEW_FILES.get(node_key)
-                    _PREVIEW_FILES[node_key] = filename
-                    if old and old != filename:
-                        try:
-                            os.remove(os.path.join(temp_dir, old))
-                        except OSError:
-                            pass
+                    _keep_files(node_key, [filename])
+                    _PLAYER.pop(node_key, None)
 
                     ui_images = [{
                         "filename": filename,
@@ -214,6 +635,10 @@ class Succy_Preview_Anything_Convert:
 
             text_output = _to_text(converted)
 
+        if not ui_images:                   # nothing to show any more: the files of the previous run (picture, video) go
+            _keep_files(_node_key(unique_id), [])
+            _PLAYER.pop(_node_key(unique_id), None)
+
         # ---------- UI RESPONSE ----------
         # "succy_*" keys: custom, handled by the dedicated JS (not by the native UI).
         # Text always goes out; the picture only with preview ON (see above).
@@ -239,7 +664,112 @@ class Succy_Preview_Anything_Convert:
 
         return {
             "ui": ui_res,
-            "result": (converted, width, height, megapixels),
+            "result": (converted, width, height, megapixels, None),
         }
+
+    # -------------------------------------------------------------- #
+    def _media(self, kind, preview, source, output_type, trim_start, trim_end, current_time, split_audio, unique_id, prompt):
+        """VIDEO / AUDIO in (D-198). `output` = the clip with everything applied: the window [trim_start, trim_end) really cut
+        (frames and samples), split_audio = silent, Convert To = the container (video) or the download file (audio).
+        `frame` (video) = the frame under current_time, which always sits inside the window. `duration` = seconds of what
+        goes out (3 decimals). split_audio adds `audio` = the window's sound. The player shows the WHOLE clip (the timeline
+        needs all of it); the download button gets exactly `output`."""
+        node_key = _node_key(unique_id)
+        wired = wired_outputs(prompt, unique_id)
+        need = (lambda slot: True) if wired is None else (lambda slot: slot in wired)
+        media = {"kind": kind}
+        files = []
+        temp = folder_paths.get_temp_directory()
+
+        if kind == "audio":
+            sr = int(source["sample_rate"])
+            n_s = int(source["waveform"].shape[-1])
+            duration = n_s / sr if sr else 0.0
+            s, e, trimmed = trim_window(duration, 0, trim_start, trim_end)
+            out_audio = slice_audio(source, s, e) if trimmed else source
+            ext = fmt_ext(output_type, "wav")
+            if ext not in _AENC and ext != "wav":
+                ext = "wav"
+            channels = int(source["waveform"].shape[1]) if source["waveform"].dim() == 3 else 1
+            dur_out = round(float(out_audio["waveform"].shape[-1]) / sr, 3) if sr else 0.0
+            info = (f"Type: AUDIO\nSample rate: {sr} Hz\nChannels: {channels}\nDuration: {duration:.3f} s\n"
+                    f"Selection: {s:.3f} -> {e:.3f} s\nOut: {dur_out:.3f} s as .{ext}")
+            media.update(duration=duration, fps=0, sample_rate=sr, channels=channels, start=s, end=e, trimmed=trimmed,
+                         peaks=audio_peaks(source["waveform"]), format="audio.wav")
+            line = f"{duration:.3f} s · {sr} Hz · {channels} ch"
+            if preview:
+                try:
+                    play = _player_file(node_key, source, "aud", "wav", lambda path: write_wav(path, source))
+                    files.append(play)
+                    dl = play
+                    if trimmed or ext != "wav":
+                        dl = _temp_name(node_key, "cut", ext)
+                        write_audio(os.path.join(temp, dl), out_audio, ext)
+                        files.append(dl)
+                    media.update(src=_saved(play), dl=_saved(dl))
+                except Exception as ex:
+                    print(f"[PreviewAny] Audio preview error: {ex}")
+            _keep_files(node_key, files)
+            result = (out_audio, dur_out, None, None, None)
+        else:
+            vi = _VideoInfo(source)
+            fps, n = vi.fps, vi.frames
+            s, e, trimmed = trim_window(vi.duration, fps, trim_start, trim_end)
+            f0, f1 = frame_range(s, e, fps, n)
+            fc = min(max(frame_at(current_time, fps, n), f0), f1 - 1)          # the current frame never leaves the window
+            split = bool(split_audio)
+            src_fmt = video_format_of(source)
+            ext = fmt_ext(output_type, src_fmt)
+            if ext not in _VENC:
+                ext = src_fmt if src_fmt in _VENC else "mp4"
+            out_video = vi.window(f0, f1) if trimmed else source
+            cut = {}
+
+            def comps():                    # the window decoded ONCE, only if some output really needs tensors
+                if "c" not in cut:
+                    vi.check_decode(f1 - f0)
+                    cut["c"] = out_video.get_components()
+                return cut["c"]
+
+            audio = None
+            if split:
+                quiet = silent_audio((f1 - f0) / fps if fps else 0.0)
+                c = comps()
+                audio = quiet if vi.has_audio is False else (c.audio or quiet)
+            made = None
+            if ext != src_fmt or (split and ext != "gif") or (trimmed and ext not in ("mp4", "mkv", "webm")):
+                # a real file in the chosen container (silent with split): what comes out IS what the download saves
+                made = _temp_name(node_key, "out", ext)
+                _save_as(out_video, os.path.join(temp, made), ext, comps, fps, keep_audio=not split)
+                out_video = _video_from_file(os.path.join(temp, made))
+                files.append(made)
+            dur_out = round((f1 - f0) / fps, 3) if fps else round(e - s, 3)
+            info = (f"Type: VIDEO\nResolution: {vi.width} x {vi.height}\nFPS: {fps:.3f}\nDuration: {vi.duration:.3f} s\n"
+                    f"Frames: {n}\nFormat: {src_fmt}\nAudio: {'yes' if vi.has_audio else 'no' if vi.has_audio is False else '?'}\n"
+                    f"Selection: {s:.3f} -> {e:.3f} s (frames {f0} -> {f1 - 1})\nCurrent frame: {fc}\nOut: {dur_out:.3f} s as .{ext}"
+                    + (" (silent)" if split else ""))
+            frame = vi.frame(fc) if need(1) else None
+            media.update(duration=vi.duration, fps=fps, frames=n, width=vi.width, height=vi.height, has_audio=vi.has_audio,
+                         start=s, end=e, trimmed=trimmed, split=split, format="video." + src_fmt)
+            line = f"{vi.width}×{vi.height} · {fps:.2f} fps · {vi.duration:.3f} s · {n} frames · {src_fmt}" + (" · audio" if vi.has_audio else "")
+            if preview:
+                try:
+                    play = _player_file(node_key, source, "vid", "mp4", lambda path: _save_video(source, path))
+                    files.append(play)
+                    dl = made or play
+                    if not made and (out_video is not source or ext != "mp4"):      # the download in the very format of `output`
+                        dl = _temp_name(node_key, "cut", ext)
+                        _save_as(out_video, os.path.join(temp, dl), ext, comps, fps, keep_audio=True)
+                        files.append(dl)
+                    media.update(src=_saved(play), dl=_saved(dl))
+                except Exception as ex:
+                    print(f"[PreviewAny] Video preview error: {ex}")
+            _keep_files(node_key, files)
+            result = (out_video, frame, dur_out, audio if split else None, None)
+
+        if preview:
+            print("\n" + "=" * 40 + f"\nPreviewAny [{kind.upper()}]:\n{info}\n" + "=" * 40 + "\n")
+        return {"ui": {"succy_media": [media], "succy_info": [line], "succy_text": [info]}, "result": result}
+
 
 # Node names (and the class mapping) live ONLY in the pack's __init__.py (NODES). Nobody gets to name herself here, honey.

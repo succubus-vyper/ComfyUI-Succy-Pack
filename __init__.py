@@ -147,6 +147,8 @@ if _common is not None:
     _image = _load_module("Succy_Image", {"folder": "Succy_Common", "py_file": "succy_image.py"})
     if _image is not None:
         sys.modules["_succy_image"] = _image
+    # the right-click canvas menu's routes (free VRAM, force stop, reboot in the same tab, D-201)
+    _load_module("Succy_CanvasMenu", {"folder": "Succy_Common", "py_file": "succy_canvas_menu.py"})
 
 
 NODE_CLASS_MAPPINGS = {}
