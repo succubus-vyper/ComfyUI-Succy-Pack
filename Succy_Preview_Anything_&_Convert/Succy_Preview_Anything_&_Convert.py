@@ -631,6 +631,7 @@ _BIG_SIDE = 1600
 _KEEP_MAX = 32               # nodes whose last gallery / clip the routes remember (weak refs: ComfyUI's cache owns the tensors)
 _GALLERY = OrderedDict()     # node key -> (weak ref to the batch shown, token of that Run)
 _CLIPS = OrderedDict()       # node key -> what Apply fps needs to re-time the player without a Run (D-205c)
+_RETIMED = OrderedDict()     # node key -> (weak ref to the ORIGINAL video, its re-timing signature, the player file at that fps)
 _LAST = OrderedDict()        # node key -> the last Run's inputs (source by weak ref): As clip switches live from these (D-205d)
 
 
@@ -1162,7 +1163,16 @@ class Succy_Preview_Anything_Convert:
             vi = _VideoInfo(source)
             _remember(_CLIPS, node_key, {"kind": "video", "ref": weakref.ref(source), "auto_fps": vi.fps, "audio_in": audio_in, "gain": gain})
             fps, where = fps_of(vi.fps, "video") if fps_of else (vi.fps, "video")
+            orig, ready = source, None
+            ready = None                                     # the live switch (D-205d): this re-timing is already on disk
             if audio_in is not None or abs(fps - vi.fps) > 1e-3 or (abs(g - 1.0) > 1e-6 and vi.has_audio is not False):
+                sig = _retime_sig(fps, audio_in, g)
+                ready = _retimed_file(node_key, source, sig) if getattr(self, "_view", False) else None
+            if ready:                                        # its player IS the re-timed video: opened lazily, nothing decoded
+                source = _video_from_file(os.path.join(temp, ready))
+                vi = _VideoInfo(source)
+                vi.fps, vi.duration = fps, vi.frames / fps
+            elif audio_in is not None or abs(fps - vi.fps) > 1e-3 or (abs(g - 1.0) > 1e-6 and vi.has_audio is not False):
                 vi.check_decode(vi.frames)
                 c = vi.components()
                 from fractions import Fraction
@@ -1214,7 +1224,9 @@ class Succy_Preview_Anything_Convert:
                     + (" · audio" if vi.has_audio else ""))
             if preview:
                 try:
-                    play = _player_file(node_key, source, "vid", "mp4", lambda path: _save_video(source, path))
+                    play = ready or _player_file(node_key, source, "vid", "mp4", lambda path: _save_video(source, path))
+                    if source is not orig:                   # re-timed: remembered, so Off -> On at this fps is instant
+                        _remember(_RETIMED, node_key, (_ref(orig), _retime_sig(fps, audio_in, g), play))
                     files.append(play)
                     dl = made or play
                     if not made and (out_video is not source or ext != "mp4"):      # the download in the very format of `output`
@@ -1317,12 +1329,31 @@ def _add_file(node_key, name):
 
 
 def _player_kept(node_key):
-    """The clip player file of this node, while its source is still alive: kept on disk when the box shows pictures."""
-    hit = _PLAYER.get(node_key)
+    """The clip player files of this node (plain and re-timed), while their source is still alive: kept on disk when the box
+    shows pictures."""
+    out = []
+    for store, i in ((_PLAYER, 1), (_RETIMED, 2)):
+        hit = store.get(node_key)
+        try:
+            if hit and hit[0]() is not None:
+                out.append(hit[i])
+        except Exception:
+            pass
+    return out
+
+
+def _retime_sig(fps, audio_in, gain):
+    return (round(float(fps), 4), id(audio_in["waveform"]) if audio_in is not None else None, round(gain_value(gain), 3))
+
+
+def _retimed_file(node_key, video, sig):
+    """The player file already made for this very video at this fps / sound / volume, or None."""
+    hit = _RETIMED.get(node_key)
     try:
-        return [hit[1]] if hit and hit[0]() is not None else []
+        ok = hit and hit[0]() is video and hit[1] == sig and os.path.isfile(os.path.join(folder_paths.get_temp_directory(), hit[2]))
     except Exception:
-        return []
+        ok = False
+    return hit[2] if ok else None
 
 
 def _remember_run(source, audio, kw):
@@ -1382,6 +1413,7 @@ def apply_fps(key, fps=None, auto=False):
         play = _temp_name(key, "vid", "mp4")
         encode_video(c.images, full, target, os.path.join(temp, play), "mp4")
         width, height = vi.width, vi.height
+        _remember(_RETIMED, key, (_ref(src), _retime_sig(target, ctx["audio_in"], ctx["gain"]), play))
     _add_file(key, play)
     auto_from = "video" if ctx["kind"] == "video" else ("VHS" if ctx.get("vhs") else "default")
     return {"fps": target, "fps_from": auto_from if auto else "manual",

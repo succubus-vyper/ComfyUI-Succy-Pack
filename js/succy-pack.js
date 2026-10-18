@@ -316,7 +316,8 @@ ${DOVE.map(d=>`- \`${d}\` → ${COLLOCAZIONE[d]}`).join(`
 .ns-pane-gpg{display:flex;align-items:center;gap:4px;font:10px monospace;color:var(--ns-c-text-4, #888);background:var(--ns-bg-2);padding:2px 6px;border-radius:3px;white-space:nowrap}
 .ns-pane-gin{width:4ch;min-width:3ch;height:16px;padding:0 3px;border:1px solid var(--ns-border);border-radius:3px;background:var(--ns-c-pane-bg, #0e0e0e);color:var(--ns-c-text, #ddd);font:10px monospace;text-align:center;cursor:text}
 .ns-pane-gin:focus{outline:none;border-color:var(--ns-accent-fg, #4a9eff)}
-.ns-pane-gper{height:22px;padding:0 2px;border:1px solid var(--ns-border);border-radius:4px;background:var(--ns-bg-2);color:var(--ns-c-text, #ddd);font:10px monospace;cursor:pointer}
+.ns-pane-gper{height:22px;padding:0 2px;border:1px solid var(--ns-border);border-radius:4px;background:var(--ns-c-pane-bg, #0e0e0e);color-scheme:dark;color:var(--ns-c-text, #ddd);font:10px monospace;cursor:pointer}
+.ns-pane-gper option{background:var(--ns-c-pane-bg, #0e0e0e);color:var(--ns-c-text, #ddd)}
 .ns-pane-busy{position:absolute;inset:10px;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;border-radius:4px;border:1px dashed var(--ns-c-accent-tint, rgba(74,158,255,.45));background:repeating-linear-gradient(135deg,var(--ns-c-accent-tint, rgba(74,158,255,.07)) 0 10px,transparent 10px 20px),var(--ns-c-pane-bg, #0e0e0e);background-size:28.28px 28.28px;animation:ns-stripes 1.5s linear infinite;animation-play-state:var(--ns-anim,running)}
 .ns-pane-busy-t{color:var(--ns-accent-fg, #4a9eff);font:bold 14px monospace;letter-spacing:3px;text-transform:uppercase;text-align:center}
 .ns-pane-busy-s{color:var(--ns-accent-fg, #4a9eff);font:10px monospace;letter-spacing:2px;text-transform:uppercase;opacity:.8}
