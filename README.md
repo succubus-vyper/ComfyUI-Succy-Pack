@@ -66,9 +66,9 @@ Up to **15 chained equations** in a single node, over up to **10 inputs** (`a`�
 
 ### 📝 Multi Parse
 The text-wrangling sibling of Multi Math: up to **15 chained text operations** over inputs `a`…`j`, each with its own output and format.
-Twelve modes: **Concat, Replace, Regex** (extract / replace, with a timeout so a bad pattern can't hang ComfyUI), **Split, Join, Contains, Compare, Starts / Ends with, Trim** (edges, double spaces, all spaces, blank lines), **Case** (UPPER, lower, Title, Sentence and more), **Substring, Length**.
+Eleven modes: **Concat** (join all / template), **Replace, Regex** (extract / replace, with a timeout so a bad pattern can't hang ComfyUI), **Split, Contains, Compare, Starts / Ends with, Trim** (edges, double spaces, all spaces, blank lines), **Case** (UPPER, lower, Title, Sentence and more), **Substring, Length**.
 Fields accept `@` tokens, numeric fields can be overridden by a wire, and every error stays visible instead of crashing the queue.
-**Concat** is a template (`Hello @a, you are @b`) — or leave it empty and it simply glues every wired input together; **Join** does the same with a separator (or glues a list). Images on an input show up as `<tensor 4x512x512x3>`, not a wall of numbers.
+**Concat** is a plain concat: every wired input glued with the separator you pick (lists count as their items, *Trim pieces* drops the empty ones, no `a, , c`). Flip it to **Template** for `Hello @a, you are @b`. Images on an input show up as `<tensor 4x512x512x3>`, not a wall of numbers.
 
 ### 💎 Primitive
 The ultimate primitive. She's born small and undecided: pick what she becomes — **Int, Float, Seed, Bool, String, Multiline, List, Color, Resolution, Image, Mask, Latent** — and she turns into exactly that, with the right controls and outputs. Her title follows (*Succy - 🔢Int*…) unless you renamed her yourself.

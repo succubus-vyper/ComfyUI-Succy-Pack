@@ -550,6 +550,8 @@ def vhs_timing(loader, n_frames, file_fps=None):
     else the file's own; skip_first_frames counts at the base rate (FFmpeg loaders take start_time); every nth stretches it.
     fps 0 = can't tell (a setting arrives on a wire, the file is gone): then the frames are shown as plain pictures."""
     inp = loader["inputs"]
+    if inp.get("meta_batch") is not None or inp.get("vae") is not None:
+        return 0.0, 0.0              # Batch Manager = the frames come in chunks (where each starts is VHS's secret); VAE = latents
     try:
         force = float(_literal(inp.get("force_rate")) or 0)
         nth = max(1, int(_literal(inp.get("select_every_nth")) or 1))

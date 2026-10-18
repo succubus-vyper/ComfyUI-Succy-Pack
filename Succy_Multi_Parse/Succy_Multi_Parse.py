@@ -18,11 +18,12 @@ MAX_OPERATIONS = 15
 INPUT_NAMES = list("abcdefghij")
 
 MODES = [
-    "CONCATENATE", "REPLACE", "REGEX", "SPLIT", "JOIN", "CONTAINS",
+    "CONCATENATE", "REPLACE", "REGEX", "SPLIT", "CONTAINS",
     "COMPARE", "STARTS_ENDS", "TRIM", "CASE", "SUBSTRING", "LENGTH",
 ]
 
 # the little "flavour" of a mode (toggle / dropdown above its fields). First value = default.
+CONCAT_KINDS = ["ALL", "TEMPLATE"]          # ALL = glue the items with a separator (Join is gone: this is it, D-204) · TEMPLATE = @a text @b
 REGEX_KINDS = ["EXTRACT", "REPLACE"]
 EDGE_KINDS = ["STARTS", "ENDS"]
 CASE_KINDS = ["UPPER", "LOWER", "TITLE", "SENTENCE", "SWAP", "SNAKE", "KEBAB", "CAMEL"]
@@ -32,7 +33,8 @@ TRIM_KINDS = ["ENDS", "COLLAPSE", "NO_SPACES", "NO_BLANK_LINES"]
 def text_fields(mode, kind):
     """How many TEXT fields (f1..f3) the mode reads."""
     if mode == "REGEX": return 3 if kind == "REPLACE" else 2
-    return {"CONCATENATE": 1, "REPLACE": 3, "SPLIT": 2, "JOIN": 2, "CONTAINS": 2, "COMPARE": 2,
+    if mode == "CONCATENATE": return 1 if kind == "TEMPLATE" else 2
+    return {"REPLACE": 3, "SPLIT": 2, "CONTAINS": 2, "COMPARE": 2,
             "STARTS_ENDS": 2, "TRIM": 1, "CASE": 1, "SUBSTRING": 1, "LENGTH": 1}.get(mode, 1)
 
 
@@ -196,9 +198,24 @@ def apply_trim(kind, s):
     return s.strip()
 
 
-def run_mode(mode, kind, raw, nums, env, wired=()):
+def concat_items(field, env, wired):
+    """What Concat ALL glues: empty field = every wired input in order; otherwise the @tokens written in it, in order (text around
+    them is ignored), or the text itself when it holds no token. A list counts as its items (Split's result, a LIST input)."""
+    if not field.strip():
+        vals = [env[k] for k in wired]
+    else:
+        keys = [m.group(1) for m in _TOKEN.finditer(field) if m.group(1) in env]
+        vals = [env[k] for k in keys] if keys else [_unescape(field)]
+    out = []
+    for v in vals:
+        out.extend(v if isinstance(v, (list, tuple)) else [v])
+    return out
+
+
+def run_mode(mode, kind, raw, nums, env, wired=(), trim=False):
     """raw = the three text fields, nums = the two numeric slots (int or None), kind = the mode's flavour, wired = the
-    inputs that are plugged (a..j, in order). Returns the raw result (the format conversion happens afterwards)."""
+    inputs that are plugged (a..j, in order), trim = Concat ALL's Trim switch. Returns the raw result (the format
+    conversion happens afterwards)."""
     def val(idx):                     # field -> raw value if it's ONE token, otherwise text with tokens filled in
         text = raw[idx]
         if not text:
@@ -211,14 +228,15 @@ def run_mode(mode, kind, raw, nums, env, wired=()):
     def txt(idx):
         return _text(val(idx))
 
-    # Empty first field = "just take what's plugged in" (D-202): Concat glues every wired input as it is, Join glues them
-    # with the separator. No @a @b ritual for the simple case; the template is there when you want to get fancy.
-    lazy = not raw[0].strip() and wired
-
     if mode == "CONCATENATE":
-        if lazy:
-            return env[wired[0]] if len(wired) == 1 else "".join(_text(env[k]) for k in wired)
-        return val(0)
+        if kind == "TEMPLATE":                       # Hello @a, you are @b — the fancy one
+            return val(0)
+        # ALL (D-204): a plain concat, like everyone else's. Items + separator; Trim = every piece trimmed, empty ones skipped
+        # (no "a, , c"). No @a @b ritual for the simple case, darling: plug, pick a separator, done.
+        items = [_text(x) for x in concat_items(raw[0], env, wired)]
+        if trim:
+            items = [x.strip() for x in items if x.strip()]
+        return _unescape(raw[1]).join(items)
 
     if mode == "REPLACE":
         find = _unescape(txt(1))
@@ -245,15 +263,6 @@ def run_mode(mode, kind, raw, nums, env, wired=()):
             delim = _unescape(txt(1))
             parts = str(src).split(delim) if delim else list(str(src))
         return parts if nums[0] is None else parts[nums[0]]
-
-    if mode == "JOIN":
-        if lazy:                      # one wired list = its items; several inputs = one item each
-            one = env[wired[0]]
-            src = one if len(wired) == 1 and isinstance(one, (list, tuple)) else [env[k] for k in wired]
-        else:
-            src = val(0)
-        sep = _unescape(txt(1))
-        return sep.join(_text(x) for x in src) if isinstance(src, (list, tuple)) else _text(src)
 
     if mode == "CONTAINS":
         src, needle = val(0), txt(1)
@@ -287,12 +296,12 @@ def run_mode(mode, kind, raw, nums, env, wired=()):
 class Cfg(dict):
     """The node's whole per-block configuration lives in ONE hidden JSON widget (`ops`), holding only what differs from the
     defaults. A frontend widget costs a lot (241 of them made create / clone / load crawl), a JSON string costs nothing. D-79"""
-    _KINDS = {"rx": REGEX_KINDS, "se": EDGE_KINDS, "cs": CASE_KINDS, "tr": TRIM_KINDS}
+    _KINDS = {"ct": CONCAT_KINDS, "rx": REGEX_KINDS, "se": EDGE_KINDS, "cs": CASE_KINDS, "tr": TRIM_KINDS}
 
     def get(self, key, default=None):
         if key in self:
             return dict.get(self, key)
-        m = re.fullmatch(r"(label_|mode_|format_r|rx_|se_|cs_|tr_|f[123]_|n[12]_|e[12]_|o[12]_)(\d+)", str(key))
+        m = re.fullmatch(r"(label_|mode_|format_r|ct_|rx_|se_|cs_|tr_|tm_|f[123]_|n[12]_|e[12]_|o[12]_)(\d+)", str(key))
         if not m:
             return default
         pre, idx = m.group(1), m.group(2)
@@ -302,7 +311,7 @@ class Cfg(dict):
         if pre[:2] in self._KINDS and pre[2] == "_": return self._KINDS[pre[:2]][0]
         if pre[0] == "f": return ""
         if pre[0] == "n": return 0
-        if pre[0] == "e": return False
+        if pre[0] == "e" or pre == "tm_": return False
         return "-"                                     # o1_ / o2_: no override
 
 
@@ -331,7 +340,7 @@ def pick_int(cfg, i, k, env, kinds):
 
 
 def _kind_of(mode, cfg, i):
-    key, opts = {"REGEX": ("rx", REGEX_KINDS), "STARTS_ENDS": ("se", EDGE_KINDS),
+    key, opts = {"CONCATENATE": ("ct", CONCAT_KINDS), "REGEX": ("rx", REGEX_KINDS), "STARTS_ENDS": ("se", EDGE_KINDS),
                  "CASE": ("cs", CASE_KINDS), "TRIM": ("tr", TRIM_KINDS)}.get(mode, (None, None))
     if key is None:
         return ""
@@ -383,8 +392,8 @@ class Succy_Multi_Parse:
             raw = [str(cfg.get(f"f{k}_{i}", "") or "") for k in (1, 2, 3)]
 
             shown = " | ".join(_debug_expand(raw[k], env, labels) for k in range(text_fields(mode, kind)))
-            if mode in ("CONCATENATE", "JOIN") and not raw[0].strip() and wired:
-                shown = "(all wired: " + ", ".join(wired) + ")" + shown
+            if mode == "CONCATENATE" and kind == "ALL" and not raw[0].strip():
+                shown = "(all wired: " + (", ".join(wired) or "none") + ")" + shown
 
             err = None
             nums = [None, None]
@@ -394,7 +403,7 @@ class Succy_Multi_Parse:
                 nums = [nums[0] if used >= 1 else None, nums[1] if used >= 2 else None]
                 if used:
                     shown += "  [" + ", ".join("-" if x is None else str(x) for x in nums[:used]) + "]"
-                raw_val = run_mode(mode, kind, raw, nums, env, wired)
+                raw_val = run_mode(mode, kind, raw, nums, env, wired, bool(cfg.get(f"tm_{i}", False)))
             except Exception as e:                  # a broken block gives a neutral value and a red line, never a dead queue
                 err = f"{type(e).__name__}: {e}"
                 print(f"[Succy Multi Parse] r{i} ('{labels[f'r{i}']}', {mode}): {err}")
