@@ -5,6 +5,7 @@ import math
 import os
 import random
 import re
+import threading
 import wave
 import weakref
 from collections import OrderedDict
@@ -630,6 +631,7 @@ _BIG_SIDE = 1600
 _KEEP_MAX = 32               # nodes whose last gallery / clip the routes remember (weak refs: ComfyUI's cache owns the tensors)
 _GALLERY = OrderedDict()     # node key -> (weak ref to the batch shown, token of that Run)
 _CLIPS = OrderedDict()       # node key -> what Apply fps needs to re-time the player without a Run (D-205c)
+_LAST = OrderedDict()        # node key -> the last Run's inputs (source by weak ref): As clip switches live from these (D-205d)
 
 
 def _remember(store, key, value):
@@ -688,20 +690,114 @@ def _to_pil(frame):
     return Image.fromarray(arr, mode="RGBA" if arr.shape[-1] == 4 else "RGB")
 
 
+def _ref(value):
+    """A weak ref when the value takes one (tensors, VIDEO objects: ComfyUI's cache owns them), else a plain holder."""
+    try:
+        return weakref.ref(value)
+    except TypeError:
+        return lambda v=value: v
+
+
+class _VideoFrames:
+    """A VIDEO's frames one at a time, for a gallery that never decodes the whole clip (D-205d). Thumbnails are kept as the
+    decoder walks forward; a frame behind it (or a bigger one) is found again with a seek. Clips made of tensors are just indexed."""
+
+    def __init__(self, video, total, fps):
+        # tensors in memory: a weak ref (ComfyUI's cache owns them); a file-backed video is light, and may be ours alone (VHS Combine)
+        self.ref = _ref(video) if type(video).__name__ == "VideoFromComponents" else (lambda v=video: v)
+        self.total, self.fps = int(total), float(fps) or DEFAULT_FPS
+        self.lock = threading.Lock()
+        self.thumbs = {}                  # index -> PIL thumbnail (longest side _THUMB_SIDE)
+        self.box = None                   # (container, frame iterator, next index) of the walk going on
+        self.images = None                # the frames as tensors, when the clip is made of them (or PyAV can't open it)
+
+    def _open(self, video):
+        import av
+        src = video.get_stream_source()
+        if hasattr(src, "seek"):
+            src.seek(0)
+        return av.open(src, mode="r")
+
+    def _index(self, fr, st, t0):
+        t = float((fr.pts - t0) * st.time_base) if fr.pts is not None else 0.0
+        return int(round(t * self.fps))
+
+    def get(self, i, side):
+        """Frame i as PIL, its longest side <= side (0 = full size)."""
+        with self.lock:
+            video = self.ref()
+            if video is None:
+                return None
+            if self.images is None and type(video).__name__ == "VideoFromComponents":
+                self.images = video.get_components().images                     # already in memory: nothing to decode
+            if self.images is None and not callable(getattr(video, "get_stream_source", None)):
+                vi = _VideoInfo(video)
+                vi.check_decode(vi.frames)
+                self.images = vi.components().images
+            if self.images is not None:
+                return _to_pil(self.images[i]) if i < int(self.images.shape[0]) else None
+            if side and 0 < side <= _THUMB_SIDE and i in self.thumbs:
+                return self.thumbs[i]
+            box = self.box
+            if box is None or box[2] > i or (i - box[2]) * 1.0 > 4 * self.fps:   # behind the walk, or far ahead: seek there
+                if box is not None:
+                    box[0].close()
+                c = self._open(video)
+                st = c.streams.video[0]
+                t0 = st.start_time or 0
+                if i > 0:
+                    c.seek(int(t0 + (i / self.fps) / st.time_base), stream=st, backward=True, any_frame=False)
+                box = self.box = [c, c.decode(st), -1, st, t0]
+            c, it, _, st, t0 = box
+            for fr in it:
+                k = self._index(fr, st, t0)
+                box[2] = k + 1
+                if 0 <= k < i and k not in self.thumbs:          # passed on the way: its thumbnail is kept
+                    im = fr.to_image(); im.thumbnail((_THUMB_SIDE, _THUMB_SIDE)); self.thumbs[k] = im
+                if k >= i:
+                    im = fr.to_image()
+                    th = im.copy(); th.thumbnail((_THUMB_SIDE, _THUMB_SIDE)); self.thumbs[k] = th
+                    return im
+            c.close()
+            self.box = None
+            return None
+
+    def close(self):
+        if self.box is not None:
+            try:
+                self.box[0].close()
+            except Exception:
+                pass
+            self.box = None
+
+
 def gallery_frame(key, token, index, side=_THUMB_SIDE):
     """One frame of the gallery a node showed last, as PNG bytes: `side` = longest side (0 = full size, for the download).
     None when the Run is old news (another token) or ComfyUI let the batch go: the browser says "expired"."""
     hit = _GALLERY.get(str(key))
     if not hit or hit[1] != str(token):
         return None
-    shown = hit[0]()
-    if shown is None:
-        return None
     i = int(index)
-    if not 0 <= i < int(shown.shape[0]):
-        return None
-    im = _to_pil(shown[i])
+    if isinstance(hit[0], _VideoFrames):            # a VIDEO as pictures: decoded frame by frame, never all at once
+        vf = hit[0]
+        if not 0 <= i < vf.total:
+            return None
+        try:
+            im = vf.get(i, side)
+        except Exception as ex:
+            print(f"[PreviewAny] gallery frame {i}: {ex}")
+            im = None
+        if im is None:
+            return None
+    else:
+        shown = hit[0]()
+        if shown is None:
+            return None
+        if not 0 <= i < int(shown.shape[0]):
+            return None
+        im = _to_pil(shown[i])
     if side:
+        im = im.copy()
         im.thumbnail((int(side), int(side)))
     buf = io.BytesIO()
     im.save(buf, format="PNG", compress_level=1)
@@ -778,7 +874,13 @@ class Succy_Preview_Anything_Convert:
     # -------------------------------------------------------------- #
     def execute(self, preview, source, output_type, invert_mask=False, trim_start=0.0, trim_end=0.0, current_time=0.0,
                 split_audio=False, as_clip="auto", clip_fps=DEFAULT_FPS, fps_auto=True, audio_gain=1.0, audio=None, fps_override=None,
-                unique_id=None, prompt=None):
+                unique_id=None, prompt=None, _view=False):
+        # _view (D-205d): the As clip switch, live, from the route: only what the box shows, nothing computed for downstream
+        self._view = bool(_view)
+        if not _view:
+            _remember_run(source, audio, dict(preview=preview, output_type=output_type, invert_mask=invert_mask, trim_start=trim_start,
+                          trim_end=trim_end, current_time=current_time, split_audio=split_audio, as_clip=as_clip, clip_fps=clip_fps,
+                          fps_auto=fps_auto, audio_gain=audio_gain, fps_override=fps_override, unique_id=unique_id, prompt=prompt))
         combined = vhs_combine_file(source)                 # VHS Video Combine's Filenames: we play the file it wrote
         if combined:
             source = _video_from_file(combined)
@@ -795,6 +897,8 @@ class Succy_Preview_Anything_Convert:
         if kind == "video" and mode == "images":           # a video as pictures: its frames, gallery and all
             try:
                 vi = _VideoInfo(source)
+                if not self._needs(0, prompt, unique_id):       # nobody reads the frames: the gallery decodes them one by one
+                    return self._video_gallery(source, vi, preview, unique_id)
                 vi.check_decode(vi.frames)
                 source = vi.components().images
                 output_type = output_type if output_type in ("IMAGE", "MASK") else "IMAGE"
@@ -904,8 +1008,7 @@ class Succy_Preview_Anything_Convert:
                             ui_gallery = {"key": node_key, "token": token, "total": int(shown.shape[0])}
                         except Exception as e:
                             print(f"[PreviewAny] gallery error: {e}")
-                    _keep_files(node_key, files)
-                    _PLAYER.pop(node_key, None)
+                    _keep_files(node_key, files + _player_kept(node_key))     # the clip's player stays: back to On = no re-encode
 
                     ui_images = [{
                         "filename": filename,
@@ -973,6 +1076,40 @@ class Succy_Preview_Anything_Convert:
             "result": (converted, width, height, megapixels, None, None, None),
         }
 
+    def _needs(self, slot, prompt, unique_id):
+        """Does somebody downstream read output `slot`? Can't tell = yes. The live switch (_view) feeds nobody."""
+        if getattr(self, "_view", False):
+            return False
+        wired = wired_outputs(prompt, unique_id)
+        return wired is None or slot in wired
+
+    def _video_gallery(self, source, vi, preview, unique_id):
+        """A VIDEO as pictures with nobody reading the frames (D-205d): the first frame + a gallery served one frame at a time
+        straight from the video. Nothing decoded up front: the switch is instant, the Run too."""
+        node_key = _node_key(unique_id)
+        W, H, n = vi.width, vi.height, vi.frames
+        mp = (W * H) / 1_000_000.0
+        ui = {"succy_text": [f"Type: VIDEO as pictures\nResolution: {W} x {H}\nFrames: {n}\nFPS: {vi.fps:.3f}"]}
+        if preview:
+            try:
+                vf = _VideoFrames(source, n, vi.fps)
+                name = _temp_name(node_key, "img", "png")
+                first = vf.get(0, 0)
+                if first is None:
+                    raise ValueError("no frame could be read")
+                first.save(os.path.join(folder_paths.get_temp_directory(), name), compress_level=4)
+                token = f"{random.randint(0, 1 << 30):x}"
+                old = _GALLERY.get(node_key)
+                if old and isinstance(old[0], _VideoFrames):
+                    old[0].close()
+                _remember(_GALLERY, node_key, (vf, token))
+                _keep_files(node_key, [name] + _player_kept(node_key))
+                ui = {"succy_images": [_saved(name)], "succy_gallery": [{"key": node_key, "token": token, "total": n}],
+                      "succy_info": [f"Width: {W}   Height: {H}   Megapixels: {mp:.2f}   ·   {n} images"]}
+            except Exception as ex:
+                print(f"[PreviewAny] video gallery error: {ex}")
+        return {"ui": ui, "result": (None, W, H, mp, None, None, None)}
+
     # -------------------------------------------------------------- #
     def _media(self, kind, preview, source, output_type, trim_start, trim_end, current_time, split_audio, unique_id, prompt,
                fps_of=None, audio_in=None, gain=1.0):
@@ -983,8 +1120,7 @@ class Succy_Preview_Anything_Convert:
         needs all of it); the download button gets exactly `output`. D-205: a VIDEO at another fps (field / EXT wire) is
         re-timed, a plugged `audio_in` replaces its sound: both rebuild the video from its frames before anything else."""
         node_key = _node_key(unique_id)
-        wired = wired_outputs(prompt, unique_id)
-        need = (lambda slot: True) if wired is None else (lambda slot: slot in wired)
+        need = lambda slot: self._needs(slot, prompt, unique_id)
         media = {"kind": kind}
         files = []
         temp = folder_paths.get_temp_directory()
@@ -1107,8 +1243,7 @@ class Succy_Preview_Anything_Convert:
         s, e, trimmed = trim_window(duration, fps, trim_start, trim_end)
         f0, f1 = frame_range(s, e, fps, n)
         fc = min(max(frame_at(current_time, fps, n), f0), f1 - 1)
-        wired = wired_outputs(prompt, unique_id)
-        need = (lambda slot: True) if wired is None else (lambda slot: slot in wired)
+        need = lambda slot: self._needs(slot, prompt, unique_id)
         node_key = _node_key(unique_id)
         temp = folder_paths.get_temp_directory()
 
@@ -1179,6 +1314,45 @@ def _add_file(node_key, name):
     """One more temp file this node shows (Apply fps): the next Run cleans it up with the rest."""
     files = _PREVIEW_FILES.get(node_key, [])
     _keep_files(node_key, files + [name])
+
+
+def _player_kept(node_key):
+    """The clip player file of this node, while its source is still alive: kept on disk when the box shows pictures."""
+    hit = _PLAYER.get(node_key)
+    try:
+        return [hit[1]] if hit and hit[0]() is not None else []
+    except Exception:
+        return []
+
+
+def _remember_run(source, audio, kw):
+    """What a Run got, for the live As clip switch (D-205d): batches and clips only (a text has nothing to switch)."""
+    big = isinstance(source, torch.Tensor) and source.dim() == 4 and int(source.shape[0]) >= 2
+    if not (big or media_kind(source) == "video" or vhs_combine_file(source)):
+        return
+    _remember(_LAST, _node_key(kw.get("unique_id")), {"src": _ref(source), "audio": _ref(audio) if audio is not None else None, "kw": kw})
+
+
+# what the browser may change for a live switch: the field and its type
+_VIEW_FIELDS = {"as_clip": str, "output_type": str, "invert_mask": bool, "trim_start": float, "trim_end": float, "current_time": float,
+                "split_audio": bool, "clip_fps": float, "fps_auto": bool, "audio_gain": float, "preview": bool}
+
+
+def switch_view(key, fields):
+    """As clip, live (D-205d): the node shows its last Run's input again with the browser's fields (As clip above all), without
+    a Run and without computing anything for downstream. Returns the `ui` a Run would send. ValueError = Run again."""
+    ctx = _LAST.get(str(key))
+    src = ctx["src"]() if ctx else None
+    if src is None:
+        raise ValueError("this input is gone from memory: Run again")
+    kw = dict(ctx["kw"])
+    for k, cast in _VIEW_FIELDS.items():
+        if k in (fields or {}) and fields[k] is not None:
+            kw[k] = cast(fields[k])
+    if kw.get("as_clip") not in CLIP_MODES:
+        raise ValueError(f"As clip must be one of {CLIP_MODES}")
+    audio = ctx["audio"]() if ctx["audio"] else None
+    return Succy_Preview_Anything_Convert().execute(source=src, audio=audio, _view=True, **kw)["ui"]
 
 
 def apply_fps(key, fps=None, auto=False):
@@ -1262,6 +1436,20 @@ def _register_routes():
             return web.json_response({"error": str(exc)}, status=409)
         except Exception as exc:
             return web.json_response({"error": f"could not re-time: {exc}"}, status=500)
+        return web.json_response(out)
+
+
+    @srv.routes.post("/succy/preview/view")
+    async def _view(request):
+        if not same_origin(request):
+            return web.json_response({"error": "cross-origin request refused"}, status=403)
+        try:
+            data = await request.json()
+            out = await asyncio.to_thread(switch_view, data.get("key", ""), data.get("fields") or {})
+        except ValueError as exc:
+            return web.json_response({"error": str(exc)}, status=409)
+        except Exception as exc:
+            return web.json_response({"error": f"could not switch: {exc}"}, status=500)
         return web.json_response(out)
 
 
