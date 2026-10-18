@@ -118,6 +118,22 @@ def slice_audio(audio, start, end):
     return {"waveform": wf[..., a0:a1], "sample_rate": sr}
 
 
+def gain_value(gain):
+    """The output volume as a number >= 0 (junk = 1, untouched)."""
+    try:
+        return max(0.0, float(gain))
+    except (TypeError, ValueError):
+        return 1.0
+
+
+def gain_audio(audio, gain):
+    """AUDIO louder / softer (gain 1 = untouched, the same object back). Files clip it to -1..1 when written."""
+    g = gain_value(gain)
+    if not audio or abs(g - 1.0) < 1e-6:
+        return audio
+    return {"waveform": audio["waveform"] * g, "sample_rate": audio["sample_rate"]}
+
+
 def silent_audio(seconds, sr=44100):
     """Stand-in for a video with no sound track: silence as long as the window, so the next node still gets an AUDIO."""
     return {"waveform": torch.zeros(1, 1, max(1, int(round(seconds * sr)))), "sample_rate": sr}
@@ -726,6 +742,9 @@ class Succy_Preview_Anything_Convert:
                 # typing one switches fps_auto off. On a VIDEO a different fps re-times it (same frames, another speed).
                 "clip_fps": ("FLOAT", {"default": DEFAULT_FPS, "min": 0.01, "max": 1000.0, "step": 0.01}),
                 "fps_auto": ("BOOLEAN", {"default": True}),
+                # the volume of what goes OUT (output, audio, download, and the player, so you hear what you save). 1 = as it is.
+                # How loud YOU hear it here is the frontend's Listen slider: never saved, never sent.
+                "audio_gain": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 4.0, "step": 0.01}),
             },
             # audio: plugged = the clip's sound, replacing whatever it had. fps_override: the EXT chip, beats the field.
             "optional": {
@@ -748,7 +767,7 @@ class Succy_Preview_Anything_Convert:
 
     # -------------------------------------------------------------- #
     def execute(self, preview, source, output_type, invert_mask=False, trim_start=0.0, trim_end=0.0, current_time=0.0,
-                split_audio=False, as_clip="auto", clip_fps=DEFAULT_FPS, fps_auto=True, audio=None, fps_override=None,
+                split_audio=False, as_clip="auto", clip_fps=DEFAULT_FPS, fps_auto=True, audio_gain=1.0, audio=None, fps_override=None,
                 unique_id=None, prompt=None):
         combined = vhs_combine_file(source)                 # VHS Video Combine's Filenames: we play the file it wrote
         if combined:
@@ -774,7 +793,7 @@ class Succy_Preview_Anything_Convert:
                 print(f"[PreviewAny] video as pictures failed, showing the clip: {ex}")
         if kind:
             return self._media(kind, preview, source, output_type, trim_start, trim_end, current_time, split_audio, unique_id, prompt,
-                               fps_of=fps_of, audio_in=audio_in)
+                               fps_of=fps_of, audio_in=audio_in, gain=audio_gain)
         if (output_type in ("IMAGE", "MASK") and mode != "images" and isinstance(source, torch.Tensor) and source.dim() == 4
                 and int(source.shape[0]) >= 2):
             try:
@@ -782,7 +801,7 @@ class Succy_Preview_Anything_Convert:
                 if mode == "clip" or vhs or looks_like_video(source):
                     fps, where = fps_of(vhs[0] if vhs else 0.0, "VHS" if vhs else "")
                     return self._frames(source, fps, where, vhs, audio_in, preview, output_type, invert_mask,
-                                        trim_start, trim_end, current_time, unique_id, prompt)
+                                        trim_start, trim_end, current_time, unique_id, prompt, gain=audio_gain)
             except Exception as ex:                          # the clip went wrong: pictures, as before. Never a dead queue.
                 print(f"[PreviewAny] clip preview failed, showing pictures: {ex}")
         converted = source
@@ -947,7 +966,7 @@ class Succy_Preview_Anything_Convert:
 
     # -------------------------------------------------------------- #
     def _media(self, kind, preview, source, output_type, trim_start, trim_end, current_time, split_audio, unique_id, prompt,
-               fps_of=None, audio_in=None):
+               fps_of=None, audio_in=None, gain=1.0):
         """VIDEO / AUDIO in (D-198). `output` = the clip with everything applied: the window [trim_start, trim_end) really cut
         (frames and samples), split_audio = silent, Convert To = the container (video) or the download file (audio).
         `frame` (video) = the frame under current_time, which always sits inside the window. `duration` = seconds of what
@@ -961,7 +980,10 @@ class Succy_Preview_Anything_Convert:
         files = []
         temp = folder_paths.get_temp_directory()
 
+        g = gain_value(gain)
         if kind == "audio":
+            heard = source
+            source = gain_audio(source, g)               # the volume of what goes out (and of what the player plays)
             sr = int(source["sample_rate"])
             n_s = int(source["waveform"].shape[-1])
             duration = n_s / sr if sr else 0.0
@@ -974,12 +996,12 @@ class Succy_Preview_Anything_Convert:
             dur_out = round(float(out_audio["waveform"].shape[-1]) / sr, 3) if sr else 0.0
             info = (f"Type: AUDIO\nSample rate: {sr} Hz\nChannels: {channels}\nDuration: {duration:.3f} s\n"
                     f"Selection: {s:.3f} -> {e:.3f} s\nOut: {dur_out:.3f} s as .{ext}")
-            media.update(duration=duration, fps=0, sample_rate=sr, channels=channels, start=s, end=e, trimmed=trimmed,
+            media.update(duration=duration, fps=0, gain=g, sample_rate=sr, channels=channels, start=s, end=e, trimmed=trimmed,
                          peaks=audio_peaks(source["waveform"]), format="audio.wav")
             line = f"{duration:.3f} s · {sr} Hz · {channels} ch"
             if preview:
                 try:
-                    play = _player_file(node_key, source, "aud", "wav", lambda path: write_wav(path, source))
+                    play = _player_file(node_key, heard, "aud", "wav", lambda path: write_wav(path, source), sig=round(g, 3))
                     files.append(play)
                     dl = play
                     if trimmed or ext != "wav":
@@ -994,11 +1016,12 @@ class Succy_Preview_Anything_Convert:
         else:
             vi = _VideoInfo(source)
             fps, where = fps_of(vi.fps, "video") if fps_of else (vi.fps, "video")
-            if audio_in is not None or abs(fps - vi.fps) > 1e-3:
+            if audio_in is not None or abs(fps - vi.fps) > 1e-3 or (abs(g - 1.0) > 1e-6 and vi.has_audio is not False):
                 vi.check_decode(vi.frames)
                 c = vi.components()
                 from fractions import Fraction
                 snd = slice_audio(audio_in, 0.0, vi.frames / fps) if audio_in is not None else c.audio    # never longer than the frames
+                snd = gain_audio(snd, g)
                 source = _make_video(c.images, snd, Fraction(fps).limit_denominator(1001))
                 vi = _VideoInfo(source)
                 vi.fps = fps                                 # the asked rate, exactly (the Fraction may round it)
@@ -1039,7 +1062,7 @@ class Succy_Preview_Anything_Convert:
                     f"Selection: {s:.3f} -> {e:.3f} s (frames {f0} -> {f1 - 1})\nCurrent frame: {fc}\nOut: {dur_out:.3f} s as .{ext}"
                     + (" (silent)" if split else ""))
             frame = vi.frame(fc) if need(1) else None
-            media.update(duration=vi.duration, fps=fps, fps_from=where, frames=n, width=vi.width, height=vi.height, has_audio=vi.has_audio,
+            media.update(duration=vi.duration, fps=fps, fps_from=where, gain=g, frames=n, width=vi.width, height=vi.height, has_audio=vi.has_audio,
                          start=s, end=e, trimmed=trimmed, split=split, format="video." + src_fmt)
             line = (f"{vi.width}×{vi.height} · {fps:.2f} fps{_fps_note(where)} · {vi.duration:.3f} s · {n} frames · {src_fmt}"
                     + (" · audio" if vi.has_audio else ""))
@@ -1064,7 +1087,7 @@ class Succy_Preview_Anything_Convert:
 
     # -------------------------------------------------------------- #
     def _frames(self, source, fps, where, vhs, audio_in, preview, output_type, invert_mask, trim_start, trim_end, current_time,
-                unique_id, prompt):
+                unique_id, prompt, gain=1.0):
         """An IMAGE batch shown as the clip it is (D-203 for VHS, D-205 for everyone): player + timeline at `fps`, its sound =
         the plugged `audio_in`, else the VHS loader's file (vhs = (fps, start, path, class)), else none. Handed on as what
         frame people expect: `output` = the frames of the kept window (IMAGE or MASK), width, height, megapixels, then
@@ -1088,6 +1111,7 @@ class Succy_Preview_Anything_Convert:
             except Exception as ex:
                 print(f"[PreviewAny] VHS audio could not be read: {ex}")
         has_audio = full_audio is not None
+        full_audio = gain_audio(full_audio, gain)          # the volume of what goes out (the player plays it too)
         frames = source[f0:f1]
         out = frames
         if output_type == "MASK":
@@ -1101,7 +1125,7 @@ class Succy_Preview_Anything_Convert:
         mp = (W * H) / 1_000_000.0
         origin = vhs[3] if vhs else "IMAGE batch"
 
-        media = {"kind": "video", "duration": duration, "fps": fps, "fps_from": where, "frames": n, "width": W, "height": H,
+        media = {"kind": "video", "duration": duration, "fps": fps, "fps_from": where, "gain": gain_value(gain), "frames": n, "width": W, "height": H,
                  "has_audio": has_audio, "start": s, "end": e, "trimmed": trimmed, "split": False, "format": "video.mp4",
                  "frames_in": True, "vhs": bool(vhs)}
         line = f"{W}×{H} · {fps:.2f} fps{_fps_note(where)} · {duration:.3f} s · {n} frames" + (" · audio" if has_audio else "")
@@ -1112,7 +1136,7 @@ class Succy_Preview_Anything_Convert:
         if preview:
             try:
                 play = _player_file(node_key, source, "vid", "mp4", lambda p: encode_video(source, full_audio, fps, p, "mp4"),
-                                    sig=(round(fps, 4), snd))
+                                    sig=(round(fps, 4), snd, round(float(gain or 0), 3)))
                 files.append(play)
                 dl = play
                 if trimmed:                                  # the download = exactly the kept window, with its sound
