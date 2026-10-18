@@ -75,8 +75,8 @@ _parse_container = to_container
 
 def _convert(val, fmt):
     if fmt == "STRING":
-        return json.dumps(val, indent=2, default=str) if isinstance(val, (dict, list)) else str(val)
-    if fmt == "COMBO": return str(val)
+        return json.dumps(val, indent=2, default=_text) if isinstance(val, (dict, list)) else _text(val)
+    if fmt == "COMBO": return _text(val)
     if fmt == "INT": return _parse_int(val)
     if fmt == "FLOAT": return _parse_float(val)
     if fmt == "BOOLEAN": return _parse_bool(val)
@@ -91,12 +91,21 @@ def _neutral(fmt):
 
 
 # ---- tokens & debug text ---------------------------------------------------------------------------------------
+def _text(v):
+    """A value as text. Tensors (an IMAGE / MASK batch, a latent's samples) become a short tag, not torch's wall of digits:
+    nobody wants 3 MB of floats in a prompt, darling (D-202)."""
+    shape = getattr(v, "shape", None)
+    if shape is not None and hasattr(v, "dtype") and not isinstance(v, (str, bytes)):
+        return f"<tensor {'x'.join(str(int(d)) for d in shape)}>"
+    return str(v)
+
+
 def _clean_label(raw, i):
     return re.sub(r"[^a-zA-Z0-9 _-]", "", str(raw or "")).strip()[:18] or f"r{i}"
 
 
 def _show_value(v, limit=30):
-    s = str(v).replace("\r", "").replace("\n", "⏎")
+    s = _text(v).replace("\r", "").replace("\n", "⏎")
     return s if len(s) <= limit else s[:limit - 3] + "..."
 
 
@@ -106,7 +115,7 @@ def _expand_text(text, env):
         k = m.group(1)
         if k is None:
             return "@"
-        return str(env[k]) if k in env else m.group(0)
+        return _text(env[k]) if k in env else m.group(0)
     return _TOKEN.sub(rep, text)
 
 
@@ -187,9 +196,9 @@ def apply_trim(kind, s):
     return s.strip()
 
 
-def run_mode(mode, kind, raw, nums, env):
-    """raw = the three text fields, nums = the two numeric slots (int or None), kind = the mode's flavour.
-    Returns the raw result (the format conversion happens afterwards)."""
+def run_mode(mode, kind, raw, nums, env, wired=()):
+    """raw = the three text fields, nums = the two numeric slots (int or None), kind = the mode's flavour, wired = the
+    inputs that are plugged (a..j, in order). Returns the raw result (the format conversion happens afterwards)."""
     def val(idx):                     # field -> raw value if it's ONE token, otherwise text with tokens filled in
         text = raw[idx]
         if not text:
@@ -200,9 +209,15 @@ def run_mode(mode, kind, raw, nums, env):
         return _expand_text(text, env)
 
     def txt(idx):
-        return str(val(idx))
+        return _text(val(idx))
+
+    # Empty first field = "just take what's plugged in" (D-202): Concat glues every wired input as it is, Join glues them
+    # with the separator. No @a @b ritual for the simple case; the template is there when you want to get fancy.
+    lazy = not raw[0].strip() and wired
 
     if mode == "CONCATENATE":
+        if lazy:
+            return env[wired[0]] if len(wired) == 1 else "".join(_text(env[k]) for k in wired)
         return val(0)
 
     if mode == "REPLACE":
@@ -232,9 +247,13 @@ def run_mode(mode, kind, raw, nums, env):
         return parts if nums[0] is None else parts[nums[0]]
 
     if mode == "JOIN":
-        src = val(0)
+        if lazy:                      # one wired list = its items; several inputs = one item each
+            one = env[wired[0]]
+            src = one if len(wired) == 1 and isinstance(one, (list, tuple)) else [env[k] for k in wired]
+        else:
+            src = val(0)
         sep = _unescape(txt(1))
-        return sep.join(str(x) for x in src) if isinstance(src, (list, tuple)) else str(src)
+        return sep.join(_text(x) for x in src) if isinstance(src, (list, tuple)) else _text(src)
 
     if mode == "CONTAINS":
         src, needle = val(0), txt(1)
@@ -348,6 +367,7 @@ class Succy_Multi_Parse:
         for name in INPUT_NAMES:
             v = kwargs.get(name, "")
             env[name] = v if v is not None else ""
+        wired = [name for name in INPUT_NAMES if kwargs.get(name) is not None]     # ComfyUI only passes what is plugged
         kinds = {}                                   # rN -> the format it was set to (the INT override needs it)
 
         n = max(1, min(MAX_OPERATIONS, int(num_operations)))
@@ -363,6 +383,8 @@ class Succy_Multi_Parse:
             raw = [str(cfg.get(f"f{k}_{i}", "") or "") for k in (1, 2, 3)]
 
             shown = " | ".join(_debug_expand(raw[k], env, labels) for k in range(text_fields(mode, kind)))
+            if mode in ("CONCATENATE", "JOIN") and not raw[0].strip() and wired:
+                shown = "(all wired: " + ", ".join(wired) + ")" + shown
 
             err = None
             nums = [None, None]
@@ -372,7 +394,7 @@ class Succy_Multi_Parse:
                 nums = [nums[0] if used >= 1 else None, nums[1] if used >= 2 else None]
                 if used:
                     shown += "  [" + ", ".join("-" if x is None else str(x) for x in nums[:used]) + "]"
-                raw_val = run_mode(mode, kind, raw, nums, env)
+                raw_val = run_mode(mode, kind, raw, nums, env, wired)
             except Exception as e:                  # a broken block gives a neutral value and a red line, never a dead queue
                 err = f"{type(e).__name__}: {e}"
                 print(f"[Succy Multi Parse] r{i} ('{labels[f'r{i}']}', {mode}): {err}")

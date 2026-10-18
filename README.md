@@ -53,6 +53,8 @@ Plug in anything and see what it really is: text, numbers, lists, dicts, JSON, i
 - **Download** saves the picture, or exactly what `output` is — trimmed, converted, undressed of its audio if you asked.
 - **Sizes that make sense**: text = the blue handle sets the height · picture / video = stretch the node, only the picture grows (the timeline stays compact at the bottom) · audio = a slim strip, only the width changes.
 - **Everything you see is saved in the workflow**: the text, the numbers, the trim. Reopen an old workflow and it's all still there, right where you left it. Pictures and clips live in ComfyUI's temp folder: after a restart they say *Expired* until the next Run. Decoding a video into frames stops at ~4 GB with a clear message (make the selection shorter — greedy is cute, but not *that* greedy).
+- **Video means ComfyUI's `VIDEO` type** (core *Load Video*, *Create Video*…). A loader that hands out an `IMAGE` batch plus a separate `AUDIO` (like VHS *Load Video*) is shown as pictures; for the timeline, glue them with *Create Video* first.
+- **Quiet console**: nothing is dumped into ComfyUI's console on every run. Want the old `PreviewAny` printout back? Start ComfyUI with the environment variable `SUCCY_PREVIEW_LOG=1`.
 
 ### 🧮 Multi Math
 Up to **15 chained equations** in a single node, over up to **10 inputs** (`a`…`j`) that open one at a time as you connect them.
@@ -66,6 +68,7 @@ Up to **15 chained equations** in a single node, over up to **10 inputs** (`a`�
 The text-wrangling sibling of Multi Math: up to **15 chained text operations** over inputs `a`…`j`, each with its own output and format.
 Twelve modes: **Concat, Replace, Regex** (extract / replace, with a timeout so a bad pattern can't hang ComfyUI), **Split, Join, Contains, Compare, Starts / Ends with, Trim** (edges, double spaces, all spaces, blank lines), **Case** (UPPER, lower, Title, Sentence and more), **Substring, Length**.
 Fields accept `@` tokens, numeric fields can be overridden by a wire, and every error stays visible instead of crashing the queue.
+**Concat** is a template (`Hello @a, you are @b`) — or leave it empty and it simply glues every wired input together; **Join** does the same with a separator (or glues a list). Images on an input show up as `<tensor 4x512x512x3>`, not a wall of numbers.
 
 ### 💎 Primitive
 The ultimate primitive. She's born small and undecided: pick what she becomes — **Int, Float, Seed, Bool, String, Multiline, List, Color, Resolution, Image, Mask, Latent** — and she turns into exactly that, with the right controls and outputs. Her title follows (*Succy - 🔢Int*…) unless you renamed her yourself.

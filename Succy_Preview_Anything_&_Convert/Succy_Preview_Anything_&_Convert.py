@@ -20,6 +20,9 @@ _PLAYER = OrderedDict()          # node key -> (weak ref to the source video/aud
 _FILES_MAX = 256                 # node keys remembered; the oldest goes (and takes its files along). Every closet has a limit.
 _MAX_DECODE_BYTES = 4 << 30      # decoding a video window into float frames: past ~4 GB we refuse and say so (trim shorter)
 _AUDIO_PEAKS = 600               # bars of the waveform drawn under an audio clip
+# The ==== PreviewAny ==== dump in ComfyUI's console: OFF unless you ask for it (SUCCY_PREVIEW_LOG=1 before starting ComfyUI).
+# The pane already shows all of it; a console that moans on every run is not a turn-on (D-202).
+_LOG = os.environ.get("SUCCY_PREVIEW_LOG", "").strip().lower() not in ("", "0", "false", "no", "off")
 
 
 class _SkipPreview(Exception):
@@ -648,7 +651,7 @@ class Succy_Preview_Anything_Convert:
             ui_res["succy_info"] = [
                 f"Width: {width}   Height: {height}   Megapixels: {megapixels:.2f}"
             ]
-            if preview:
+            if preview and _LOG:
                 print("\n" + "=" * 40)
                 print("PreviewAny [IMAGE]:")
                 print(info_string)
@@ -656,7 +659,7 @@ class Succy_Preview_Anything_Convert:
         elif output_type not in ("IMAGE", "MASK") or text_output:
             # sent even when empty: the frontend refreshes the content anyway
             ui_res["succy_text"] = [text_output]
-            if preview:
+            if preview and _LOG:
                 print("\n" + "=" * 40)
                 print(f"PreviewAny [{output_type}]:")
                 print(text_output)
@@ -767,7 +770,7 @@ class Succy_Preview_Anything_Convert:
             _keep_files(node_key, files)
             result = (out_video, frame, dur_out, audio if split else None, None)
 
-        if preview:
+        if preview and _LOG:
             print("\n" + "=" * 40 + f"\nPreviewAny [{kind.upper()}]:\n{info}\n" + "=" * 40 + "\n")
         return {"ui": {"succy_media": [media], "succy_info": [line], "succy_text": [info]}, "result": result}
 

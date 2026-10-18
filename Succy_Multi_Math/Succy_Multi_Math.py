@@ -265,9 +265,11 @@ class Succy_Multi_Math:
             val = kwargs.get(name, 0.0)
             try:
                 env[name] = float(val) if val is not None else 0.0
-            except (TypeError, ValueError):
+            except Exception:                      # an IMAGE batch raises RuntimeError, not ValueError: it used to kill the node (D-202)
                 env[name] = 0.0
-                notes.append(f"input {name}: '{type(val).__name__}' is not a number, using 0")
+                shape = getattr(val, "shape", None)
+                what = f"{type(val).__name__} {list(shape)}" if shape is not None else type(val).__name__
+                notes.append(f"input {name}: '{what}' is not a number, using 0")
 
         n = max(1, min(MAX_EQUATIONS, int(num_equations)))
         labels = _build_debug_labels(cfg, n)
