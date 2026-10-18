@@ -1,3 +1,5 @@
+import asyncio
+import io
 import json
 import math
 import os
@@ -623,8 +625,18 @@ def file_audio(path, start, seconds):
 # ------------------------------------------------------------------ #
 CLIP_MODES = ["auto", "clip", "images"]
 DEFAULT_FPS = 24.0
-_GALLERY_MAX = 64            # thumbnails in the gallery; past that, evenly spaced ones (the output keeps every frame)
-_THUMB_SIDE = 512            # longest side of a gallery thumbnail
+_THUMB_SIDE = 256            # longest side of a gallery thumbnail (the big view asks for 1600, the download for the full frame)
+_BIG_SIDE = 1600
+_KEEP_MAX = 32               # nodes whose last gallery / clip the routes remember (weak refs: ComfyUI's cache owns the tensors)
+_GALLERY = OrderedDict()     # node key -> (weak ref to the batch shown, token of that Run)
+_CLIPS = OrderedDict()       # node key -> what Apply fps needs to re-time the player without a Run (D-205c)
+
+
+def _remember(store, key, value):
+    store.pop(key, None)
+    store[key] = value
+    while len(store) > _KEEP_MAX:
+        store.popitem(last=False)
 
 
 def looks_like_video(images):
@@ -664,14 +676,6 @@ def pick_fps(fps_override, fps_auto, clip_fps, found, found_from):
     return DEFAULT_FPS, "default"
 
 
-def gallery_indexes(n, cap=_GALLERY_MAX):
-    """Which frames the gallery shows: all of them up to `cap`, otherwise `cap` evenly spaced (first and last included)."""
-    n = int(n)
-    if n <= cap:
-        return list(range(n))
-    return sorted({int(round(k * (n - 1) / (cap - 1))) for k in range(cap)})
-
-
 def _to_pil(frame):
     """One frame [H, W, C] or a mask [H, W] -> PIL (alpha kept, 1 channel = grey, more than 4 = the first 3)."""
     arr = np.clip(255.0 * frame.detach().float().cpu().numpy(), 0, 255).astype(np.uint8)
@@ -684,18 +688,24 @@ def _to_pil(frame):
     return Image.fromarray(arr, mode="RGBA" if arr.shape[-1] == 4 else "RGB")
 
 
-def write_gallery(node_key, shown):
-    """The gallery of a batch: small PNGs of the frames gallery_indexes picks, in temp. Returns (files, indexes)."""
-    temp_dir = folder_paths.get_temp_directory()
-    idx = gallery_indexes(int(shown.shape[0]))
-    files = []
-    for k in idx:
-        im = _to_pil(shown[k])
-        im.thumbnail((_THUMB_SIDE, _THUMB_SIDE))
-        name = _temp_name(node_key, f"g{k}", "png")
-        im.save(os.path.join(temp_dir, name), compress_level=1)
-        files.append(name)
-    return files, idx
+def gallery_frame(key, token, index, side=_THUMB_SIDE):
+    """One frame of the gallery a node showed last, as PNG bytes: `side` = longest side (0 = full size, for the download).
+    None when the Run is old news (another token) or ComfyUI let the batch go: the browser says "expired"."""
+    hit = _GALLERY.get(str(key))
+    if not hit or hit[1] != str(token):
+        return None
+    shown = hit[0]()
+    if shown is None:
+        return None
+    i = int(index)
+    if not 0 <= i < int(shown.shape[0]):
+        return None
+    im = _to_pil(shown[i])
+    if side:
+        im.thumbnail((int(side), int(side)))
+    buf = io.BytesIO()
+    im.save(buf, format="PNG", compress_level=1)
+    return buf.getvalue()
 
 
 def vhs_clip(prompt, unique_id):
@@ -887,11 +897,11 @@ class Succy_Preview_Anything_Convert:
                     # grayscale and RGBA handled: the alpha is KEPT (D-106: a Crop cutout previewed as RGB looked uncut)
                     _to_pil(shown[0]).save(file_path, compress_level=4)
                     files = [filename]
-                    if int(shown.shape[0]) > 1:                        # a batch: the gallery of all of it (D-205)
+                    if int(shown.shape[0]) > 1:                        # a batch: the gallery of all of it, served frame by frame (D-205c)
                         try:
-                            gal, idx = write_gallery(node_key, shown)
-                            files += gal
-                            ui_gallery = {"files": [_saved(f) for f in gal], "index": idx, "total": int(shown.shape[0])}
+                            token = f"{random.randint(0, 1 << 30):x}"
+                            _remember(_GALLERY, node_key, (weakref.ref(shown), token))
+                            ui_gallery = {"key": node_key, "token": token, "total": int(shown.shape[0])}
                         except Exception as e:
                             print(f"[PreviewAny] gallery error: {e}")
                     _keep_files(node_key, files)
@@ -940,8 +950,7 @@ class Succy_Preview_Anything_Convert:
             ui_res["succy_images"] = ui_images
             ui_res["succy_info"] = [
                 f"Width: {width}   Height: {height}   Megapixels: {megapixels:.2f}"
-                + ((f"   ·   {len(ui_gallery['files'])} of {ui_gallery['total']}" if len(ui_gallery["files"]) < ui_gallery["total"]
-                    else f"   ·   {ui_gallery['total']} images") if ui_gallery else "")
+                + (f"   ·   {ui_gallery['total']} images" if ui_gallery else "")
             ]
             if ui_gallery:
                 ui_res["succy_gallery"] = [ui_gallery]
@@ -1015,6 +1024,7 @@ class Succy_Preview_Anything_Convert:
             result = (out_audio, dur_out, None, None, None, None, None)
         else:
             vi = _VideoInfo(source)
+            _remember(_CLIPS, node_key, {"kind": "video", "ref": weakref.ref(source), "auto_fps": vi.fps, "audio_in": audio_in, "gain": gain})
             fps, where = fps_of(vi.fps, "video") if fps_of else (vi.fps, "video")
             if audio_in is not None or abs(fps - vi.fps) > 1e-3 or (abs(g - 1.0) > 1e-6 and vi.has_audio is not False):
                 vi.check_decode(vi.frames)
@@ -1062,7 +1072,7 @@ class Succy_Preview_Anything_Convert:
                     f"Selection: {s:.3f} -> {e:.3f} s (frames {f0} -> {f1 - 1})\nCurrent frame: {fc}\nOut: {dur_out:.3f} s as .{ext}"
                     + (" (silent)" if split else ""))
             frame = vi.frame(fc) if need(1) else None
-            media.update(duration=vi.duration, fps=fps, fps_from=where, gain=g, frames=n, width=vi.width, height=vi.height, has_audio=vi.has_audio,
+            media.update(duration=vi.duration, fps=fps, fps_from=where, gain=g, key=node_key, frames=n, width=vi.width, height=vi.height, has_audio=vi.has_audio,
                          start=s, end=e, trimmed=trimmed, split=split, format="video." + src_fmt)
             line = (f"{vi.width}×{vi.height} · {fps:.2f} fps{_fps_note(where)} · {vi.duration:.3f} s · {n} frames · {src_fmt}"
                     + (" · audio" if vi.has_audio else ""))
@@ -1102,14 +1112,7 @@ class Succy_Preview_Anything_Convert:
         node_key = _node_key(unique_id)
         temp = folder_paths.get_temp_directory()
 
-        full_audio = slice_audio(audio_in, 0.0, duration) if audio_in is not None else None       # never longer than the frames
-        snd = ("in", id(audio_in["waveform"]), round(duration, 4)) if audio_in is not None else None
-        if full_audio is None and vhs and vhs[2] and (preview or need(4)):
-            try:
-                full_audio = file_audio(vhs[2], vhs[1], duration)
-                snd = ("file", vhs[2], vhs[1])
-            except Exception as ex:
-                print(f"[PreviewAny] VHS audio could not be read: {ex}")
+        full_audio, snd = _frames_sound(vhs, audio_in, duration, preview or need(4))
         has_audio = full_audio is not None
         full_audio = gain_audio(full_audio, gain)          # the volume of what goes out (the player plays it too)
         frames = source[f0:f1]
@@ -1125,7 +1128,7 @@ class Succy_Preview_Anything_Convert:
         mp = (W * H) / 1_000_000.0
         origin = vhs[3] if vhs else "IMAGE batch"
 
-        media = {"kind": "video", "duration": duration, "fps": fps, "fps_from": where, "gain": gain_value(gain), "frames": n, "width": W, "height": H,
+        media = {"kind": "video", "duration": duration, "fps": fps, "fps_from": where, "gain": gain_value(gain), "key": node_key, "frames": n, "width": W, "height": H,
                  "has_audio": has_audio, "start": s, "end": e, "trimmed": trimmed, "split": False, "format": "video.mp4",
                  "frames_in": True, "vhs": bool(vhs)}
         line = f"{W}×{H} · {fps:.2f} fps{_fps_note(where)} · {duration:.3f} s · {n} frames" + (" · audio" if has_audio else "")
@@ -1133,10 +1136,12 @@ class Succy_Preview_Anything_Convert:
                 f"Duration: {duration:.3f} s\nFrames: {n}\nAudio: {'yes' if has_audio else 'no'}\n"
                 f"Selection: {s:.3f} -> {e:.3f} s (frames {f0} -> {f1 - 1})\nCurrent frame: {fc}\nOut: {f1 - f0} frames, {dur_out:.3f} s as {output_type}")
         files = []
+        _remember(_CLIPS, node_key, {"kind": "frames", "ref": weakref.ref(source), "auto_fps": vhs[0] if vhs else DEFAULT_FPS,
+                                     "vhs": vhs, "audio_in": audio_in, "gain": gain})
         if preview:
             try:
                 play = _player_file(node_key, source, "vid", "mp4", lambda p: encode_video(source, full_audio, fps, p, "mp4"),
-                                    sig=(round(fps, 4), snd, round(float(gain or 0), 3)))
+                                    sig=_frames_sig(fps, snd, gain))
                 files.append(play)
                 dl = play
                 if trimmed:                                  # the download = exactly the kept window, with its sound
@@ -1153,9 +1158,114 @@ class Succy_Preview_Anything_Convert:
                 "result": (out, W, H, mp, audio_out, frame, dur_out)}
 
 
+def _frames_sound(vhs, audio_in, duration, wanted=True):
+    """A batch clip's sound for `duration` s: the plugged one (cut to length), else the VHS loader's file. (AUDIO or None, its
+    signature for the player cache). Gain is applied by the caller."""
+    if audio_in is not None:
+        return slice_audio(audio_in, 0.0, duration), ("in", id(audio_in["waveform"]), round(duration, 4))
+    if vhs and vhs[2] and wanted:
+        try:
+            return file_audio(vhs[2], vhs[1], duration), ("file", vhs[2], vhs[1], round(duration, 4))
+        except Exception as ex:
+            print(f"[PreviewAny] VHS audio could not be read: {ex}")
+    return None, None
+
+
+def _frames_sig(fps, snd, gain):
+    return (round(float(fps), 4), snd, round(gain_value(gain), 3))
+
+
+def _add_file(node_key, name):
+    """One more temp file this node shows (Apply fps): the next Run cleans it up with the rest."""
+    files = _PREVIEW_FILES.get(node_key, [])
+    _keep_files(node_key, files + [name])
+
+
+def apply_fps(key, fps=None, auto=False):
+    """Apply fps NOW, without a Run (D-205c): the player of the clip node `key` showed last is re-made at the new rate.
+    Returns what the browser updates (fps, duration, frames, src). ValueError = nothing to re-time (Run again)."""
+    ctx = _CLIPS.get(str(key))
+    src = ctx["ref"]() if ctx else None
+    if src is None:
+        raise ValueError("this clip is gone from memory: Run again")
+    target = float(ctx["auto_fps"]) if auto or not fps else float(fps)
+    if not 0 < target <= 1000:
+        raise ValueError(f"fps must be between 0 and 1000, not {fps}")
+    key, temp = str(key), folder_paths.get_temp_directory()
+    if ctx["kind"] == "frames":
+        n = int(src.shape[0])
+        full, snd = _frames_sound(ctx["vhs"], ctx["audio_in"], n / target)
+        full = gain_audio(full, ctx["gain"])
+        play = _player_file(key, src, "vid", "mp4", lambda p: encode_video(src, full, target, p, "mp4"), sig=_frames_sig(target, snd, ctx["gain"]))
+        width, height = int(src.shape[2]), int(src.shape[1])
+    else:
+        vi = _VideoInfo(src)
+        vi.check_decode(vi.frames)
+        c = vi.components()
+        n = vi.frames
+        snd = slice_audio(ctx["audio_in"], 0.0, n / target) if ctx["audio_in"] is not None else c.audio
+        full = gain_audio(snd, ctx["gain"])
+        play = _temp_name(key, "vid", "mp4")
+        encode_video(c.images, full, target, os.path.join(temp, play), "mp4")
+        width, height = vi.width, vi.height
+    _add_file(key, play)
+    auto_from = "video" if ctx["kind"] == "video" else ("VHS" if ctx.get("vhs") else "default")
+    return {"fps": target, "fps_from": auto_from if auto else "manual",
+            "duration": n / target, "frames": n, "width": width, "height": height, "has_audio": full is not None,
+            "src": _saved(play), "dl": _saved(play), "trimmed": False}
+
+
 def _fps_note(where):
     """The info line's word on where the fps came from: nothing when the video said it, otherwise (VHS) (manual) (wire) (default)."""
     return f" ({where})" if where and where != "video" else ""
+
+
+# ------------------------------------------------------------------ #
+#  Routes (D-205c): the gallery frame by frame, Apply fps right now    #
+#  Registered once per server (a module reload must not add a twin). #
+# ------------------------------------------------------------------ #
+def _register_routes():
+    try:
+        from aiohttp import web
+        from server import PromptServer
+        from _succy_common import same_origin
+        srv = PromptServer.instance
+        if getattr(srv, "_succy_preview_routes", False) is True:
+            return
+        srv._succy_preview_routes = True
+    except Exception:
+        return                                              # no server (tests, a broken install): the node still works, minus these
+
+    @srv.routes.get("/succy/preview/frame")
+    async def _frame(request):
+        q = request.query
+        try:
+            side = int(q.get("side", _THUMB_SIDE))
+            body = await asyncio.to_thread(gallery_frame, q.get("key", ""), q.get("token", ""), int(q.get("i", -1)), side)
+        except Exception as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+        if body is None:
+            return web.json_response({"error": "expired: Run again"}, status=410)
+        head = {"Cache-Control": "private, max-age=3600"}
+        if q.get("download"):
+            head["Content-Disposition"] = f'attachment; filename="succy_frame_{int(q.get("i", 0)):04d}.png"'
+        return web.Response(body=body, content_type="image/png", headers=head)
+
+    @srv.routes.post("/succy/preview/fps")
+    async def _fps(request):
+        if not same_origin(request):
+            return web.json_response({"error": "cross-origin request refused"}, status=403)
+        try:
+            data = await request.json()
+            out = await asyncio.to_thread(apply_fps, data.get("key", ""), data.get("fps"), bool(data.get("auto")))
+        except ValueError as exc:
+            return web.json_response({"error": str(exc)}, status=409)
+        except Exception as exc:
+            return web.json_response({"error": f"could not re-time: {exc}"}, status=500)
+        return web.json_response(out)
+
+
+_register_routes()
 
 
 # Node names (and the class mapping) live ONLY in the pack's __init__.py (NODES). Nobody gets to name herself here, honey.
