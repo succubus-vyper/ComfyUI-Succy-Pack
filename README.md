@@ -53,7 +53,7 @@ Plug in anything and see what it really is: text, numbers, lists, dicts, JSON, i
 - **Download** saves the picture, or exactly what `output` is — trimmed, converted, undressed of its audio if you asked.
 - **Sizes that make sense**: text = the blue handle sets the height · picture / video = stretch the node, only the picture grows (the timeline stays compact at the bottom) · audio = a slim strip, only the width changes.
 - **Everything you see is saved in the workflow**: the text, the numbers, the trim. Reopen an old workflow and it's all still there, right where you left it. Pictures and clips live in ComfyUI's temp folder: after a restart they say *Expired* until the next Run. Decoding a video into frames stops at ~4 GB with a clear message (make the selection shorter — greedy is cute, but not *that* greedy).
-- **Video means ComfyUI's `VIDEO` type** (core *Load Video*, *Create Video*…). A loader that hands out an `IMAGE` batch plus a separate `AUDIO` (like VHS *Load Video*) is shown as pictures; for the timeline, glue them with *Create Video* first.
+- **🎥 VHS friendly**: plug the `IMAGE` of a VHS *Load Video* and I read the loader's settings myself — you get the clip with its timeline and its sound, and out come the frames you kept plus `audio`, `frame` and `duration`, already cut to the same window. VHS's audio on its own works too, and *Video Combine*'s Filenames play as a real video. No extra wires, no converter nodes.
 - **Quiet console**: nothing is dumped into ComfyUI's console on every run. Want the old `PreviewAny` printout back? Start ComfyUI with the environment variable `SUCCY_PREVIEW_LOG=1`.
 
 ### 🧮 Multi Math

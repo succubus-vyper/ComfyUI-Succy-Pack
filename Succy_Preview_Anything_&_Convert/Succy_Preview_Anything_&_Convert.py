@@ -6,6 +6,7 @@ import re
 import wave
 import weakref
 from collections import OrderedDict
+from collections.abc import Mapping
 
 import folder_paths
 import numpy as np
@@ -71,7 +72,7 @@ def _parse_float(value) -> float:
 def media_kind(value) -> str:
     """'audio' for ComfyUI's AUDIO dict, 'video' for a VIDEO object (VideoInput duck type), '' otherwise."""
     if isinstance(value, dict) and isinstance(value.get("waveform"), torch.Tensor) and "sample_rate" in value:
-        return "audio"
+        return "audio"           # a Mapping that only looks like one (VHS's lazy audio) is turned into a dict by as_audio first
     if callable(getattr(value, "get_components", None)) and callable(getattr(value, "save_to", None)):
         return "video"
     return ""
@@ -469,6 +470,134 @@ def write_audio(path, audio, ext):
 
 
 # ------------------------------------------------------------------ #
+#  VHS (Video Helper Suite) compatibility (D-203)                    #
+#  VHS never sends a VIDEO: its loaders send an IMAGE batch, a lazy  #
+#  AUDIO and a video_info dict on separate sockets, its Combine a    #
+#  (save_output, [paths]) tuple. We read what we need without asking #
+#  for an extra wire: the loader's settings are in the prompt.       #
+# ------------------------------------------------------------------ #
+VHS_LOADERS = ("VHS_LoadVideo", "VHS_LoadVideoPath", "VHS_LoadVideoFFmpeg", "VHS_LoadVideoFFmpegPath")
+_VIDEO_EXTS = (".mp4", ".webm", ".mkv", ".mov", ".avi", ".gif", ".m4v")
+
+
+def as_audio(value):
+    """A real AUDIO dict, or None. VHS's audio is a LazyAudioMap: a Mapping (not a dict) that runs ffmpeg the first time it is
+    read and raises when the file has no sound. We read it once, here, and hand the rest of the node a plain dict."""
+    if isinstance(value, dict):
+        return value if isinstance(value.get("waveform"), torch.Tensor) and "sample_rate" in value else None
+    if isinstance(value, Mapping):
+        try:
+            wf, sr = value["waveform"], value["sample_rate"]
+        except Exception:
+            return None
+        return {"waveform": wf, "sample_rate": sr} if isinstance(wf, torch.Tensor) else None
+    return None
+
+
+def vhs_combine_file(value):
+    """VHS_FILENAMES (Video Combine's output: (save_output, [paths])) -> the finished video's path (the last one), or ''."""
+    if not (isinstance(value, (tuple, list)) and len(value) == 2 and isinstance(value[0], bool) and isinstance(value[1], (list, tuple))):
+        return ""
+    for f in reversed(value[1]):
+        if isinstance(f, str) and f.lower().endswith(_VIDEO_EXTS) and os.path.isfile(f):
+            return f
+    return ""
+
+
+def _literal(v):
+    """A prompt input that is a value (not a [node, slot] link)."""
+    return None if isinstance(v, list) else v
+
+
+def vhs_loader(prompt, unique_id):
+    """The VHS loader whose IMAGE (slot 0) is plugged into our `source`, as {class_type, inputs}; None if it isn't one."""
+    try:
+        link = prompt[str(unique_id)]["inputs"]["source"]
+        if not (isinstance(link, list) and len(link) == 2) or int(link[1]) != 0:
+            return None
+        node = prompt[str(link[0])]
+    except Exception:
+        return None
+    if not isinstance(node, dict) or node.get("class_type") not in VHS_LOADERS:
+        return None
+    return {"class_type": node["class_type"], "inputs": dict(node.get("inputs") or {})}
+
+
+def _vhs_path(loader):
+    raw = _literal(loader["inputs"].get("video"))
+    if not isinstance(raw, str) or not raw.strip():
+        return ""
+    raw = raw.strip().strip('"').strip("'")
+    if loader["class_type"].endswith("Path"):
+        return raw if os.path.isfile(raw) else ""
+    try:
+        path = folder_paths.get_annotated_filepath(raw)
+    except Exception:
+        return ""
+    return path if path and os.path.isfile(path) else ""
+
+
+def _file_fps(path):
+    import av
+    with av.open(path, mode="r") as c:
+        st = c.streams.video[0]
+        r = st.average_rate or st.guessed_rate or st.base_rate
+        return float(r) if r else 0.0
+
+
+def vhs_timing(loader, n_frames, file_fps=None):
+    """(fps of the frames as loaded, where they start in the file in s). The same sums VHS does: the base rate is force_rate,
+    else the file's own; skip_first_frames counts at the base rate (FFmpeg loaders take start_time); every nth stretches it.
+    fps 0 = can't tell (a setting arrives on a wire, the file is gone): then the frames are shown as plain pictures."""
+    inp = loader["inputs"]
+    try:
+        force = float(_literal(inp.get("force_rate")) or 0)
+        nth = max(1, int(_literal(inp.get("select_every_nth")) or 1))
+    except (TypeError, ValueError):
+        return 0.0, 0.0
+    if any(isinstance(inp.get(k), list) for k in ("force_rate", "select_every_nth", "skip_first_frames", "start_time")):
+        return 0.0, 0.0
+    base = force if force > 0 else float(file_fps or 0)
+    if not base > 0:
+        return 0.0, 0.0
+    if "start_time" in inp:
+        start = float(_literal(inp.get("start_time")) or 0)
+    else:
+        start = int(_literal(inp.get("skip_first_frames")) or 0) / base
+    return base / nth, max(0.0, start)
+
+
+def file_audio(path, start, seconds):
+    """The sound of `path` from `start` for `seconds`, as an AUDIO dict (fltp, up to 2 channels), or None when the file has no
+    sound track. Only the audio stream is decoded: the frames are already in memory, no need to undress them twice."""
+    import av
+    with av.open(path, mode="r") as c:
+        if not c.streams.audio:
+            return None
+        st = c.streams.audio[0]
+        sr = int(st.rate or st.codec_context.sample_rate or 44100)
+        layout = "stereo" if (st.codec_context.channels or 1) >= 2 else "mono"
+        rs = av.AudioResampler(format="fltp", layout=layout, rate=sr)
+        if start > 1.0:
+            c.seek(int((start - 1.0) / st.time_base), stream=st)          # a second early, cut to the sample below
+        end, chunks, first = start + seconds, [], None
+        for fr in c.decode(st):
+            t = float(fr.pts * fr.time_base) if fr.pts is not None else None
+            if t is not None and t >= end:
+                break
+            for out in rs.resample(fr):
+                if first is None:
+                    first = t if t is not None else 0.0
+                chunks.append(torch.from_numpy(out.to_ndarray().copy()))
+        if not chunks:
+            return None
+    wf = torch.cat(chunks, dim=-1).float()
+    a0 = max(0, int(round((start - (first or 0.0)) * sr)))
+    a1 = max(a0 + 1, a0 + int(round(seconds * sr)))
+    return {"waveform": wf[:, a0:a1].unsqueeze(0).contiguous(), "sample_rate": sr}
+
+
+# ------------------------------------------------------------------ #
 #  Node                                                              #
 # ------------------------------------------------------------------ #
 class Succy_Preview_Anything_Convert:
@@ -500,18 +629,33 @@ class Succy_Preview_Anything_Convert:
 
     # The slots change with the input: "*" so every shape type-checks; the sockets the user sees are typed by the frontend
     # (shape_output). text: output · image: output, width, height, megapixels · audio: output, duration ·
-    # video: output, frame, duration (+ audio with split_audio).
-    RETURN_TYPES = (ANY, ANY, ANY, ANY, ANY)
-    RETURN_NAMES = ("output", "width", "height", "megapixels", "audio")
+    # video: output, frame, duration (+ audio with split_audio) · frames from a VHS loader (D-203): the image four + audio, frame, duration.
+    RETURN_TYPES = (ANY,) * 7
+    RETURN_NAMES = ("output", "width", "height", "megapixels", "audio", "frame", "duration")
     FUNCTION = "execute"
     OUTPUT_NODE = True
 
     # -------------------------------------------------------------- #
     def execute(self, preview, source, output_type, invert_mask=False, trim_start=0.0, trim_end=0.0, current_time=0.0,
                 split_audio=False, unique_id=None, prompt=None):
+        combined = vhs_combine_file(source)                 # VHS Video Combine's Filenames: we play the file it wrote
+        if combined:
+            source = _video_from_file(combined)
+        if isinstance(source, Mapping) and not isinstance(source, dict):      # VHS's lazy audio
+            source = as_audio(source)
+            if source is None:
+                _keep_files(_node_key(unique_id), [])
+                return {"ui": {"succy_text": ["AUDIO: this clip has no sound track (VHS gives an empty audio for a silent video)."]},
+                        "result": (None,) * 7}
         kind = media_kind(source)
         if kind:
             return self._media(kind, preview, source, output_type, trim_start, trim_end, current_time, split_audio, unique_id, prompt)
+        if output_type in ("IMAGE", "MASK") and isinstance(source, torch.Tensor) and source.dim() == 4:
+            loader = vhs_loader(prompt, unique_id)          # frames straight out of a VHS loader: a clip, with its timeline
+            if loader:
+                done = self._frames(loader, preview, source, output_type, invert_mask, trim_start, trim_end, current_time, unique_id, prompt)
+                if done is not None:
+                    return done
         converted = source
         width = height = 0
         megapixels = 0.0
@@ -522,7 +666,7 @@ class Succy_Preview_Anything_Convert:
         if source is None:
             return {
                 "ui": {"succy_text": ["No input detected."]},
-                "result": (converted, width, height, megapixels, None),
+                "result": (converted, width, height, megapixels, None, None, None),
             }
 
         # ---------- IMAGE / MASK ----------
@@ -667,7 +811,7 @@ class Succy_Preview_Anything_Convert:
 
         return {
             "ui": ui_res,
-            "result": (converted, width, height, megapixels, None),
+            "result": (converted, width, height, megapixels, None, None, None),
         }
 
     # -------------------------------------------------------------- #
@@ -713,7 +857,7 @@ class Succy_Preview_Anything_Convert:
                 except Exception as ex:
                     print(f"[PreviewAny] Audio preview error: {ex}")
             _keep_files(node_key, files)
-            result = (out_audio, dur_out, None, None, None)
+            result = (out_audio, dur_out, None, None, None, None, None)
         else:
             vi = _VideoInfo(source)
             fps, n = vi.fps, vi.frames
@@ -768,11 +912,79 @@ class Succy_Preview_Anything_Convert:
                 except Exception as ex:
                     print(f"[PreviewAny] Video preview error: {ex}")
             _keep_files(node_key, files)
-            result = (out_video, frame, dur_out, audio if split else None, None)
+            result = (out_video, frame, dur_out, audio if split else None, None, None, None)
 
         if preview and _LOG:
             print("\n" + "=" * 40 + f"\nPreviewAny [{kind.upper()}]:\n{info}\n" + "=" * 40 + "\n")
         return {"ui": {"succy_media": [media], "succy_info": [line], "succy_text": [info]}, "result": result}
+
+    # -------------------------------------------------------------- #
+    def _frames(self, loader, preview, source, output_type, invert_mask, trim_start, trim_end, current_time, unique_id, prompt):
+        """IMAGE batch from a VHS loader (D-203): shown as the clip it is (player + timeline, its sound read from the file),
+        and handed on as what VHS users expect: `output` = the frames of the kept window (IMAGE or MASK), width, height,
+        megapixels, then `audio` (the window's sound, silence if none), `frame` (the one under Current), `duration`.
+        None = fps can't be known (a setting on a wire, the file gone): the caller shows plain pictures."""
+        path = _vhs_path(loader)
+        try:
+            ffps = _file_fps(path) if path else 0.0
+        except Exception:
+            ffps = 0.0
+        fps, start0 = vhs_timing(loader, int(source.shape[0]), ffps)
+        if not fps > 0:
+            return None
+        n, H, W = int(source.shape[0]), int(source.shape[1]), int(source.shape[2])
+        duration = n / fps
+        s, e, trimmed = trim_window(duration, fps, trim_start, trim_end)
+        f0, f1 = frame_range(s, e, fps, n)
+        fc = min(max(frame_at(current_time, fps, n), f0), f1 - 1)
+        wired = wired_outputs(prompt, unique_id)
+        need = (lambda slot: True) if wired is None else (lambda slot: slot in wired)
+        node_key = _node_key(unique_id)
+        temp = folder_paths.get_temp_directory()
+
+        full_audio = None
+        if path and (preview or need(4)):
+            try:
+                full_audio = file_audio(path, start0, duration)
+            except Exception as ex:
+                print(f"[PreviewAny] VHS audio could not be read: {ex}")
+        has_audio = full_audio is not None
+        frames = source[f0:f1]
+        out = frames
+        if output_type == "MASK":
+            out = frames[:, :, :, 0]
+            if invert_mask:
+                out = 1.0 - out
+        win = (f1 - f0) / fps
+        audio_out = slice_audio(full_audio, f0 / fps, f1 / fps) if has_audio else silent_audio(win)
+        frame = source[fc:fc + 1] if need(5) else None
+        dur_out = round(win, 3)
+        mp = (W * H) / 1_000_000.0
+
+        media = {"kind": "video", "duration": duration, "fps": fps, "frames": n, "width": W, "height": H, "has_audio": has_audio,
+                 "start": s, "end": e, "trimmed": trimmed, "split": False, "format": "video.mp4", "vhs": True}
+        line = f"{W}×{H} · {fps:.2f} fps · {duration:.3f} s · {n} frames · VHS" + (" · audio" if has_audio else "")
+        info = (f"Type: IMAGE batch from {loader['class_type']}\nResolution: {W} x {H}\nMegapixels: {mp:.4f}\nFPS: {fps:.3f}\n"
+                f"Duration: {duration:.3f} s\nFrames: {n}\nAudio: {'yes' if has_audio else 'no'}\n"
+                f"Selection: {s:.3f} -> {e:.3f} s (frames {f0} -> {f1 - 1})\nCurrent frame: {fc}\nOut: {f1 - f0} frames, {dur_out:.3f} s as {output_type}")
+        files = []
+        if preview:
+            try:
+                play = _player_file(node_key, source, "vid", "mp4", lambda p: encode_video(source, full_audio, fps, p, "mp4"))
+                files.append(play)
+                dl = play
+                if trimmed:                                  # the download = exactly the kept window, with its sound
+                    dl = _temp_name(node_key, "cut", "mp4")
+                    encode_video(frames, audio_out if has_audio else None, fps, os.path.join(temp, dl), "mp4")
+                    files.append(dl)
+                media.update(src=_saved(play), dl=_saved(dl))
+            except Exception as ex:
+                print(f"[PreviewAny] VHS preview error: {ex}")
+        _keep_files(node_key, files)
+        if preview and _LOG:
+            print("\n" + "=" * 40 + f"\nPreviewAny [VHS FRAMES]:\n{info}\n" + "=" * 40 + "\n")
+        return {"ui": {"succy_media": [media], "succy_info": [line], "succy_text": [info]},
+                "result": (out, W, H, mp, audio_out, frame, dur_out)}
 
 
 # Node names (and the class mapping) live ONLY in the pack's __init__.py (NODES). Nobody gets to name herself here, honey.
