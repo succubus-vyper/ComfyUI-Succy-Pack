@@ -313,15 +313,15 @@ def write_wav(path, audio):
         w.writeframes(data)
 
 
-def _player_file(node_key, source, tag, ext, writer):
-    """The file the player shows for `source`: re-used while the very same object comes back (a trim change re-runs the node
-    with the same upstream output), written again otherwise."""
+def _player_file(node_key, source, tag, ext, writer, sig=None):
+    """The file the player shows for `source`: re-used while the very same object comes back with the same `sig` (a trim change
+    re-runs the node with the same upstream output), written again otherwise (new frames, another fps, another sound)."""
     temp_dir = folder_paths.get_temp_directory()
     hit = _PLAYER.get(node_key)
     if hit:
-        ref, name = hit
+        ref, name, old_sig = hit
         try:
-            same = ref() is source
+            same = ref() is source and old_sig == sig
         except Exception:
             same = False
         if same and os.path.isfile(os.path.join(temp_dir, name)):
@@ -329,7 +329,7 @@ def _player_file(node_key, source, tag, ext, writer):
     name = _temp_name(node_key, tag, ext)
     writer(os.path.join(temp_dir, name))
     try:
-        _PLAYER[node_key] = (weakref.ref(source), name)
+        _PLAYER[node_key] = (weakref.ref(source), name, sig)
     except TypeError:                       # not weak-referenceable (a plain dict): remember nothing, write every time
         _PLAYER.pop(node_key, None)
     return name
@@ -600,6 +600,103 @@ def file_audio(path, start, seconds):
 
 
 # ------------------------------------------------------------------ #
+#  Clip or pictures? (D-205)                                         #
+#  We read what ARRIVES, never the whole graph: a VIDEO is a clip, an #
+#  IMAGE batch is one when it moves like one. fps: the video's own,  #
+#  a VHS loader's, the wire, the field; nobody knows = 24.           #
+# ------------------------------------------------------------------ #
+CLIP_MODES = ["auto", "clip", "images"]
+DEFAULT_FPS = 24.0
+_GALLERY_MAX = 64            # thumbnails in the gallery; past that, evenly spaced ones (the output keeps every frame)
+_THUMB_SIDE = 512            # longest side of a gallery thumbnail
+
+
+def looks_like_video(images):
+    """auto: does this IMAGE batch move like a clip? At least 6 frames, and neighbours that look alike: either barely different
+    (< 4% per pixel) or at most half as different as frames half a batch apart. A batch of seed variants is all equally
+    different, so it stays pictures. Measured on a ~32 px copy: costs nothing, even on 1080p."""
+    try:
+        n = int(images.shape[0])
+        if images.dim() != 4 or n < 6:
+            return False
+        step = max(1, max(int(images.shape[1]), int(images.shape[2])) // 32)
+        x = images[:, ::step, ::step, :3].float()
+        near = float((x[1:] - x[:-1]).abs().mean())
+        far = float((x[n // 2:] - x[:n - n // 2]).abs().mean())
+        return near < 0.04 or near < 0.5 * far
+    except Exception:
+        return False
+
+
+def pick_fps(fps_override, fps_auto, clip_fps, found, found_from):
+    """The clip's fps and where it came from: a wire (EXT) wins, then the field when you typed it, then what the input itself
+    says (the video, a VHS loader), then the default."""
+    try:
+        v = float(_unwrap_scalar(fps_override)) if fps_override is not None else 0.0
+    except (TypeError, ValueError):
+        v = 0.0
+    if v > 0:
+        return min(v, 1000.0), "wire"
+    try:
+        f = float(clip_fps or 0)
+    except (TypeError, ValueError):
+        f = 0.0
+    if not fps_auto and f > 0:
+        return min(f, 1000.0), "manual"
+    if found and found > 0:
+        return float(found), found_from
+    return DEFAULT_FPS, "default"
+
+
+def gallery_indexes(n, cap=_GALLERY_MAX):
+    """Which frames the gallery shows: all of them up to `cap`, otherwise `cap` evenly spaced (first and last included)."""
+    n = int(n)
+    if n <= cap:
+        return list(range(n))
+    return sorted({int(round(k * (n - 1) / (cap - 1))) for k in range(cap)})
+
+
+def _to_pil(frame):
+    """One frame [H, W, C] or a mask [H, W] -> PIL (alpha kept, 1 channel = grey, more than 4 = the first 3)."""
+    arr = np.clip(255.0 * frame.detach().float().cpu().numpy(), 0, 255).astype(np.uint8)
+    if arr.ndim == 2:
+        return Image.fromarray(arr, mode="L")
+    if arr.shape[-1] == 1:
+        arr = np.repeat(arr, 3, axis=-1)
+    elif arr.shape[-1] > 4:
+        arr = arr[..., :3]
+    return Image.fromarray(arr, mode="RGBA" if arr.shape[-1] == 4 else "RGB")
+
+
+def write_gallery(node_key, shown):
+    """The gallery of a batch: small PNGs of the frames gallery_indexes picks, in temp. Returns (files, indexes)."""
+    temp_dir = folder_paths.get_temp_directory()
+    idx = gallery_indexes(int(shown.shape[0]))
+    files = []
+    for k in idx:
+        im = _to_pil(shown[k])
+        im.thumbnail((_THUMB_SIDE, _THUMB_SIDE))
+        name = _temp_name(node_key, f"g{k}", "png")
+        im.save(os.path.join(temp_dir, name), compress_level=1)
+        files.append(name)
+    return files, idx
+
+
+def vhs_clip(prompt, unique_id):
+    """Frames straight out of a VHS loader (D-203): (fps, start in the file, file path), or None. Only the DIRECT parent is read."""
+    loader = vhs_loader(prompt, unique_id)
+    if not loader:
+        return None
+    path = _vhs_path(loader)
+    try:
+        ffps = _file_fps(path) if path else 0.0
+    except Exception:
+        ffps = 0.0
+    fps, start0 = vhs_timing(loader, 0, ffps)
+    return (fps, start0, path, loader["class_type"]) if fps > 0 else None
+
+
+# ------------------------------------------------------------------ #
 #  Node                                                              #
 # ------------------------------------------------------------------ #
 class Succy_Preview_Anything_Convert:
@@ -623,6 +720,17 @@ class Succy_Preview_Anything_Convert:
                 "trim_end": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1e7, "step": 0.001}),
                 "current_time": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1e7, "step": 0.001}),
                 "split_audio": ("BOOLEAN", {"default": False}),
+                # IMAGE batch / VIDEO (D-205): clip (player + timeline) or pictures (gallery). auto = a VIDEO is a clip, a batch when it moves.
+                "as_clip": (CLIP_MODES, {"default": "auto"}),
+                # the clip's fps. fps_auto = the node fills it with what the input says (the video's own, a VHS loader's, else 24);
+                # typing one switches fps_auto off. On a VIDEO a different fps re-times it (same frames, another speed).
+                "clip_fps": ("FLOAT", {"default": DEFAULT_FPS, "min": 0.01, "max": 1000.0, "step": 0.01}),
+                "fps_auto": ("BOOLEAN", {"default": True}),
+            },
+            # audio: plugged = the clip's sound, replacing whatever it had. fps_override: the EXT chip, beats the field.
+            "optional": {
+                "audio": ("AUDIO",),
+                "fps_override": ("FLOAT", {"forceInput": True}),
             },
             # the node's id: one set of preview files per node, the old ones go away when the new ones land (no pile-up in temp/).
             # prompt: to see which outputs are wired, so a frame nobody reads is never decoded.
@@ -631,7 +739,8 @@ class Succy_Preview_Anything_Convert:
 
     # The slots change with the input: "*" so every shape type-checks; the sockets the user sees are typed by the frontend
     # (shape_output). text: output · image: output, width, height, megapixels · audio: output, duration ·
-    # video: output, frame, duration (+ audio with split_audio) · frames from a VHS loader (D-203): the image four + audio, frame, duration.
+    # video: output, frame, duration (+ audio with split_audio) · a batch as a clip (D-205): the image four + audio, frame, duration ·
+    # a video as pictures: the image four.
     RETURN_TYPES = (ANY,) * 7
     RETURN_NAMES = ("output", "width", "height", "megapixels", "audio", "frame", "duration")
     FUNCTION = "execute"
@@ -639,7 +748,8 @@ class Succy_Preview_Anything_Convert:
 
     # -------------------------------------------------------------- #
     def execute(self, preview, source, output_type, invert_mask=False, trim_start=0.0, trim_end=0.0, current_time=0.0,
-                split_audio=False, unique_id=None, prompt=None):
+                split_audio=False, as_clip="auto", clip_fps=DEFAULT_FPS, fps_auto=True, audio=None, fps_override=None,
+                unique_id=None, prompt=None):
         combined = vhs_combine_file(source)                 # VHS Video Combine's Filenames: we play the file it wrote
         if combined:
             source = _video_from_file(combined)
@@ -649,21 +759,39 @@ class Succy_Preview_Anything_Convert:
                 _keep_files(_node_key(unique_id), [])
                 return {"ui": {"succy_text": ["AUDIO: this clip has no sound track (VHS gives an empty audio for a silent video)."]},
                         "result": (None,) * 7}
+        mode = as_clip if as_clip in CLIP_MODES else "auto"
+        audio_in = as_audio(audio) if audio is not None else None
+        fps_of = lambda found, where: pick_fps(fps_override, fps_auto, clip_fps, found, where)
         kind = media_kind(source)
+        if kind == "video" and mode == "images":           # a video as pictures: its frames, gallery and all
+            try:
+                vi = _VideoInfo(source)
+                vi.check_decode(vi.frames)
+                source = vi.components().images
+                output_type = output_type if output_type in ("IMAGE", "MASK") else "IMAGE"
+                kind = ""
+            except Exception as ex:
+                print(f"[PreviewAny] video as pictures failed, showing the clip: {ex}")
         if kind:
-            return self._media(kind, preview, source, output_type, trim_start, trim_end, current_time, split_audio, unique_id, prompt)
-        if output_type in ("IMAGE", "MASK") and isinstance(source, torch.Tensor) and source.dim() == 4:
-            loader = vhs_loader(prompt, unique_id)          # frames straight out of a VHS loader: a clip, with its timeline
-            if loader:
-                done = self._frames(loader, preview, source, output_type, invert_mask, trim_start, trim_end, current_time, unique_id, prompt)
-                if done is not None:
-                    return done
+            return self._media(kind, preview, source, output_type, trim_start, trim_end, current_time, split_audio, unique_id, prompt,
+                               fps_of=fps_of, audio_in=audio_in)
+        if (output_type in ("IMAGE", "MASK") and mode != "images" and isinstance(source, torch.Tensor) and source.dim() == 4
+                and int(source.shape[0]) >= 2):
+            try:
+                vhs = vhs_clip(prompt, unique_id)            # frames straight out of a VHS loader: its fps and its sound
+                if mode == "clip" or vhs or looks_like_video(source):
+                    fps, where = fps_of(vhs[0] if vhs else 0.0, "VHS" if vhs else "")
+                    return self._frames(source, fps, where, vhs, audio_in, preview, output_type, invert_mask,
+                                        trim_start, trim_end, current_time, unique_id, prompt)
+            except Exception as ex:                          # the clip went wrong: pictures, as before. Never a dead queue.
+                print(f"[PreviewAny] clip preview failed, showing pictures: {ex}")
         converted = source
         width = height = 0
         megapixels = 0.0
         info_string = ""
         text_output = ""
         ui_images = []
+        ui_gallery = None
 
         if source is None:
             return {
@@ -737,20 +865,17 @@ class Succy_Preview_Anything_Convert:
                     file_path = os.path.join(temp_dir, filename)
 
                     shown = converted if invert_shown else source      # inverted mask: preview what comes out
-                    arr = shown[0].cpu().numpy()
-                    arr = np.clip(255.0 * arr, 0, 255).astype(np.uint8)
-                    if shown.dim() == 3:
-                        pil_img = Image.fromarray(arr, mode="L")
-                    else:
-                        # handles grayscale (1 channel) and RGBA (4 channels): the alpha is KEPT (D-106: a Crop cutout
-                        # previewed as RGB looked uncut). Anything wider than 4 channels keeps its first 3.
-                        if arr.shape[-1] == 1:
-                            arr = np.repeat(arr, 3, axis=-1)
-                        elif arr.shape[-1] > 4:
-                            arr = arr[..., :3]
-                        pil_img = Image.fromarray(arr, mode="RGBA" if arr.shape[-1] == 4 else "RGB")
-                    pil_img.save(file_path, compress_level=4)
-                    _keep_files(node_key, [filename])
+                    # grayscale and RGBA handled: the alpha is KEPT (D-106: a Crop cutout previewed as RGB looked uncut)
+                    _to_pil(shown[0]).save(file_path, compress_level=4)
+                    files = [filename]
+                    if int(shown.shape[0]) > 1:                        # a batch: the gallery of all of it (D-205)
+                        try:
+                            gal, idx = write_gallery(node_key, shown)
+                            files += gal
+                            ui_gallery = {"files": [_saved(f) for f in gal], "index": idx, "total": int(shown.shape[0])}
+                        except Exception as e:
+                            print(f"[PreviewAny] gallery error: {e}")
+                    _keep_files(node_key, files)
                     _PLAYER.pop(node_key, None)
 
                     ui_images = [{
@@ -796,7 +921,11 @@ class Succy_Preview_Anything_Convert:
             ui_res["succy_images"] = ui_images
             ui_res["succy_info"] = [
                 f"Width: {width}   Height: {height}   Megapixels: {megapixels:.2f}"
+                + ((f"   ·   {len(ui_gallery['files'])} of {ui_gallery['total']}" if len(ui_gallery["files"]) < ui_gallery["total"]
+                    else f"   ·   {ui_gallery['total']} images") if ui_gallery else "")
             ]
+            if ui_gallery:
+                ui_res["succy_gallery"] = [ui_gallery]
             if preview and _LOG:
                 print("\n" + "=" * 40)
                 print("PreviewAny [IMAGE]:")
@@ -817,12 +946,14 @@ class Succy_Preview_Anything_Convert:
         }
 
     # -------------------------------------------------------------- #
-    def _media(self, kind, preview, source, output_type, trim_start, trim_end, current_time, split_audio, unique_id, prompt):
+    def _media(self, kind, preview, source, output_type, trim_start, trim_end, current_time, split_audio, unique_id, prompt,
+               fps_of=None, audio_in=None):
         """VIDEO / AUDIO in (D-198). `output` = the clip with everything applied: the window [trim_start, trim_end) really cut
         (frames and samples), split_audio = silent, Convert To = the container (video) or the download file (audio).
         `frame` (video) = the frame under current_time, which always sits inside the window. `duration` = seconds of what
         goes out (3 decimals). split_audio adds `audio` = the window's sound. The player shows the WHOLE clip (the timeline
-        needs all of it); the download button gets exactly `output`."""
+        needs all of it); the download button gets exactly `output`. D-205: a VIDEO at another fps (field / EXT wire) is
+        re-timed, a plugged `audio_in` replaces its sound: both rebuild the video from its frames before anything else."""
         node_key = _node_key(unique_id)
         wired = wired_outputs(prompt, unique_id)
         need = (lambda slot: True) if wired is None else (lambda slot: slot in wired)
@@ -862,6 +993,16 @@ class Succy_Preview_Anything_Convert:
             result = (out_audio, dur_out, None, None, None, None, None)
         else:
             vi = _VideoInfo(source)
+            fps, where = fps_of(vi.fps, "video") if fps_of else (vi.fps, "video")
+            if audio_in is not None or abs(fps - vi.fps) > 1e-3:
+                vi.check_decode(vi.frames)
+                c = vi.components()
+                from fractions import Fraction
+                snd = slice_audio(audio_in, 0.0, vi.frames / fps) if audio_in is not None else c.audio    # never longer than the frames
+                source = _make_video(c.images, snd, Fraction(fps).limit_denominator(1001))
+                vi = _VideoInfo(source)
+                vi.fps = fps                                 # the asked rate, exactly (the Fraction may round it)
+                vi.duration = vi.frames / fps
             fps, n = vi.fps, vi.frames
             s, e, trimmed = trim_window(vi.duration, fps, trim_start, trim_end)
             f0, f1 = frame_range(s, e, fps, n)
@@ -898,9 +1039,10 @@ class Succy_Preview_Anything_Convert:
                     f"Selection: {s:.3f} -> {e:.3f} s (frames {f0} -> {f1 - 1})\nCurrent frame: {fc}\nOut: {dur_out:.3f} s as .{ext}"
                     + (" (silent)" if split else ""))
             frame = vi.frame(fc) if need(1) else None
-            media.update(duration=vi.duration, fps=fps, frames=n, width=vi.width, height=vi.height, has_audio=vi.has_audio,
+            media.update(duration=vi.duration, fps=fps, fps_from=where, frames=n, width=vi.width, height=vi.height, has_audio=vi.has_audio,
                          start=s, end=e, trimmed=trimmed, split=split, format="video." + src_fmt)
-            line = f"{vi.width}×{vi.height} · {fps:.2f} fps · {vi.duration:.3f} s · {n} frames · {src_fmt}" + (" · audio" if vi.has_audio else "")
+            line = (f"{vi.width}×{vi.height} · {fps:.2f} fps{_fps_note(where)} · {vi.duration:.3f} s · {n} frames · {src_fmt}"
+                    + (" · audio" if vi.has_audio else ""))
             if preview:
                 try:
                     play = _player_file(node_key, source, "vid", "mp4", lambda path: _save_video(source, path))
@@ -921,19 +1063,12 @@ class Succy_Preview_Anything_Convert:
         return {"ui": {"succy_media": [media], "succy_info": [line], "succy_text": [info]}, "result": result}
 
     # -------------------------------------------------------------- #
-    def _frames(self, loader, preview, source, output_type, invert_mask, trim_start, trim_end, current_time, unique_id, prompt):
-        """IMAGE batch from a VHS loader (D-203): shown as the clip it is (player + timeline, its sound read from the file),
-        and handed on as what VHS users expect: `output` = the frames of the kept window (IMAGE or MASK), width, height,
-        megapixels, then `audio` (the window's sound, silence if none), `frame` (the one under Current), `duration`.
-        None = fps can't be known (a setting on a wire, the file gone): the caller shows plain pictures."""
-        path = _vhs_path(loader)
-        try:
-            ffps = _file_fps(path) if path else 0.0
-        except Exception:
-            ffps = 0.0
-        fps, start0 = vhs_timing(loader, int(source.shape[0]), ffps)
-        if not fps > 0:
-            return None
+    def _frames(self, source, fps, where, vhs, audio_in, preview, output_type, invert_mask, trim_start, trim_end, current_time,
+                unique_id, prompt):
+        """An IMAGE batch shown as the clip it is (D-203 for VHS, D-205 for everyone): player + timeline at `fps`, its sound =
+        the plugged `audio_in`, else the VHS loader's file (vhs = (fps, start, path, class)), else none. Handed on as what
+        frame people expect: `output` = the frames of the kept window (IMAGE or MASK), width, height, megapixels, then
+        `audio` (the window's sound, silence if none), `frame` (the one under Current), `duration`."""
         n, H, W = int(source.shape[0]), int(source.shape[1]), int(source.shape[2])
         duration = n / fps
         s, e, trimmed = trim_window(duration, fps, trim_start, trim_end)
@@ -944,10 +1079,12 @@ class Succy_Preview_Anything_Convert:
         node_key = _node_key(unique_id)
         temp = folder_paths.get_temp_directory()
 
-        full_audio = None
-        if path and (preview or need(4)):
+        full_audio = slice_audio(audio_in, 0.0, duration) if audio_in is not None else None       # never longer than the frames
+        snd = ("in", id(audio_in["waveform"]), round(duration, 4)) if audio_in is not None else None
+        if full_audio is None and vhs and vhs[2] and (preview or need(4)):
             try:
-                full_audio = file_audio(path, start0, duration)
+                full_audio = file_audio(vhs[2], vhs[1], duration)
+                snd = ("file", vhs[2], vhs[1])
             except Exception as ex:
                 print(f"[PreviewAny] VHS audio could not be read: {ex}")
         has_audio = full_audio is not None
@@ -962,17 +1099,20 @@ class Succy_Preview_Anything_Convert:
         frame = source[fc:fc + 1] if need(5) else None
         dur_out = round(win, 3)
         mp = (W * H) / 1_000_000.0
+        origin = vhs[3] if vhs else "IMAGE batch"
 
-        media = {"kind": "video", "duration": duration, "fps": fps, "frames": n, "width": W, "height": H, "has_audio": has_audio,
-                 "start": s, "end": e, "trimmed": trimmed, "split": False, "format": "video.mp4", "vhs": True}
-        line = f"{W}×{H} · {fps:.2f} fps · {duration:.3f} s · {n} frames · VHS" + (" · audio" if has_audio else "")
-        info = (f"Type: IMAGE batch from {loader['class_type']}\nResolution: {W} x {H}\nMegapixels: {mp:.4f}\nFPS: {fps:.3f}\n"
+        media = {"kind": "video", "duration": duration, "fps": fps, "fps_from": where, "frames": n, "width": W, "height": H,
+                 "has_audio": has_audio, "start": s, "end": e, "trimmed": trimmed, "split": False, "format": "video.mp4",
+                 "frames_in": True, "vhs": bool(vhs)}
+        line = f"{W}×{H} · {fps:.2f} fps{_fps_note(where)} · {duration:.3f} s · {n} frames" + (" · audio" if has_audio else "")
+        info = (f"Type: IMAGE batch as a clip ({origin})\nResolution: {W} x {H}\nMegapixels: {mp:.4f}\nFPS: {fps:.3f} ({where or 'auto'})\n"
                 f"Duration: {duration:.3f} s\nFrames: {n}\nAudio: {'yes' if has_audio else 'no'}\n"
                 f"Selection: {s:.3f} -> {e:.3f} s (frames {f0} -> {f1 - 1})\nCurrent frame: {fc}\nOut: {f1 - f0} frames, {dur_out:.3f} s as {output_type}")
         files = []
         if preview:
             try:
-                play = _player_file(node_key, source, "vid", "mp4", lambda p: encode_video(source, full_audio, fps, p, "mp4"))
+                play = _player_file(node_key, source, "vid", "mp4", lambda p: encode_video(source, full_audio, fps, p, "mp4"),
+                                    sig=(round(fps, 4), snd))
                 files.append(play)
                 dl = play
                 if trimmed:                                  # the download = exactly the kept window, with its sound
@@ -981,12 +1121,17 @@ class Succy_Preview_Anything_Convert:
                     files.append(dl)
                 media.update(src=_saved(play), dl=_saved(dl))
             except Exception as ex:
-                print(f"[PreviewAny] VHS preview error: {ex}")
+                print(f"[PreviewAny] clip preview error: {ex}")
         _keep_files(node_key, files)
         if preview and _LOG:
-            print("\n" + "=" * 40 + f"\nPreviewAny [VHS FRAMES]:\n{info}\n" + "=" * 40 + "\n")
+            print("\n" + "=" * 40 + f"\nPreviewAny [FRAMES AS CLIP]:\n{info}\n" + "=" * 40 + "\n")
         return {"ui": {"succy_media": [media], "succy_info": [line], "succy_text": [info]},
                 "result": (out, W, H, mp, audio_out, frame, dur_out)}
+
+
+def _fps_note(where):
+    """The info line's word on where the fps came from: nothing when the video said it, otherwise (VHS) (manual) (wire) (default)."""
+    return f" ({where})" if where and where != "video" else ""
 
 
 # Node names (and the class mapping) live ONLY in the pack's __init__.py (NODES). Nobody gets to name herself here, honey.

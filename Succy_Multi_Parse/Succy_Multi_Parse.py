@@ -23,7 +23,7 @@ MODES = [
 ]
 
 # the little "flavour" of a mode (toggle / dropdown above its fields). First value = default.
-CONCAT_KINDS = ["ALL", "TEMPLATE"]          # ALL = glue the items with a separator (Join is gone: this is it, D-204) · TEMPLATE = @a text @b
+CONCAT_KINDS = ["ALL", "TEMPLATE"]          # ALL ("Default") = every wired input glued with the separator (D-204b) · TEMPLATE = @a text @b
 REGEX_KINDS = ["EXTRACT", "REPLACE"]
 EDGE_KINDS = ["STARTS", "ENDS"]
 CASE_KINDS = ["UPPER", "LOWER", "TITLE", "SENTENCE", "SWAP", "SNAKE", "KEBAB", "CAMEL"]
@@ -33,7 +33,7 @@ TRIM_KINDS = ["ENDS", "COLLAPSE", "NO_SPACES", "NO_BLANK_LINES"]
 def text_fields(mode, kind):
     """How many TEXT fields (f1..f3) the mode reads."""
     if mode == "REGEX": return 3 if kind == "REPLACE" else 2
-    if mode == "CONCATENATE": return 1 if kind == "TEMPLATE" else 2
+    if mode == "CONCATENATE": return 1 if kind == "TEMPLATE" else 0      # Default reads only the separator (f2), shown apart
     return {"REPLACE": 3, "SPLIT": 2, "CONTAINS": 2, "COMPARE": 2,
             "STARTS_ENDS": 2, "TRIM": 1, "CASE": 1, "SUBSTRING": 1, "LENGTH": 1}.get(mode, 1)
 
@@ -198,18 +198,18 @@ def apply_trim(kind, s):
     return s.strip()
 
 
-def concat_items(field, env, wired):
-    """What Concat ALL glues: empty field = every wired input in order; otherwise the @tokens written in it, in order (text around
-    them is ignored), or the text itself when it holds no token. A list counts as its items (Split's result, a LIST input)."""
-    if not field.strip():
-        vals = [env[k] for k in wired]
-    else:
-        keys = [m.group(1) for m in _TOKEN.finditer(field) if m.group(1) in env]
-        vals = [env[k] for k in keys] if keys else [_unescape(field)]
+def concat_items(env, wired):
+    """What Concat Default glues: every wired input, in order. A list counts as its items (a LIST input)."""
     out = []
-    for v in vals:
+    for v in (env[k] for k in wired):
         out.extend(v if isinstance(v, (list, tuple)) else [v])
     return out
+
+
+def concat_separator(raw):
+    """Concat Default's separator, taken exactly as typed (spaces included); empty = one space. A one-line field has no Enter,
+    so \\n or /n = new line and \\t or /t = tab (both slashes: nobody remembers which one, and nobody should have to)."""
+    return _unescape(re.sub(r"/([nt])", r"\\\1", raw)) if raw != "" else " "
 
 
 def run_mode(mode, kind, raw, nums, env, wired=(), trim=False):
@@ -231,12 +231,12 @@ def run_mode(mode, kind, raw, nums, env, wired=(), trim=False):
     if mode == "CONCATENATE":
         if kind == "TEMPLATE":                       # Hello @a, you are @b — the fancy one
             return val(0)
-        # ALL (D-204): a plain concat, like everyone else's. Items + separator; Trim = every piece trimmed, empty ones skipped
-        # (no "a, , c"). No @a @b ritual for the simple case, darling: plug, pick a separator, done.
-        items = [_text(x) for x in concat_items(raw[0], env, wired)]
+        # Default (D-204b): every wired input + the separator, nothing else to fill in. Trim = every piece trimmed (never the
+        # separator), empty ones skipped (no "a, , c"). Plug, pick a separator, done: no @a @b ritual for the simple case, darling.
+        items = [_text(x) for x in concat_items(env, wired)]
         if trim:
             items = [x.strip() for x in items if x.strip()]
-        return _unescape(raw[1]).join(items)
+        return concat_separator(raw[1]).join(items)
 
     if mode == "REPLACE":
         find = _unescape(txt(1))
@@ -392,8 +392,8 @@ class Succy_Multi_Parse:
             raw = [str(cfg.get(f"f{k}_{i}", "") or "") for k in (1, 2, 3)]
 
             shown = " | ".join(_debug_expand(raw[k], env, labels) for k in range(text_fields(mode, kind)))
-            if mode == "CONCATENATE" and kind == "ALL" and not raw[0].strip():
-                shown = "(all wired: " + (", ".join(wired) or "none") + ")" + shown
+            if mode == "CONCATENATE" and kind == "ALL":
+                shown = "(all wired: " + (", ".join(wired) or "none") + ")  separator " + repr(concat_separator(raw[1]))
 
             err = None
             nums = [None, None]
