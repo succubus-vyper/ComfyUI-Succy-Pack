@@ -115,7 +115,7 @@ Shape:
   "defaults": {                    ← ALL widget defaults live here
     "font_size": 24,
     "font_color": "#ffffffff",
-    "bg_color": "#00000080",
+    "bg_color": "#00000000",
     "border_color": "#00ffffff",
     "border_color_b": "#ff0000ff",
     "border_width": 3,
