@@ -9,7 +9,8 @@ from _succy_common import ANY, convert_text   # the shared drawer (loaded once b
 #  The data arrives from the frontend in the hidden `table` widget (JSON): #
 #     {"fmt": ["STRING", ...], "rows": [["label", "v1", ..., "v8"], ...]}  #
 #  Outputs (LIVE order, the frontend keeps the sockets matched):          #
-#     cmb1..cmbN, index, label, all   (+ padding up to 11)                 #
+#     cmb1..cmbN, index, label, picked   (+ padding up to 11)
+#  `picked` = "List of Picked": the chosen row as a REAL list, each value in its column's format.                 #
 # ====================================================================== #
 
 MAX_ROWS = 20
@@ -19,6 +20,44 @@ FORMATS = ["STRING", "INT", "FLOAT", "BOOLEAN", "LIST", "DICT", "ARRAY", "JSON",
 
 def _pc_convert(raw_value, output_format):
     return convert_text(raw_value, output_format, tag="Succy Pick Combo")
+
+
+class PickedFloat(float):
+    """A float that remembers how it was written: "2.0000" stays 2.0000, a bare "2" shows as 2.00.
+    Math sees a plain float; only the printed list (preview, str()) wears the decimals. Dressed to be read."""
+    def __new__(cls, value, text):
+        obj = super().__new__(cls, value)
+        obj._text = text
+        return obj
+
+    def __repr__(self):
+        return self._text
+
+    __str__ = __repr__
+
+
+def _pc_float_text(raw, value):
+    """The text a picked float prints with: her own decimals if she wrote some, otherwise two."""
+    s = str(raw).strip()
+    if s and "." in s and "e" not in s.lower():
+        try:
+            if float(s) == value:
+                return s.lstrip("+")
+        except ValueError:
+            pass
+    return f"{value:.2f}"
+
+
+def _pc_picked(row, fmt, k):
+    """List of Picked: the chosen row's values, each converted to its column's format.
+    Strings print with quotes, INT and FLOAT without (FLOAT keeps its decimals, see PickedFloat)."""
+    out = []
+    for c in range(k):
+        v = _pc_convert(row[1 + c], fmt[c])
+        if fmt[c] == "FLOAT" and isinstance(v, float):
+            v = PickedFloat(v, _pc_float_text(row[1 + c], v))
+        out.append(v)
+    return out
 
 
 def _pc_table(raw):
@@ -69,7 +108,7 @@ class Succy_Pick_Combo:
         return True
 
     RETURN_TYPES = (ANY,) * (MAX_COLS + 3)
-    RETURN_NAMES = tuple(f"cmb{i}" for i in range(1, MAX_COLS + 1)) + ("index", "label", "all")
+    RETURN_NAMES = tuple(f"cmb{i}" for i in range(1, MAX_COLS + 1)) + ("index", "label", "picked")
     FUNCTION = "run"
     CATEGORY = "Succy Pack"
 
@@ -110,7 +149,6 @@ class Succy_Pick_Combo:
 
         row = rows[idx]
         values = [_pc_convert(row[1 + c], fmt[c]) for c in range(k)]
-        all_json = json.dumps([r[: 1 + k] for r in rows], ensure_ascii=False)
-        out = values + [idx, labels[idx], all_json]
+        out = values + [idx, labels[idx], _pc_picked(row, fmt, k)]
         out += [None] * (MAX_COLS + 3 - len(out))
         return tuple(out)
