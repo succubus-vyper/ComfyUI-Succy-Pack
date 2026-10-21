@@ -14,6 +14,7 @@ What lives here, and why one copy:
                              SUCCY_LIVE = (output names) + a classmethod succy_live(widgets, inputs, node_id) -> {output: value}.
                              The browser sends the chain {node_id, type, widgets, linked, from: {input: {output, ...source}}}.
   - coerce_widgets           browser widget values -> the Python types INPUT_TYPES declares (what a live call needs)
+  - same_value / value_memo  the VALUE MEMO (D-210): a node's last result keyed by the values it really got (Load / Crop / Stitch)
 """
 import ast
 import json
@@ -22,7 +23,7 @@ import threading
 from collections import OrderedDict
 
 __all__ = ["AnyType", "ANY", "parse_bool", "parse_int", "parse_float", "loads_loose", "to_container", "convert_text", "same_origin", "DISPLAY",
-           "LiveWait", "LiveInputs", "live_eval", "live_touch", "live_types", "coerce_widgets"]
+           "LiveWait", "LiveInputs", "live_eval", "live_touch", "live_types", "coerce_widgets", "same_value", "ValueMemo", "value_memo", "memo_stats"]
 
 
 class AnyType(str):
@@ -323,3 +324,137 @@ def coerce_widgets(cls, widgets):
             if default is not None:
                 out[name] = default
     return out
+
+
+# ---------------------------------------------------------------------------
+# VALUE MEMO (D-210): ComfyUI re-runs a node when ANY setting upstream changed (a Pick Combo on another row, an Any switched),
+# even when the value that reaches the node is the very same. Load / Crop / Stitch keep their last result keyed by the VALUES
+# they really got (widgets after the EXT wires, wired tensors, file + mtime): same values = the old result back at once, no
+# file read, no mask, no resize. Exact comparison (torch.equal), never a sampled hash: a false "same" would hand out the wrong
+# picture. One entry per node, the oldest node lets go past `cap`. She remembers what you gave her, not who handed it over.
+# ---------------------------------------------------------------------------
+
+def same_value(a, b):
+    """True only when a and b are the same value: tensors equal element by element (same shape, dtype, device),
+    dicts / lists / tuples item by item, the rest by ==. Anything that can't be compared counts as different."""
+    if a is b:
+        return True
+    if type(a) is not type(b):
+        return False
+    if isinstance(a, dict):
+        return a.keys() == b.keys() and all(same_value(a[k], b[k]) for k in a)
+    if isinstance(a, (list, tuple)):
+        return len(a) == len(b) and all(same_value(x, y) for x, y in zip(a, b))
+    if hasattr(a, "shape") and hasattr(a, "dtype") and hasattr(a, "device"):
+        try:
+            import torch
+            return (tuple(a.shape) == tuple(b.shape) and a.dtype == b.dtype and a.device == b.device and bool(torch.equal(a, b)))
+        except Exception:
+            return False
+    try:
+        return bool(a == b)
+    except Exception:
+        return False
+
+
+def _tensors(v, out):
+    """Every tensor inside v (dicts, lists, tuples walked)."""
+    if isinstance(v, dict):
+        for x in v.values():
+            _tensors(x, out)
+    elif isinstance(v, (list, tuple)):
+        for x in v:
+            _tensors(x, out)
+    elif hasattr(v, "shape") and hasattr(v, "dtype") and hasattr(v, "device"):
+        out.append(v)
+    return out
+
+
+def _mark(t):
+    """What a tensor looks like now: its in-place version counter, or (inference tensors keep none) the float64 sum of its values."""
+    try:
+        return ("v", int(t._version))
+    except Exception:
+        try:
+            return ("s", float(t.sum(dtype=__import__("torch").float64)))
+        except Exception:
+            return ("?", id(t))
+
+
+_MEMO_COUNT = {"hit": "hits", "miss": "misses", "skip": "skips"}
+_MEMOS = OrderedDict()       # name -> ValueMemo: a module reloaded finds its memo (and its counters) again
+
+
+class ValueMemo:
+    """One remembered result per node id. get() -> the result or None (counted as hit / miss), put() stores it,
+    skip() counts a run that must not use the memo (a hold that stops), stats() is what the Monitor reads."""
+    def __init__(self, name, cap=12):
+        self.name, self.cap = name, cap
+        self._d = OrderedDict()                            # node id -> (key, result, [(tensor, its mark when stored)])
+        self._per = OrderedDict()                          # node id -> {"hits", "misses", "skips", "last"}
+        self._lock = threading.Lock()
+        self.hits = self.misses = self.skips = 0
+
+    def _count(self, node, what):
+        with self._lock:
+            c = self._per.pop(node, None) or {"hits": 0, "misses": 0, "skips": 0, "last": ""}
+            k = _MEMO_COUNT[what]
+            c[k] += 1
+            c["last"] = what
+            self._per[node] = c
+            while len(self._per) > self.cap * 4:
+                self._per.popitem(last=False)
+            setattr(self, k, getattr(self, k) + 1)
+
+    def get(self, node, key):
+        node = str(node)
+        with self._lock:
+            e = self._d.get(node)
+        # same values in AND nothing remembered was changed in place since (a node writing into a tensor it got): only then the old result
+        if e is not None and same_value(e[0], key) and all(_mark(t) == m for t, m in e[2]):
+            with self._lock:
+                if node in self._d:
+                    self._d.move_to_end(node)
+            self._count(node, "hit")
+            return e[1]
+        self._count(node, "miss")
+        return None
+
+    def put(self, node, key, result):
+        node = str(node)
+        with self._lock:
+            self._d.pop(node, None)
+            self._d[node] = (key, result, [(t, _mark(t)) for t in _tensors((key, result), [])])
+            while len(self._d) > self.cap:
+                self._d.popitem(last=False)
+
+    def skip(self, node):
+        node = str(node)
+        with self._lock:
+            self._d.pop(node, None)                        # what comes after a hold is new: the old result must not come back
+        self._count(node, "skip")
+
+    def forget(self, node=None):
+        with self._lock:
+            if node is None:
+                self._d.clear()
+            else:
+                self._d.pop(str(node), None)
+
+    def stats(self):
+        with self._lock:
+            return {"hits": self.hits, "misses": self.misses, "skips": self.skips, "kept": len(self._d), "cap": self.cap,
+                    "nodes": {k: dict(v) for k, v in self._per.items()}}
+
+
+def value_memo(name, cap=12):
+    """The memo called `name` (made the first time)."""
+    m = _MEMOS.get(name)
+    if m is None:
+        m = _MEMOS[name] = ValueMemo(name, cap)
+    return m
+
+
+def memo_stats():
+    """{memo name: stats} for every value memo: the Monitor's row."""
+    return {k: m.stats() for k, m in _MEMOS.items()}

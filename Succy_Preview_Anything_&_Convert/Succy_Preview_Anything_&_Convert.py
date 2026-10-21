@@ -870,6 +870,7 @@ class Succy_Preview_Anything_Convert:
     RETURN_TYPES = (ANY,) * 7
     RETURN_NAMES = ("output", "width", "height", "megapixels", "audio", "frame", "duration")
     FUNCTION = "execute"
+    SUCCY_CACHE = "none"  # SmartCache (D-213): a viewer with files and players: ComfyUI's own cache is enough
     OUTPUT_NODE = True
 
     # -------------------------------------------------------------- #

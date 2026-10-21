@@ -254,6 +254,7 @@ class Succy_Multi_Math:
     RETURN_TYPES = ("*",) * MAX_EQUATIONS
     RETURN_NAMES = tuple(f"r{i}" for i in range(1, MAX_EQUATIONS + 1))
     FUNCTION = "compute"
+    SUCCY_CACHE = "pure"  # SmartCache (D-213): same inputs = same numbers: precomputed, each wire carries only its result
     CATEGORY = "Succy Pack"
     OUTPUT_NODE = True
 

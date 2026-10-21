@@ -222,6 +222,7 @@ class Succy_LoopStart:
         "current_iteration_value",
     )
     FUNCTION = "start_loop"
+    SUCCY_CACHE = "never"  # SmartCache (D-213): flow control: the loop decides
     CATEGORY = "Succy Pack/Loops"
 
     def start_loop(
@@ -458,6 +459,7 @@ class Succy_LoopEnd(_LoopGraphMixin):
     RETURN_TYPES = (ANY,)
     RETURN_NAMES = ("outputs",)
     FUNCTION = "end_loop"
+    SUCCY_CACHE = "never"  # SmartCache (D-213): flow control: the loop decides
     CATEGORY = "Succy Pack/Loops"
 
     def end_loop(
@@ -517,6 +519,7 @@ class Succy_WhileStart:
     RETURN_TYPES = ("FLOW_CONTROL", ANY, ANY, ANY, ANY, ANY)
     RETURN_NAMES = ("flow", "value0", "value1", "value2", "value3", "value4")
     FUNCTION = "start_while"
+    SUCCY_CACHE = "never"  # SmartCache (D-213): flow control: the loop decides
     CATEGORY = "Succy Pack/Loops"
 
     def start_while(self, state=None, initial_value0=None, initial_value1=None, initial_value2=None, initial_value3=None, initial_value4=None, unique_id=None, dynprompt=None):
@@ -550,6 +553,7 @@ class Succy_WhileEnd(_LoopGraphMixin):
     RETURN_TYPES = (ANY, ANY, ANY, ANY, ANY)
     RETURN_NAMES = ("value0", "value1", "value2", "value3", "value4")
     FUNCTION = "end_while"
+    SUCCY_CACHE = "never"  # SmartCache (D-213): flow control: the loop decides
     CATEGORY = "Succy Pack/Loops"
 
     def end_while(self, flow, condition, initial_value0=None, initial_value1=None, initial_value2=None, initial_value3=None, initial_value4=None, dynprompt=None, unique_id=None):

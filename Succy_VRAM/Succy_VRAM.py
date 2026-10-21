@@ -40,6 +40,7 @@ class Succy_CleanVram_Madafacca:
     RETURN_TYPES = (any_type, "STRING")
     RETURN_NAMES = ("any_output", "status_report")
     FUNCTION = "clean_it"
+    SUCCY_CACHE = "never"  # SmartCache (D-213): it exists to act every Run (frees memory)
     CATEGORY = "Succy Pack"
     OUTPUT_NODE = True
 

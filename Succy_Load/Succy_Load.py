@@ -12,8 +12,8 @@ from PIL import Image, ImageOps
 import folder_paths
 from server import PromptServer
 
-from _succy_common import LiveWait, coerce_widgets, live_touch, same_origin
-from _succy_image import (IMAGE_EXT, blur, decode_brush, display_id, grow, hex_rgb, input_path, load_picture, mp_size, send_preview,
+from _succy_common import LiveWait, coerce_widgets, live_touch, same_origin, value_memo
+from _succy_image import (IMAGE_EXT, blur, decode_brush, display_id, file_stamp, grow, hex_rgb, input_path, load_picture, mp_size, send_preview,
                           snap, parse_warp, quad_mask)
 
 # ===================================================
@@ -49,6 +49,7 @@ _LAST = PromptServer.instance._succy_load_last
 _LISTS = PromptServer.instance._succy_load_lists       # folder -> (mtime, [files]): a big folder is read once per change
 _THUMBS = PromptServer.instance._succy_load_thumbs     # (path, mtime, size) -> JPEG bytes, the strip under the picture
 _STATE_MAX, _LAST_MAX, _LISTS_MAX, _THUMBS_MAX = 64, 12, 16, 256
+_MEMO = value_memo("load", _LAST_MAX)                  # D-210: same values in = the last result out, no file read nor resize
 
 
 def _keep(d, k, v, cap):
@@ -428,6 +429,7 @@ class Succy_Load_Image_Resize:
     RETURN_TYPES = ("IMAGE", "MASK", "INT", "INT", "STRING", "INT", "BOOLEAN")
     RETURN_NAMES = ("image", "mask", "width", "height", "filename", "index", "is_last")
     FUNCTION = "load"
+    SUCCY_CACHE = "memo"  # SmartCache (D-213): pictures: the value memo (D-210)
     SUCCY_LIVE = ("image", "mask")
 
     @classmethod
@@ -463,12 +465,22 @@ class Succy_Load_Image_Resize:
     def load(self, image=None, mask=None, index_in=None, width_in=None, height_in=None, unique_id=None, dynprompt=None, **widgets):
         did = display_id(dynprompt, unique_id)
         kw = self._ext(dict(widgets), index_in, width_in, height_in)
-        try:
-            out, om, info, pic = produce(kw, image, mask, did, advance=True)
-        except LiveWait as w:
-            raise ValueError(f"{_TAG} {w.why}")
+        # D-210: the key = the values that really came in. folder + next hands out a new picture at every execution: never remembered
+        stamp = "" if image is not None else self.IS_CHANGED(**{**kw, "index": kw.get("index", 0)})
+        key = None if isinstance(stamp, float) else {"kw": kw, "image": image, "mask": mask, "file": stamp}
+        hit = _MEMO.get(did, key) if key is not None else _MEMO.skip(did)
+        if hit is not None:
+            out, om, info, pic = hit
+        else:
+            try:
+                out, om, info, pic = produce(kw, image, mask, did, advance=True)
+            except LiveWait as w:
+                raise ValueError(f"{_TAG} {w.why}")
+            if key is not None:
+                _MEMO.put(did, key, (out, om, info, pic))
         _keep(_LAST, did, {"in_image": image, "in_mask": mask, "in_index": index_in, "in_width": width_in, "in_height": height_in}, _LAST_MAX)
-        live_touch()
+        if hit is None:
+            live_touch()
         send_preview(did, pic, _TAG)                       # the view shows the picture it draws on: before the resize
         return (out, om, info["width"], info["height"], os.path.splitext(info["filename"])[0], info["index"], bool(info["is_last"]))
 

@@ -36,7 +36,7 @@ TAG = "Succy Any"
 
 # same defaults as the frontend (dev/src/Succy_Any.js, packed defaults): a missing key means "untouched"
 DEFAULTS = {
-    "mode": "index", "index": 1, "flag": True, "range": "clamp", "start": 1, "end": -1, "every": 1, "fit": "stretch", "size": "first",
+    "mode": "index", "index": 0, "flag": True, "range": "clamp", "start": 0, "end": -1, "every": 1, "fit": "stretch", "size": "first",
     "empty": "none", "type": "", "wired": "", "outs": "picked,list,batch,count", "uses": "*",
 }
 
@@ -67,19 +67,17 @@ def _uses(d):
 
 
 def _norm_index(i, top, mode):
-    """Socket number for `picked` (D-170). `top` = the highest plugged socket. The sockets in play are 1..top plus the free one
-    after them (top + 1, empty on purpose: it hands out nothing). Positive: clamp (stick to the edge) or wrap (go round) over those.
-    Negative counts back from the last PLUGGED socket: -1 = top. Nothing plugged = just socket 1 (empty).
-    0 is its own choice: NOTHING (returns 0, no socket) — the off position of the switch, never a twin of 1."""
+    """Index -> socket number for `picked` (1 = in_1). The index counts from 0 like the Pick Combo (D-214): 0 = the first socket,
+    1 = the second... `top` = the highest plugged socket. The sockets in play are the first `top` plus the free one after them
+    (index `top`, empty on purpose: it hands out nothing — the way to choose nothing). Positive: clamp (stick to the edge) or wrap
+    (go round) over those. Negative counts back from the last PLUGGED socket: -1 = it. Nothing plugged = just socket 1 (empty)."""
     slots = min(len(IN_NAMES), top + 1)
     i = parse_int(i, tag=TAG)
-    if i == 0:
-        return 0
     if i < 0:
-        i = top + i + 1
+        i = top + i
     if mode == "wrap":
-        return (i - 1) % slots + 1
-    return max(1, min(slots, i))
+        return i % slots + 1
+    return max(0, min(slots - 1, i)) + 1
 
 
 def _nothing(d):
@@ -114,15 +112,16 @@ def _target(d, kw, wired):
     return IN_NAMES[k - 1] if k else None
 
 
-# ---------------- items: From · To · Every (1-based, negatives count from the end) ----------------
+# ---------------- items: From · To · Every (0-based like ImageFromBatch, negatives count from the end) ----------------
 def pick_items(start, end, every, n):
     """Positions (0-based) kept out of n items: from `start` to `end` (both included) taking one every `every`.
-    1 = first, -1 = last, 0 = the edge (From 0 = first, To 0 = last). From after To = backwards."""
+    Counted from 0 like ComfyUI's ImageFromBatch / LatentFromBatch (D-214b): 0 = first, -1 = last, -2 = the one before.
+    Past either end = that end. From after To = backwards. Every is a step, never below 1 — one at a time, darling."""
     if n <= 0:
         return []
-    pos = lambda v, edge: edge if v == 0 else (v - 1 if v > 0 else n + v)
-    a = max(0, min(n - 1, pos(parse_int(start, tag=TAG), 0)))
-    b = max(0, min(n - 1, pos(parse_int(end, tag=TAG), n - 1)))
+    pos = lambda v: v if v >= 0 else n + v
+    a = max(0, min(n - 1, pos(parse_int(start, tag=TAG))))
+    b = max(0, min(n - 1, pos(parse_int(end, tag=TAG))))
     k = max(1, parse_int(every, tag=TAG))
     return list(range(a, b + 1, k)) if a <= b else list(range(a, b - 1, -k))
 
@@ -303,10 +302,10 @@ def batch(items, kind, fit="stretch", size="first"):
 class Succy_Any:
     @classmethod
     def INPUT_TYPES(cls):
-        optional = {n: (ANY, {"lazy": True, "forceInput": True}) for n in IN_NAMES}
-        # EXT doors (shown by the frontend only when lit, and only the one of the current mode)
-        optional["index_in"] = ("INT", {"forceInput": True})
-        optional["bool_in"] = ("BOOLEAN", {"forceInput": True})
+        # EXT doors (shown by the frontend only when lit, and only the one of the current mode). index / bool come FIRST (D-214):
+        # ComfyUI rebuilds a loaded node's sockets in this order, so the door that chooses sits on top of what it chooses from.
+        optional = {"index_in": ("INT", {"forceInput": True}), "bool_in": ("BOOLEAN", {"forceInput": True})}
+        optional.update({n: (ANY, {"lazy": True, "forceInput": True}) for n in IN_NAMES})
         optional["start_in"] = ("INT", {"forceInput": True})
         optional["end_in"] = ("INT", {"forceInput": True})
         optional["every_in"] = ("INT", {"forceInput": True})
@@ -321,6 +320,7 @@ class Succy_Any:
     # `list` stays at position 1 whatever happens (the frontend drops `batch` only, after it): ComfyUI reads this by position
     OUTPUT_IS_LIST = (False, True, False, False)
     FUNCTION = "run"
+    SUCCY_CACHE = "route"  # SmartCache (D-213): `picked` hands an input out untouched: consumers go straight to it
     CATEGORY = "Succy Pack"
 
     def check_lazy_status(self, data="", **kw):
@@ -368,6 +368,25 @@ class Succy_Any:
         result = tuple(by[o] for o in layout) + (None,) * (4 - len(layout))
         ui = {"picked": [IN_NAMES.index(name) + 1 if name in IN_NAMES else 0], "count": [count]}
         return {"ui": ui, "result": result}
+
+    @classmethod
+    def succy_cache_route(cls, kw, linked):
+        """SmartCache (D-213, route): which input `picked` hands out untouched, when the settings alone tell — index / bool written
+        on the node or wired from a node already precomputed (a Pick Combo's index). kw = the values known before the Run, linked =
+        the wired inputs. Auto (decided by what arrives), an EXT wire nobody knows yet, a hole, or Empty = Block (a None from upstream
+        would become a blocker here) -> None: the switch stays in the prompt as it is. Same _target() as run(): one way to choose."""
+        d = _data(kw.get("data", ""))
+        mode = str(d.get("mode") or "index")
+        if mode == "auto" or str(d.get("empty") or "none") != "none":
+            return None
+        ext = "bool_in" if mode == "bool" else "index_in"
+        if ext in linked and ext not in kw:
+            return None
+        name = _target(d, kw, _wired(d, {n: True for n in linked}))
+        layout = [o for o in _csv(d.get("outs")) if o in ("picked", "list", "batch", "count")] or ["picked", "list", "batch", "count"]
+        if name is None or name not in linked or "picked" not in layout:
+            return None
+        return {"routes": {layout.index("picked"): name}, "ui": {"picked": [IN_NAMES.index(name) + 1]}}
 
     # ---- LIVE (D-172): picked / batch as they are NOW, from the live wires (or the last Run's), no Queue ----
     SUCCY_LIVE = ("picked", "batch")

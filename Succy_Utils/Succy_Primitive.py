@@ -137,6 +137,12 @@ class Succy_Primitive:
     RETURN_TYPES = (ANY, ANY, ANY, ANY)
     RETURN_NAMES = ("value", "value2", "value3", "value4")
     FUNCTION = "run"
+    SUCCY_CACHE = "pure"  # SmartCache (D-213): values precomputed; pictures and masks are left to ComfyUI (succy_cache_pure)
+
+    @classmethod
+    def succy_cache_pure(cls, kw):
+        """SmartCache asks before precomputing: a picture or a mask is heavy and has no exact text form, so ComfyUI keeps those."""
+        return str(_data(kw.get("data", "")).get("kind") or "") not in ("IMAGE", "MASK")
     CATEGORY = "Succy Pack"
 
     def run(self, data="", seed=0, **kwargs):

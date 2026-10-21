@@ -36,6 +36,15 @@ class PickedFloat(float):
     __str__ = __repr__
 
 
+# SmartCache (D-213): a PickedFloat goes through the hidden Succy_Value with its decimals, exactly as it left.
+# SmartCache missing (its file broken) = the Combo still loads: its List of Picked just stays on its wire.
+try:
+    from _succy_cache import register_type
+    register_type(PickedFloat, "PickedFloat", lambda v: [float(v).hex(), v._text], lambda j: PickedFloat(float.fromhex(j[0]), j[1]))
+except ImportError:
+    pass
+
+
 def _pc_float_text(raw, value):
     """The text a picked float prints with: her own decimals if she wrote some, otherwise two."""
     s = str(raw).strip()
@@ -110,6 +119,7 @@ class Succy_Pick_Combo:
     RETURN_TYPES = (ANY,) * (MAX_COLS + 3)
     RETURN_NAMES = tuple(f"cmb{i}" for i in range(1, MAX_COLS + 1)) + ("index", "label", "picked")
     FUNCTION = "run"
+    SUCCY_CACHE = "pure"  # SmartCache (D-213): each wire carries only its own cell (was the D-211 splitter)
     CATEGORY = "Succy Pack"
 
     def run(self, num_options, num_values, selected_index, use_choice=False, choice="",

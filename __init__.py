@@ -97,6 +97,14 @@ NODES = {
         "display":  "Succy - 🖼️Load Image & Resize",
         "category": "Succy Pack",
     },
+    # SmartCache (D-213): the hidden constant a wire goes through at Run time (deprecated flag = never in search or menus)
+    "Succy_Value": {
+        "folder":   "Succy_Common",
+        "py_file":  "succy_cache.py",
+        "class":    "Succy_Value",
+        "display":  "Succy - Value (internal)",
+        "category": "Succy Pack/hidden",
+    },
 }
 
 # Usiamo MODULES per il loop per sfruttare i mapping definiti nel file stesso
@@ -147,6 +155,10 @@ if _common is not None:
     _image = _load_module("Succy_Image", {"folder": "Succy_Common", "py_file": "succy_image.py"})
     if _image is not None:
         sys.modules["_succy_image"] = _image
+    # SmartCache (D-213): precompute + the Succy_Value constant + its routes: `from _succy_cache import ...` (Pick Combo registers its type)
+    _cache = _load_module("Succy_Value", {"folder": "Succy_Common", "py_file": "succy_cache.py"})
+    if _cache is not None:
+        sys.modules["_succy_cache"] = _cache
     # the right-click canvas menu's routes (free VRAM, force stop, reboot in the same tab, D-201)
     _load_module("Succy_CanvasMenu", {"folder": "Succy_Common", "py_file": "succy_canvas_menu.py"})
 

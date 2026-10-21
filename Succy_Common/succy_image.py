@@ -5,6 +5,8 @@ Moved here word for word from Succy_Crop_Stitch.py (Crop, Stitch and Load share 
   - load_picture       a file -> (IMAGE [1,H,W,3], MASK [1,H,W] or None): the alpha becomes the mask, like ComfyUI's Load Image
   - send_preview       the picture a node is looking at -> temp JPEG + event `succy-crop-image` (the browser's shot feed)
   - the LIVE routes    /succy/live/types (who can answer live) and /succy/live/view (a node's output as it is now, reduced)
+  - file_stamp         a file kept on a node -> 'path|mtime': the value memo's word for "the same file" (D-210)
+  - /succy/memo/stats  the value memo's hits / misses / skips per node (the Monitor's row, D-210)
 Images are ComfyUI BHWC floats in [0,1]; masks BHW.
 """
 import asyncio
@@ -75,6 +77,17 @@ def input_path(name, what="picture"):
     if not path.startswith(root + os.sep) or not os.path.isfile(path):
         raise FileNotFoundError(f"{_TAG} {what} '{name}' not found in the input folder. Load it again on the node.")
     return path
+
+
+def file_stamp(name):
+    """A file kept on a node -> 'path|mtime' (same name, new pixels = a new stamp); '' without a file, 'missing:<name>' when it's gone."""
+    if not name:
+        return ""
+    try:
+        p = input_path(name)
+        return f"{p}|{os.stat(p).st_mtime_ns}"
+    except Exception:
+        return "missing:" + str(name)
 
 
 def _open(path):
@@ -447,7 +460,12 @@ def _install_routes():
     if srv is None or getattr(srv, "_succy_live_routes", False):
         return
     srv._succy_live_routes = True
-    from _succy_common import LiveWait, live_eval, live_types, same_origin
+    from _succy_common import LiveWait, live_eval, live_types, memo_stats, same_origin
+
+    @srv.routes.get("/succy/memo/stats")
+    async def _memo_stats(request):
+        # D-210: {memo name: {hits, misses, skips, kept, nodes: {id: {hits, misses, skips, last}}}} — counters only, no pictures
+        return web.json_response({"memos": memo_stats()})
 
     @srv.routes.get("/succy/live/types")
     async def _live_types(request):

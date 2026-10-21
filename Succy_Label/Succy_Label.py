@@ -150,6 +150,7 @@ class Succy_Label:
 
     RETURN_TYPES = ()
     FUNCTION = "show"
+    SUCCY_CACHE = "none"  # SmartCache (D-213): nothing to compute
     CATEGORY = "Succy Pack"
     OUTPUT_NODE = True
     DESCRIPTION = "Styled note/label. Connect a STRING to display it during a run."

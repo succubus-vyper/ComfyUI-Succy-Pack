@@ -12,12 +12,12 @@ from aiohttp import web
 import comfy.model_management
 from server import PromptServer
 
-from _succy_common import same_origin, LiveWait, live_touch   # the shared drawer (loaded once by __init__.py)
+from _succy_common import same_origin, LiveWait, live_touch, value_memo   # the shared drawer (loaded once by __init__.py)
 # the picture helpers moved to the shared picture drawer (D-156): Load & Resize uses them too. Same functions, old names.
 from _succy_image import (display_id as _display_id, png_bytes as _png_bytes, snap as _snap, mp_size as _mp_size, resize as _resize,
                           prep_mask as _prep_mask, load_source as _load_source, decode_brush as _decode_brush, runmax as _runmax,
                           hex_rgb as _hex_rgb, grow as _grow, box1 as _box1, blur as _blur, load_mask as _load_mask,
-                          send_preview, live_input, live_empty, parse_warp as _parse_warp, warp_quad as _warp_quad,
+                          send_preview, live_input, live_empty, file_stamp as _file_stamp, parse_warp as _parse_warp, warp_quad as _warp_quad,
                           homography as _homography, rect_pts as _rect_pts, bend_quad as _bend_quad, warp_corners as _warp_corners, remap as _remap, quad_mask as _quad_mask, quad_region as _quad_region)
 
 # ===================================================
@@ -50,6 +50,9 @@ if _FIRST_LOAD:
 # D-115: the outputs of each Crop's LAST run (references, no copy), so the node's ⬇ can hand any of them over as a PNG
 _LAST = PromptServer.instance._succy_crop_last
 _LAST_MAX = 12               # nodes remembered at once: the oldest one lets go (its tensors) when a new one comes in, so a long session can't hoard RAM
+# D-210: the value memo — same values in (widgets, wires, files) = the last result out, no file read, no mask, no resize. Never with
+# the hold on (the node must stop and show the fresh picture), never for a download (_quiet / _all)
+_MEMO_CROP, _MEMO_STITCH = value_memo("crop", _LAST_MAX), value_memo("stitch", _LAST_MAX)
 
 
 def _remember(did, entry):
@@ -410,6 +413,7 @@ class Succy_Crop:
     RETURN_TYPES = ("STITCH", "MASK", "IMAGE", "IMAGE")
     RETURN_NAMES = ("stitch", "mask", "cutout", "crop")
     FUNCTION = "crop"
+    SUCCY_CACHE = "memo"  # SmartCache (D-213): pictures: the value memo (D-210)
 
     # LIVE LINK (D-156): the outputs a Succy node on the other end of the wire sees as they are now, no Queue
     SUCCY_LIVE = ("stitch", "mask", "cutout", "crop")
@@ -442,6 +446,22 @@ class Succy_Crop:
             out_mp = max(0.0, float(out_mp_in))
         if multiple_in is not None:
             multiple = max(1, int(multiple_in))
+        memo = not (_quiet or _all)
+        if memo:
+            did = _display_id(dynprompt, unique_id)
+            if hold:
+                _MEMO_CROP.skip(did)
+                memo = False
+            else:
+                key = {"args": (x, y, w, h, context, workspace_mp, out_mp, multiple, box_snap, alpha, solid_color, box, box_feather, mask_grow,
+                                mask_feather, brush, quad), "file": _file_stamp(source) if image is None else "", "image": image, "mask": mask}
+                hit = _MEMO_CROP.get(did, key)
+                if hit is not None:
+                    result, entry = hit
+                    _send_preview(did, entry["full_img"])
+                    _remember(did, {**entry, "in_image": image if image is not None else entry["in_image"], "in_mask": mask,
+                                    "in_out_mp": out_mp_in, "in_multiple": multiple_in})
+                    return result
         if image is None:
             image = _load_source(source)
         if image is None:
@@ -547,9 +567,12 @@ class Succy_Crop:
         full_mask = sel.clamp(0.0, 1.0)[None]                                 # [1, H, W]: the whole picture, soft edges and all
         if not _quiet:
             live_touch()
-            _remember(did, {"full_img": image, "cutout": cutout, "mask": full_mask, "crop_img": out_img, "crop_mask": out_mask,
-                            "stem": _stem(source), "in_image": in_image, "in_mask": mask, "stitch": stitch,
-                            "in_out_mp": out_mp_in, "in_multiple": multiple_in})
+            entry = {"full_img": image, "cutout": cutout, "mask": full_mask, "crop_img": out_img, "crop_mask": out_mask,
+                     "stem": _stem(source), "in_image": in_image, "in_mask": mask, "stitch": stitch,
+                     "in_out_mp": out_mp_in, "in_multiple": multiple_in}
+            _remember(did, entry)
+            if memo:
+                _MEMO_CROP.put(did, key, ((stitch, full_mask, cutout, out_img), entry))
         if _all:                                   # the downloads (D-117) want every picture
             outs = {"stitch": stitch, "full_img": image, "cutout": cutout, "mask": full_mask, "crop_img": out_img, "crop_mask": out_mask}
             if qd is not None:                     # perspective box: the quad straightened too (Photoshop's perspective crop), only as a file
@@ -851,6 +874,7 @@ class Succy_Stitch:
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("composite",)
     FUNCTION = "stitch"
+    SUCCY_CACHE = "memo"  # SmartCache (D-213): pictures: the value memo (D-210)
 
     # LIVE LINK: the composite as it is now, no Queue — what a Succy node wired after this one (Preview, Crop, another Stitch) sees
     SUCCY_LIVE = ("composite",)
@@ -884,6 +908,24 @@ class Succy_Stitch:
                offset_x=0, offset_y=0, scale=100.0, source="", base_file="", mask_file="", brush="", place="",
                hold=False, hold_timeout=300, run_id="", warp="", hole="", item_brush="", stitch=None, base_image=None, mask=None, replacement=None,
                unique_id=None, dynprompt=None, _quiet=False):
+        memo = not _quiet
+        if memo:
+            did = _display_id(dynprompt, unique_id)
+            if hold:
+                _MEMO_STITCH.skip(did)
+                memo = False
+            else:
+                key = {"args": (feather, feather_mode, feather_curve, color_match, opacity, aspect_mismatch, sharpness_match, grain_match,
+                                offset_x, offset_y, scale, brush, place, warp, hole, item_brush),
+                       "files": (_file_stamp(source) if replacement is None else "", _file_stamp(base_file) if base_image is None else "",
+                                 _file_stamp(mask_file) if mask is None else ""),
+                       "stitch": stitch, "base_image": base_image, "mask": mask, "replacement": replacement}
+                hit = _MEMO_STITCH.get(did, key)
+                if hit is not None:
+                    result, image = hit
+                    _remember(did, {"st_image": image, "st_base": base_image, "st_mask": mask})
+                    _send_preview(did, image, 0, 0, 0, 0)
+                    return result
         image = replacement if replacement is not None else _load_source(source, alpha=True)
         if image is None:
             raise ValueError(f"{_TAG} no replacement: connect one, or drop / paste / load it on the node.")
@@ -1010,5 +1052,6 @@ class Succy_Stitch:
         blended = (base * (1.0 - M) + work * M).clamp(0.0, 1.0)             # broadcasts over the batch
         out = orig.expand(B, -1, -1, -1).clone()
         out[:, ey0:ey1, ex0:ex1, :] = blended.expand(B, -1, -1, -1).permute(0, 2, 3, 1)
-
+        if memo:
+            _MEMO_STITCH.put(did, key, ((out,), image))
         return (out,)

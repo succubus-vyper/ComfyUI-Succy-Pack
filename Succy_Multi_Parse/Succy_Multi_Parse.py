@@ -367,6 +367,7 @@ class Succy_Multi_Parse:
     RETURN_TYPES = ("*",) * MAX_OPERATIONS
     RETURN_NAMES = tuple(f"r{i}" for i in range(1, MAX_OPERATIONS + 1))
     FUNCTION = "compute"
+    SUCCY_CACHE = "pure"  # SmartCache (D-213): same inputs = same text: precomputed, each wire carries only its result
     CATEGORY = "Succy Pack"
     OUTPUT_NODE = True
 

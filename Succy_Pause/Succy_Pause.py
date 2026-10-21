@@ -116,6 +116,7 @@ def _name_from_init(node_id: str, fallback: str) -> str:
 
 class Succy_PauseExecution(io.ComfyNode):
     """Holds execution in place until the user presses Continue or Stop. She decides when it's over."""
+    SUCCY_CACHE = "never"  # SmartCache (D-213): it waits for her on purpose
 
     @classmethod
     def define_schema(cls) -> io.Schema:
