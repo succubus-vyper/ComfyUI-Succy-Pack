@@ -106,10 +106,10 @@ if _FIRST_LOAD:
             if soft:
                 return None, web.json_response({"ready": False, "need": wait[0], "why": wait[1]})
             return None, web.json_response({"error": wait[1] + ", then download"}, status=404)
-        # EXT doors (D-130): a wired number is known only after a Run; until then the slider's value stands in
+        # EXT doors (D-130, D-224 on the widget's own socket): a wired number is known only after a Run; until then the slider stands in
         widgets = dict(widgets)
         for inp, key in (("out_mp_in", "out_mp"), ("multiple_in", "multiple")):
-            if inp in linked and last.get("in_" + key) is not None:
+            if (key in linked or inp in linked) and last.get("in_" + key) is not None:
                 widgets[key] = last["in_" + key]
         try:
             outs = await asyncio.to_thread(_crop_now, widgets, got.get("image"), got.get("mask"), nid)
@@ -386,9 +386,7 @@ class Succy_Crop:
             "optional": {
                 "image": ("IMAGE", {"tooltip": "Wins over a picture loaded on the node"}),
                 "mask": ("MASK", {"tooltip": "The starting selection: the rectangle and the brush add to it, the eraser takes from it, grow and feather shape it"}),
-                # EXT chip doors (D-130): a wire here wins over the slider on the node
-                "out_mp_in": ("FLOAT", {"forceInput": True, "tooltip": "Resize crop (megapixels) from a wire: wins over the slider"}),
-                "multiple_in": ("INT", {"forceInput": True, "tooltip": "Multiple of, from a wire: wins over the slider"}),
+                # EXT v2 (D-224): no `_in` sockets any more, a wire on out_mp / multiple (the widget's own socket) arrives under that name
             },
             "hidden": {"unique_id": "UNIQUE_ID", "dynprompt": "DYNPROMPT"},
         }
@@ -435,14 +433,14 @@ class Succy_Crop:
             raise LiveWait("image", "the Crop has no picture: load one on it")
         widgets = dict(widgets)
         for inp, key in (("out_mp_in", "out_mp"), ("multiple_in", "multiple")):       # EXT: a wired number is known after a Run
-            if inputs.linked(inp) and last.get("in_" + key) is not None:
+            if (inputs.linked(key) or inputs.linked(inp)) and last.get("in_" + key) is not None:
                 widgets[key] = last["in_" + key]
         outs = _crop_now(widgets, got.get("image"), got.get("mask"), node_id)
         return {"mask": outs["mask"], "cutout": outs["cutout"], "stitch": outs["stitch"], "crop": outs["crop_img"]}
 
     def crop(self, x, y, w, h, context, workspace_mp, out_mp, multiple, box_snap=1, alpha=True, solid_color="#000000", box=True, box_feather=0, mask_grow=0, mask_feather=0, hold=False, hold_timeout=300,
              run_id="", source="", brush="", quad="", image=None, mask=None, out_mp_in=None, multiple_in=None, unique_id=None, dynprompt=None, _quiet=False, _all=False):
-        if out_mp_in is not None:                          # EXT (D-130): the wire wins over the slider
+        if out_mp_in is not None:                          # EXT before D-224 (an old API prompt): the wire wins over the slider
             out_mp = max(0.0, float(out_mp_in))
         if multiple_in is not None:
             multiple = max(1, int(multiple_in))
@@ -460,7 +458,7 @@ class Succy_Crop:
                     result, entry = hit
                     _send_preview(did, entry["full_img"])
                     _remember(did, {**entry, "in_image": image if image is not None else entry["in_image"], "in_mask": mask,
-                                    "in_out_mp": out_mp_in, "in_multiple": multiple_in})
+                                    "in_out_mp": out_mp, "in_multiple": multiple})
                     return result
         if image is None:
             image = _load_source(source)
@@ -569,7 +567,7 @@ class Succy_Crop:
             live_touch()
             entry = {"full_img": image, "cutout": cutout, "mask": full_mask, "crop_img": out_img, "crop_mask": out_mask,
                      "stem": _stem(source), "in_image": in_image, "in_mask": mask, "stitch": stitch,
-                     "in_out_mp": out_mp_in, "in_multiple": multiple_in}
+                     "in_out_mp": out_mp, "in_multiple": multiple}
             _remember(did, entry)
             if memo:
                 _MEMO_CROP.put(did, key, ((stitch, full_mask, cutout, out_img), entry))
