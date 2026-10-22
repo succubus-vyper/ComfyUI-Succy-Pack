@@ -103,9 +103,12 @@ class Succy_Pick_Combo:
                 # Dynamic COMBO: the entries (= labels) are set by the frontend for each node
                 "choice":         ("COMBO", {"options": [], "default": "Option 1"}),
                 "table":          ("STRING", {"default": ""}),
+                # D-232c: how the row is picked. Combo = the `choice` dropdown (a COMBO door); Index = the row number itself
+                # (`selected_index`, an INT door: the wire lands on the integer and the row follows it)
+                "pick_by":        (["Combo", "Index"], {"default": "Combo"}),
             },
-            # EXT v2 (D-226): no `choice_in` any more. With use_choice on, a wire on `choice` (the widget's own socket, opened
-            # as "*" by the frontend) brings a row NAME (text) or a row INDEX (whole number).
+            # EXT v2 (D-226): no `choice_in` any more. With use_choice on, the frontend opens ONE door (D-232c): `choice` as a COMBO
+            # (a row NAME) in Combo mode, `selected_index` as an INT (a row INDEX) in Index mode.
         }
 
     @classmethod
@@ -121,7 +124,7 @@ class Succy_Pick_Combo:
     CATEGORY = "Succy Pack"
 
     def run(self, num_options, num_values, selected_index, use_choice=False, choice="",
-            table="", choice_in=None, **kwargs):
+            table="", pick_by="Combo", choice_in=None, **kwargs):
         n = max(1, min(MAX_ROWS, int(num_options)))
         k = max(1, min(MAX_COLS, int(num_values)))
         fmt, rows = _pc_table(table)
@@ -132,7 +135,8 @@ class Succy_Pick_Combo:
         idx = None
         # 1) EXT: by name (the `choice` widget can be wired from outside through a reroute).
         #    With duplicate labels the chosen row wins if it has that name, otherwise the first one.
-        if use_choice:
+        # Index mode (D-232c): the wire already sits on selected_index, so the row number IS the pick; `choice` sleeps
+        if use_choice and str(pick_by) != "Index":
             # an old API prompt's choice_in wins (she brought her own date), else `choice` (the widget or the wire on its socket)
             got = choice_in if choice_in is not None else choice
             if isinstance(got, (int, float)) and not isinstance(got, bool):
