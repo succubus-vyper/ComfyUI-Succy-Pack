@@ -110,6 +110,21 @@ def frame_at(t, fps, count):
     return min(max(0, int(math.floor((float(t or 0.0) + 0.0005) * fps + 1e-6))), max(0, int(count) - 1))
 
 
+def frame_times(fps, start, end, current, frames=(None, None, None)):
+    """The frame rings (D-239): a frame number from a wire beats the seconds of its row. Start = f / fps, End = (f + 1) / fps
+    (the frame given is the last one kept), Current = f / fps (frame_at reads it back as f). No fps (audio) = the seconds stay."""
+    sf, ef, cf = frames
+    if not fps or fps <= 0:
+        return start, end, current
+    if sf is not None:
+        start = max(0, int(sf)) / fps
+    if ef is not None:
+        end = (max(0, int(ef)) + 1) / fps
+    if cf is not None:
+        current = max(0, int(cf)) / fps
+    return start, end, current
+
+
 def slice_audio(audio, start, end):
     """AUDIO dict cut to [start, end) seconds (same sample rate); None stays None."""
     if not audio:
@@ -861,6 +876,11 @@ class Succy_Preview_Anything_Convert:
                 # D-236: one picture only, a second one for the box's A|B (IMAGE with an IMAGE in, MASK with a MASK: the frontend
                 # types the socket). Shown only, never sent on.
                 "compare": (ANY,),
+                # D-239: Start / End / Current as a FRAME number from a wire (the frame rings; the browser opens one at a time).
+                # Plugged = it beats the seconds of its row (End = the last frame kept)
+                "start_frame": ("INT", {"forceInput": True, "min": 0}),
+                "end_frame": ("INT", {"forceInput": True, "min": 0}),
+                "current_frame": ("INT", {"forceInput": True, "min": 0}),
                 # D-230: which outputs are plugged, written by the browser into the prompt only (hidden field). Some outputs are
                 # computed only when plugged (frame, audio, the gallery's frames): plugging one must change this node's key, or
                 # ComfyUI would hand back the cached None. Never read here: the prompt says it already (wired_outputs).
@@ -873,8 +893,7 @@ class Succy_Preview_Anything_Convert:
 
     # The slots change with the input: "*" so every shape type-checks; the sockets the user sees are typed by the frontend
     # (shape_output). text: output · image: output, width, height, megapixels · audio: output, duration ·
-    # video: output, frame, duration (+ audio with split_audio) · a batch as a clip (D-205): the image four + audio, frame, duration ·
-    # a video as pictures: the image four.
+    # video (D-239) and a batch (D-205 / D-234): the image four + audio, frame, duration.
     RETURN_TYPES = (ANY,) * 7
     RETURN_NAMES = ("output", "width", "height", "megapixels", "audio", "frame", "duration")
     FUNCTION = "execute"
@@ -884,13 +903,15 @@ class Succy_Preview_Anything_Convert:
     # -------------------------------------------------------------- #
     def execute(self, preview, source, output_type, invert_mask=False, trim_start=0.0, trim_end=0.0, current_time=0.0,
                 split_audio=False, as_clip="auto", clip_fps=DEFAULT_FPS, fps_auto=True, audio_gain=1.0, audio=None, fps_override=None,
-                unique_id=None, prompt=None, _view=False, succy_used="", compare=None):
+                unique_id=None, prompt=None, _view=False, succy_used="", compare=None, start_frame=None, end_frame=None, current_frame=None):
         # _view (D-205d): the As clip switch, live, from the route: only what the box shows, nothing computed for downstream
         self._view = bool(_view)
+        self._fr = (start_frame, end_frame, current_frame)  # the frame rings (D-239): turned into seconds once the fps is known
         if not _view:
             _remember_run(source, audio, dict(preview=preview, output_type=output_type, invert_mask=invert_mask, trim_start=trim_start,
                           trim_end=trim_end, current_time=current_time, split_audio=split_audio, as_clip=as_clip, clip_fps=clip_fps,
-                          fps_auto=fps_auto, audio_gain=audio_gain, fps_override=fps_override, unique_id=unique_id, prompt=prompt))
+                          fps_auto=fps_auto, audio_gain=audio_gain, fps_override=fps_override, unique_id=unique_id, prompt=prompt,
+                          start_frame=start_frame, end_frame=end_frame, current_frame=current_frame))
         combined = vhs_combine_file(source)                 # VHS Video Combine's Filenames: we play the file it wrote
         if combined:
             source = _video_from_file(combined)
@@ -1153,7 +1174,7 @@ class Succy_Preview_Anything_Convert:
         """VIDEO / AUDIO in (D-198). `output` = the clip with everything applied: the window [trim_start, trim_end) really cut
         (frames and samples), split_audio = silent, Convert To = the container (video) or the download file (audio).
         `frame` (video) = the frame under current_time, which always sits inside the window. `duration` = seconds of what
-        goes out (3 decimals). split_audio adds `audio` = the window's sound. The player shows the WHOLE clip (the timeline
+        goes out (3 decimals). `audio` = the window's sound (D-239: always, like a batch; split_audio = `output` silent). The player shows the WHOLE clip (the timeline
         needs all of it); the download button gets exactly `output`. D-205: a VIDEO at another fps (field / EXT wire) is
         re-timed, a plugged `audio_in` replaces its sound: both rebuild the video from its frames before anything else.
         D-233, Convert To is a bridge: VIDEO (the old video.X = VIDEO in container X) · IMAGE = the window's frames (+ its sound
@@ -1221,6 +1242,7 @@ class Succy_Preview_Anything_Convert:
                 vi.fps = fps                                 # the asked rate, exactly (the Fraction may round it)
                 vi.duration = vi.frames / fps
             fps, n = vi.fps, vi.frames
+            trim_start, trim_end, current_time = frame_times(fps, trim_start, trim_end, current_time, getattr(self, "_fr", (None,) * 3))
             s, e, trimmed = trim_window(vi.duration, fps, trim_start, trim_end)
             f0, f1 = frame_range(s, e, fps, n)
             fc = min(max(frame_at(current_time, fps, n), f0), f1 - 1)          # the current frame never leaves the window
@@ -1243,7 +1265,7 @@ class Succy_Preview_Anything_Convert:
                 quiet = silent_audio((f1 - f0) / fps if fps else 0.0)
                 return quiet if vi.has_audio is False else (comps().audio or quiet)
 
-            audio = window_sound() if split or (want == "IMAGE" and need(3)) else None
+            audio = window_sound() if split or need(4) else None          # D-239: the window's sound, always on `audio`
             made = None
             if want == "VIDEO" and ext != src_fmt or (split and ext != "gif") or (trimmed and ext not in ("mp4", "mkv", "webm")):
                 # a real file in the chosen container (silent with split): what comes out IS what the download saves
@@ -1254,10 +1276,10 @@ class Succy_Preview_Anything_Convert:
             dur_out = round((f1 - f0) / fps, 3) if fps else round(e - s, 3)
             info = (f"Type: VIDEO\nResolution: {vi.width} x {vi.height}\nFPS: {fps:.3f}\nDuration: {vi.duration:.3f} s\n"
                     f"Frames: {n}\nFormat: {src_fmt}\nAudio: {'yes' if vi.has_audio else 'no' if vi.has_audio is False else '?'}\n"
-                    f"Selection: {s:.3f} -> {e:.3f} s (frames {f0} -> {f1 - 1})\n" + (f"Current frame: {fc}\n" if need(1) else "")
+                    f"Selection: {s:.3f} -> {e:.3f} s (frames {f0} -> {f1 - 1})\n" + (f"Current frame: {fc}\n" if need(5) else "")
                     + (f"Out: {dur_out:.3f} s as .{ext}" + (" (silent)" if split else "") if want == "VIDEO"
                        else f"Out: {f1 - f0} frames as IMAGE (+ its sound on audio)" if want == "IMAGE" else f"Out: {dur_out:.3f} s as AUDIO"))
-            frame = vi.frame(fc) if need(1) else None
+            frame = vi.frame(fc) if need(5) else None
             media.update(duration=vi.duration, fps=fps, fps_from=where, gain=g, key=node_key, frames=n, width=vi.width, height=vi.height, has_audio=vi.has_audio,
                          start=s, end=e, trimmed=trimmed, split=split, format="video." + src_fmt)
             line = (f"{vi.width}×{vi.height} · {fps:.2f} fps{_fps_note(where)} · {vi.duration:.3f} s · {n} frames · {src_fmt}"
@@ -1279,7 +1301,7 @@ class Succy_Preview_Anything_Convert:
             _keep_files(node_key, files + list(also))
             out = (out_video if want == "VIDEO" else (comps().images if need(0) else None) if want == "IMAGE"
                    else window_sound() if need(0) else None)
-            result = (out, frame, dur_out, audio, None, None, None)
+            result = (out, vi.width, vi.height, (vi.width * vi.height) / 1_000_000.0, audio, frame, dur_out)    # the batch's seven (D-239)
 
         if preview and _LOG:
             print("\n" + "=" * 40 + f"\nPreviewAny [{kind.upper()}]:\n{info}\n" + "=" * 40 + "\n")
@@ -1294,6 +1316,7 @@ class Succy_Preview_Anything_Convert:
         `audio` (the window's sound, silence if none), `frame` (the one under Current), `duration`."""
         n, H, W = int(source.shape[0]), int(source.shape[1]), int(source.shape[2])
         duration = n / fps
+        trim_start, trim_end, current_time = frame_times(fps, trim_start, trim_end, current_time, getattr(self, "_fr", (None,) * 3))
         s, e, trimmed = trim_window(duration, fps, trim_start, trim_end)
         f0, f1 = frame_range(s, e, fps, n)
         fc = min(max(frame_at(current_time, fps, n), f0), f1 - 1)
