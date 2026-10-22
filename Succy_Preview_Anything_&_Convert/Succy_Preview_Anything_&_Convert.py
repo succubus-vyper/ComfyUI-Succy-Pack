@@ -833,8 +833,9 @@ class Succy_Preview_Anything_Convert:
                     "label_off": "Off",
                 }),
                 "source": (ANY, {"tooltip": "Attach anything here."}),
-                # clips use the format entries (VIDEO_FORMATS / AUDIO_FORMATS): the frontend shows only the list of the mode
-                "output_type": (_OUTPUT_TYPES + VIDEO_FORMATS + AUDIO_FORMATS, {"default": "STRING"}),
+                # D-233: Convert To is a BRIDGE between nodes: VIDEO / IMAGE / AUDIO for a clip, IMAGE / MASK / VIDEO for pictures.
+                # The old file formats (VIDEO_FORMATS / AUDIO_FORMATS) stay valid so saved prompts still run: video.X = VIDEO in X.
+                "output_type": (_OUTPUT_TYPES + ["VIDEO", "AUDIO"] + VIDEO_FORMATS + AUDIO_FORMATS, {"default": "STRING"}),
                 # only meaningful with output_type MASK: flips the mask (1 - m). The frontend shows it as the INVERT button.
                 "invert_mask": ("BOOLEAN", {"default": False}),
                 # VIDEO / AUDIO only (the frontend's timeline writes them): the kept window in seconds (end 0 = up to the end)
@@ -853,10 +854,13 @@ class Succy_Preview_Anything_Convert:
                 # How loud YOU hear it here is the frontend's Listen slider: never saved, never sent.
                 "audio_gain": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 4.0, "step": 0.01}),
             },
-            # audio: plugged = the clip's sound, replacing whatever it had. fps_override: the EXT chip, beats the field.
+            # audio: plugged = the clip's sound, replacing whatever it had. The fps from a wire (D-233) = clip_fps's own socket
+            # (the EXT ring; the browser then sends fps_auto off). fps_override is gone from here: an old prompt still passes it.
             "optional": {
                 "audio": ("AUDIO",),
-                "fps_override": ("FLOAT", {"forceInput": True}),
+                # D-236: one picture only, a second one for the box's A|B (IMAGE with an IMAGE in, MASK with a MASK: the frontend
+                # types the socket). Shown only, never sent on.
+                "compare": (ANY,),
                 # D-230: which outputs are plugged, written by the browser into the prompt only (hidden field). Some outputs are
                 # computed only when plugged (frame, audio, the gallery's frames): plugging one must change this node's key, or
                 # ComfyUI would hand back the cached None. Never read here: the prompt says it already (wired_outputs).
@@ -880,7 +884,7 @@ class Succy_Preview_Anything_Convert:
     # -------------------------------------------------------------- #
     def execute(self, preview, source, output_type, invert_mask=False, trim_start=0.0, trim_end=0.0, current_time=0.0,
                 split_audio=False, as_clip="auto", clip_fps=DEFAULT_FPS, fps_auto=True, audio_gain=1.0, audio=None, fps_override=None,
-                unique_id=None, prompt=None, _view=False, succy_used=""):
+                unique_id=None, prompt=None, _view=False, succy_used="", compare=None):
         # _view (D-205d): the As clip switch, live, from the route: only what the box shows, nothing computed for downstream
         self._view = bool(_view)
         if not _view:
@@ -900,30 +904,43 @@ class Succy_Preview_Anything_Convert:
         audio_in = as_audio(audio) if audio is not None else None
         fps_of = lambda found, where: pick_fps(fps_override, fps_auto, clip_fps, found, where)
         kind = media_kind(source)
-        if kind == "video" and mode == "images":           # a video as pictures: its frames, gallery and all
+        if kind == "video" and mode == "images":           # a video as pictures: As clip is only how the box SHOWS it (D-233)
             try:
-                vi = _VideoInfo(source)
-                if not self._needs(0, prompt, unique_id):       # nobody reads the frames: the gallery decodes them one by one
-                    return self._video_gallery(source, vi, preview, unique_id)
-                vi.check_decode(vi.frames)
-                source = vi.components().images
-                output_type = output_type if output_type in ("IMAGE", "MASK") else "IMAGE"
-                kind = ""
+                shown = self._video_gallery(source, _VideoInfo(source), preview, unique_id)
+                if self._view:                                  # the live switch: the gallery, nothing for downstream
+                    return shown
+                # the outputs follow Convert To, exactly as with the clip on show (the gallery's files are kept alongside)
+                r = self._media(kind, False, source, output_type, trim_start, trim_end, current_time, split_audio, unique_id, prompt,
+                                fps_of=fps_of, audio_in=audio_in, gain=audio_gain, also=_PREVIEW_FILES.get(_node_key(unique_id), []))
+                return {"ui": shown["ui"], "result": r["result"]}
             except Exception as ex:
                 print(f"[PreviewAny] video as pictures failed, showing the clip: {ex}")
         if kind:
             return self._media(kind, preview, source, output_type, trim_start, trim_end, current_time, split_audio, unique_id, prompt,
                                fps_of=fps_of, audio_in=audio_in, gain=audio_gain)
-        if (output_type in ("IMAGE", "MASK") and mode != "images" and isinstance(source, torch.Tensor) and source.dim() == 4
-                and int(source.shape[0]) >= 2):
-            try:
-                vhs = vhs_clip(prompt, unique_id)            # frames straight out of a VHS loader: its fps and its sound
-                if mode == "clip" or vhs or looks_like_video(source):
+        # Pictures (D-234): a BATCH (2+ images or masks) always hands on a clip's outputs (the kept frames, audio, frame,
+        # duration, at the clip's fps): As clip only picks the box, player or gallery. One picture = the picture four (a VIDEO
+        # out of one picture comes only from an old saved prompt: still made, through the clip).
+        batch_out = gallery_fps = None
+        if output_type in ("IMAGE", "MASK", "VIDEO") and isinstance(source, torch.Tensor) and source.dim() in (3, 4):
+            n_in = int(source.shape[0])
+            if n_in >= 2 or output_type == "VIDEO":
+                try:
+                    frames_src = source if source.dim() == 4 else source.unsqueeze(-1).expand(*source.shape, 3)
+                    vhs = vhs_clip(prompt, unique_id)            # frames straight out of a VHS loader: its fps and its sound
                     fps, where = fps_of(vhs[0] if vhs else 0.0, "VHS" if vhs else "")
-                    return self._frames(source, fps, where, vhs, audio_in, preview, output_type, invert_mask,
-                                        trim_start, trim_end, current_time, unique_id, prompt, gain=audio_gain)
-            except Exception as ex:                          # the clip went wrong: pictures, as before. Never a dead queue.
-                print(f"[PreviewAny] clip preview failed, showing pictures: {ex}")
+                    show_clip = mode == "clip" or (mode == "auto" and (output_type == "VIDEO" or bool(vhs) or looks_like_video(frames_src)))
+                    if show_clip or n_in < 2:
+                        return self._frames(frames_src, fps, where, vhs, audio_in, preview, output_type, invert_mask,
+                                            trim_start, trim_end, current_time, unique_id, prompt, gain=audio_gain)
+                    # the gallery: the same outputs as the clip, the box shows the pictures (written below)
+                    batch_out = self._frames(frames_src, fps, where, vhs, audio_in, False, output_type, invert_mask,
+                                             trim_start, trim_end, current_time, unique_id, prompt, gain=audio_gain)["result"]
+                    gallery_fps = fps
+                except Exception as ex:                      # the clip went wrong: pictures, as before. Never a dead queue.
+                    print(f"[PreviewAny] batch outputs failed, showing pictures: {ex}")
+        if output_type == "VIDEO":                           # the gallery of a batch sent on as VIDEO shows the pictures
+            output_type = "IMAGE"
         converted = source
         width = height = 0
         megapixels = 0.0
@@ -931,6 +948,7 @@ class Succy_Preview_Anything_Convert:
         text_output = ""
         ui_images = []
         ui_gallery = None
+        ui_compare = None
 
         if source is None:
             return {
@@ -1007,11 +1025,22 @@ class Succy_Preview_Anything_Convert:
                     # grayscale and RGBA handled: the alpha is KEPT (D-106: a Crop cutout previewed as RGB looked uncut)
                     _to_pil(shown[0]).save(file_path, compress_level=4)
                     files = [filename]
+                    # A|B (D-236): one picture + a compare picture plugged = its first frame, beside ours (shown only)
+                    if int(shown.shape[0]) == 1 and isinstance(compare, torch.Tensor) and compare.dim() in (3, 4) and int(compare.shape[0]) >= 1:
+                        try:
+                            cname = _temp_name(node_key, "cmp", "png")
+                            _to_pil(compare[0]).save(os.path.join(temp_dir, cname), compress_level=4)
+                            files.append(cname)
+                            ui_compare = _saved(cname)
+                        except Exception as e:
+                            print(f"[PreviewAny] compare error: {e}")
                     if int(shown.shape[0]) > 1:                        # a batch: the gallery of all of it, served frame by frame (D-205c)
                         try:
                             token = f"{random.randint(0, 1 << 30):x}"
                             _remember(_GALLERY, node_key, (weakref.ref(shown), token))
                             ui_gallery = {"key": node_key, "token": token, "total": int(shown.shape[0])}
+                            if gallery_fps:                    # the frame picked in the gallery = `frame` (current_time = index / fps)
+                                ui_gallery["fps"] = float(gallery_fps)
                         except Exception as e:
                             print(f"[PreviewAny] gallery error: {e}")
                     _keep_files(node_key, files + _player_kept(node_key))     # the clip's player stays: back to On = no re-encode
@@ -1063,6 +1092,8 @@ class Succy_Preview_Anything_Convert:
             ]
             if ui_gallery:
                 ui_res["succy_gallery"] = [ui_gallery]
+            if ui_compare:
+                ui_res["succy_compare"] = [ui_compare]
             if preview and _LOG:
                 print("\n" + "=" * 40)
                 print("PreviewAny [IMAGE]:")
@@ -1079,7 +1110,7 @@ class Succy_Preview_Anything_Convert:
 
         return {
             "ui": ui_res,
-            "result": (converted, width, height, megapixels, None, None, None),
+            "result": batch_out if batch_out is not None else (converted, width, height, megapixels, None, None, None),
         }
 
     def _needs(self, slot, prompt, unique_id):
@@ -1110,7 +1141,7 @@ class Succy_Preview_Anything_Convert:
                     old[0].close()
                 _remember(_GALLERY, node_key, (vf, token))
                 _keep_files(node_key, [name] + _player_kept(node_key))
-                ui = {"succy_images": [_saved(name)], "succy_gallery": [{"key": node_key, "token": token, "total": n}],
+                ui = {"succy_images": [_saved(name)], "succy_gallery": [{"key": node_key, "token": token, "total": n, "fps": float(vi.fps)}],
                       "succy_info": [f"Width: {W}   Height: {H}   Megapixels: {mp:.2f}   ·   {n} images"]}
             except Exception as ex:
                 print(f"[PreviewAny] video gallery error: {ex}")
@@ -1118,13 +1149,15 @@ class Succy_Preview_Anything_Convert:
 
     # -------------------------------------------------------------- #
     def _media(self, kind, preview, source, output_type, trim_start, trim_end, current_time, split_audio, unique_id, prompt,
-               fps_of=None, audio_in=None, gain=1.0):
+               fps_of=None, audio_in=None, gain=1.0, also=()):
         """VIDEO / AUDIO in (D-198). `output` = the clip with everything applied: the window [trim_start, trim_end) really cut
         (frames and samples), split_audio = silent, Convert To = the container (video) or the download file (audio).
         `frame` (video) = the frame under current_time, which always sits inside the window. `duration` = seconds of what
         goes out (3 decimals). split_audio adds `audio` = the window's sound. The player shows the WHOLE clip (the timeline
         needs all of it); the download button gets exactly `output`. D-205: a VIDEO at another fps (field / EXT wire) is
-        re-timed, a plugged `audio_in` replaces its sound: both rebuild the video from its frames before anything else."""
+        re-timed, a plugged `audio_in` replaces its sound: both rebuild the video from its frames before anything else.
+        D-233, Convert To is a bridge: VIDEO (the old video.X = VIDEO in container X) · IMAGE = the window's frames (+ its sound
+        on `audio`, like a VHS loader) · AUDIO = the window's sound. `also` = files somebody else shows (the gallery): kept."""
         node_key = _node_key(unique_id)
         need = lambda slot: self._needs(slot, prompt, unique_id)
         media = {"kind": kind}
@@ -1162,7 +1195,7 @@ class Succy_Preview_Anything_Convert:
                     media.update(src=_saved(play), dl=_saved(dl))
                 except Exception as ex:
                     print(f"[PreviewAny] Audio preview error: {ex}")
-            _keep_files(node_key, files)
+            _keep_files(node_key, files + list(also))
             result = (out_audio, dur_out, None, None, None, None, None)
         else:
             vi = _VideoInfo(source)
@@ -1191,7 +1224,8 @@ class Succy_Preview_Anything_Convert:
             s, e, trimmed = trim_window(vi.duration, fps, trim_start, trim_end)
             f0, f1 = frame_range(s, e, fps, n)
             fc = min(max(frame_at(current_time, fps, n), f0), f1 - 1)          # the current frame never leaves the window
-            split = bool(split_audio)
+            want = output_type if output_type in ("IMAGE", "AUDIO") else "VIDEO"
+            split = bool(split_audio) and want == "VIDEO"
             src_fmt = video_format_of(source)
             ext = fmt_ext(output_type, src_fmt)
             if ext not in _VENC:
@@ -1205,13 +1239,13 @@ class Succy_Preview_Anything_Convert:
                     cut["c"] = out_video.get_components()
                 return cut["c"]
 
-            audio = None
-            if split:
+            def window_sound():             # the window's sound, silence when the clip has none
                 quiet = silent_audio((f1 - f0) / fps if fps else 0.0)
-                c = comps()
-                audio = quiet if vi.has_audio is False else (c.audio or quiet)
+                return quiet if vi.has_audio is False else (comps().audio or quiet)
+
+            audio = window_sound() if split or (want == "IMAGE" and need(3)) else None
             made = None
-            if ext != src_fmt or (split and ext != "gif") or (trimmed and ext not in ("mp4", "mkv", "webm")):
+            if want == "VIDEO" and ext != src_fmt or (split and ext != "gif") or (trimmed and ext not in ("mp4", "mkv", "webm")):
                 # a real file in the chosen container (silent with split): what comes out IS what the download saves
                 made = _temp_name(node_key, "out", ext)
                 _save_as(out_video, os.path.join(temp, made), ext, comps, fps, keep_audio=not split)
@@ -1220,8 +1254,9 @@ class Succy_Preview_Anything_Convert:
             dur_out = round((f1 - f0) / fps, 3) if fps else round(e - s, 3)
             info = (f"Type: VIDEO\nResolution: {vi.width} x {vi.height}\nFPS: {fps:.3f}\nDuration: {vi.duration:.3f} s\n"
                     f"Frames: {n}\nFormat: {src_fmt}\nAudio: {'yes' if vi.has_audio else 'no' if vi.has_audio is False else '?'}\n"
-                    f"Selection: {s:.3f} -> {e:.3f} s (frames {f0} -> {f1 - 1})\n" + (f"Current frame: {fc}\n" if need(1) else "") + f"Out: {dur_out:.3f} s as .{ext}"
-                    + (" (silent)" if split else ""))
+                    f"Selection: {s:.3f} -> {e:.3f} s (frames {f0} -> {f1 - 1})\n" + (f"Current frame: {fc}\n" if need(1) else "")
+                    + (f"Out: {dur_out:.3f} s as .{ext}" + (" (silent)" if split else "") if want == "VIDEO"
+                       else f"Out: {f1 - f0} frames as IMAGE (+ its sound on audio)" if want == "IMAGE" else f"Out: {dur_out:.3f} s as AUDIO"))
             frame = vi.frame(fc) if need(1) else None
             media.update(duration=vi.duration, fps=fps, fps_from=where, gain=g, key=node_key, frames=n, width=vi.width, height=vi.height, has_audio=vi.has_audio,
                          start=s, end=e, trimmed=trimmed, split=split, format="video." + src_fmt)
@@ -1241,8 +1276,10 @@ class Succy_Preview_Anything_Convert:
                     media.update(src=_saved(play), dl=_saved(dl))
                 except Exception as ex:
                     print(f"[PreviewAny] Video preview error: {ex}")
-            _keep_files(node_key, files)
-            result = (out_video, frame, dur_out, audio if split else None, None, None, None)
+            _keep_files(node_key, files + list(also))
+            out = (out_video if want == "VIDEO" else (comps().images if need(0) else None) if want == "IMAGE"
+                   else window_sound() if need(0) else None)
+            result = (out, frame, dur_out, audio, None, None, None)
 
         if preview and _LOG:
             print("\n" + "=" * 40 + f"\nPreviewAny [{kind.upper()}]:\n{info}\n" + "=" * 40 + "\n")
@@ -1275,6 +1312,9 @@ class Succy_Preview_Anything_Convert:
                 out = 1.0 - out
         win = (f1 - f0) / fps
         audio_out = slice_audio(full_audio, f0 / fps, f1 / fps) if has_audio else silent_audio(win)
+        if output_type == "VIDEO":                          # D-233: the kept frames + their sound at this fps = a real VIDEO
+            from fractions import Fraction
+            out = _make_video(frames, audio_out if has_audio else None, Fraction(fps).limit_denominator(1001))
         frame = source[fc:fc + 1] if need(5) else None
         dur_out = round(win, 3)
         mp = (W * H) / 1_000_000.0
@@ -1304,7 +1344,7 @@ class Succy_Preview_Anything_Convert:
                 media.update(src=_saved(play), dl=_saved(dl))
             except Exception as ex:
                 print(f"[PreviewAny] clip preview error: {ex}")
-        _keep_files(node_key, files)
+        _keep_files(node_key, files if preview else _player_kept(node_key))      # outputs only: the player stays for later
         if preview and _LOG:
             print("\n" + "=" * 40 + f"\nPreviewAny [FRAMES AS CLIP]:\n{info}\n" + "=" * 40 + "\n")
         return {"ui": {"succy_media": [media], "succy_info": [line], "succy_text": [info]},
@@ -1364,7 +1404,7 @@ def _retimed_file(node_key, video, sig):
 
 def _remember_run(source, audio, kw):
     """What a Run got, for the live As clip switch (D-205d): batches and clips only (a text has nothing to switch)."""
-    big = isinstance(source, torch.Tensor) and source.dim() == 4 and int(source.shape[0]) >= 2
+    big = isinstance(source, torch.Tensor) and source.dim() in (3, 4) and int(source.shape[0]) >= 2
     if not (big or media_kind(source) == "video" or vhs_combine_file(source)):
         return
     _remember(_LAST, _node_key(kw.get("unique_id")), {"src": _ref(source), "audio": _ref(audio) if audio is not None else None, "kw": kw})
