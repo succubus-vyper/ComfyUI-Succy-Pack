@@ -108,7 +108,7 @@ if _FIRST_LOAD:
             return None, web.json_response({"error": wait[1] + ", then download"}, status=404)
         # EXT doors (D-130, D-224 on the widget's own socket): a wired number is known only after a Run; until then the slider stands in
         widgets = dict(widgets)
-        for inp, key in (("out_mp_in", "out_mp"), ("multiple_in", "multiple")):
+        for inp, key in (("out_mp_in", "out_mp"), ("multiple_in", "multiple"), ("out_scale", "out_scale")):
             if (key in linked or inp in linked) and last.get("in_" + key) is not None:
                 widgets[key] = last["in_" + key]
         try:
@@ -216,7 +216,7 @@ if _FIRST_LOAD:
 
 
 _INT_ARGS = ("x", "y", "w", "h", "context", "multiple", "box_snap", "box_feather", "mask_grow", "mask_feather")
-_FLOAT_ARGS = ("workspace_mp", "out_mp")
+_FLOAT_ARGS = ("workspace_mp", "out_mp", "out_scale")
 
 
 def _stitch_wait(data, last):
@@ -382,6 +382,9 @@ class Succy_Crop:
                 "brush": ("STRING", {"default": "", "tooltip": "Free hand mask drawn on the node (managed by the frontend)"}),
                 # last on purpose (D-178): an old workflow's widget values still line up, the missing one takes its default
                 "quad": ("STRING", {"default": "", "tooltip": "Free Edit Selection: where the rectangle's 4 corners were dragged (perspective crop, managed by the frontend)"}),
+                # D-225, last for the same reason: the output after out_mp, before multiple (her rule: megapixels < scale < multiple)
+                "out_scale": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 16.0, "step": 0.01,
+                                        "tooltip": "Then times this, on each side (after the megapixels, before the multiple)"}),
             },
             "optional": {
                 "image": ("IMAGE", {"tooltip": "Wins over a picture loaded on the node"}),
@@ -432,14 +435,14 @@ class Succy_Crop:
         if "image" not in got and not str(widgets.get("source") or ""):
             raise LiveWait("image", "the Crop has no picture: load one on it")
         widgets = dict(widgets)
-        for inp, key in (("out_mp_in", "out_mp"), ("multiple_in", "multiple")):       # EXT: a wired number is known after a Run
+        for inp, key in (("out_mp_in", "out_mp"), ("multiple_in", "multiple"), ("out_scale", "out_scale")):       # EXT: a wired number is known after a Run
             if (inputs.linked(key) or inputs.linked(inp)) and last.get("in_" + key) is not None:
                 widgets[key] = last["in_" + key]
         outs = _crop_now(widgets, got.get("image"), got.get("mask"), node_id)
         return {"mask": outs["mask"], "cutout": outs["cutout"], "stitch": outs["stitch"], "crop": outs["crop_img"]}
 
     def crop(self, x, y, w, h, context, workspace_mp, out_mp, multiple, box_snap=1, alpha=True, solid_color="#000000", box=True, box_feather=0, mask_grow=0, mask_feather=0, hold=False, hold_timeout=300,
-             run_id="", source="", brush="", quad="", image=None, mask=None, out_mp_in=None, multiple_in=None, unique_id=None, dynprompt=None, _quiet=False, _all=False):
+             run_id="", source="", brush="", quad="", out_scale=1.0, image=None, mask=None, out_mp_in=None, multiple_in=None, unique_id=None, dynprompt=None, _quiet=False, _all=False):
         if out_mp_in is not None:                          # EXT before D-224 (an old API prompt): the wire wins over the slider
             out_mp = max(0.0, float(out_mp_in))
         if multiple_in is not None:
@@ -451,14 +454,14 @@ class Succy_Crop:
                 _MEMO_CROP.skip(did)
                 memo = False
             else:
-                key = {"args": (x, y, w, h, context, workspace_mp, out_mp, multiple, box_snap, alpha, solid_color, box, box_feather, mask_grow,
+                key = {"args": (x, y, w, h, context, workspace_mp, out_mp, out_scale, multiple, box_snap, alpha, solid_color, box, box_feather, mask_grow,
                                 mask_feather, brush, quad), "file": _file_stamp(source) if image is None else "", "image": image, "mask": mask}
                 hit = _MEMO_CROP.get(did, key)
                 if hit is not None:
                     result, entry = hit
                     _send_preview(did, entry["full_img"])
                     _remember(did, {**entry, "in_image": image if image is not None else entry["in_image"], "in_mask": mask,
-                                    "in_out_mp": out_mp, "in_multiple": multiple})
+                                    "in_out_mp": out_mp, "in_out_scale": out_scale, "in_multiple": multiple})
                     return result
         if image is None:
             image = _load_source(source)
@@ -534,8 +537,9 @@ class Succy_Crop:
         # region-native mask: 1 where the sampler should work, 0 in the context ring
         rmask = sel[ry0:ry1, rx0:rx1].clone()
 
-        # --- output size: out_mp megapixels (same aspect), then snapped to `multiple`
+        # --- output size: out_mp megapixels (same aspect), then times out_scale, then snapped to `multiple` (the last word)
         ow, oh = _mp_size(rw, rh, out_mp) if out_mp > 0 else (rw, rh)
+        ow, oh = max(1, int(round(ow * out_scale))), max(1, int(round(oh * out_scale)))
         ow, oh = _snap(ow, multiple), _snap(oh, multiple)
 
         region = image[:, ry0:ry1, rx0:rx1, :].permute(0, 3, 1, 2)
@@ -567,7 +571,7 @@ class Succy_Crop:
             live_touch()
             entry = {"full_img": image, "cutout": cutout, "mask": full_mask, "crop_img": out_img, "crop_mask": out_mask,
                      "stem": _stem(source), "in_image": in_image, "in_mask": mask, "stitch": stitch,
-                     "in_out_mp": out_mp, "in_multiple": multiple}
+                     "in_out_mp": out_mp, "in_out_scale": out_scale, "in_multiple": multiple}
             _remember(did, entry)
             if memo:
                 _MEMO_CROP.put(did, key, ((stitch, full_mask, cutout, out_img), entry))

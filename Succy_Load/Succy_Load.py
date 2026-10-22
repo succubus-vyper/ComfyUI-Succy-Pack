@@ -126,13 +126,25 @@ def folder_pick(did, folder, pick, index, advance):
     return path, files, (st["last"] if st["last"] is not None else st["next"]) % n
 
 
+# EXT v2 (D-225): the widgets a wire can drive (their own socket); the live view takes their last Run value while wired
+_EXT = ("index", "width", "height", "interpolation", "megapixels", "scale_by", "multiple")
+
+
 # --- resize ---------------------------------------------------------------------------------------------------------------------
 
 def resize_plan(w, h, resize, width, height, fit, anchor, megapixels, scale_by, multiple):
     """Where a w x h picture goes. -> (sw, sh, cw, ch, ox, oy): resized to sw x sh, placed at (ox, oy) on a cw x ch canvas
-    (ox/oy < 0 = fill trims, > 0 = pad borders). Pure numbers; the browser mirrors it (util/mask-math.js resizePlan)."""
+    (ox/oy < 0 = fill trims, > 0 = pad borders). Pure numbers; the browser mirrors it (util/mask-math.js resizePlan).
+    Who has the last word (her rule, 22/10): width x height < megapixels < scale < multiple. Custom: the box (W x H + fit) makes the
+    shape, megapixels (0 = off) takes that shape to its size, scale multiplies it, multiple snaps it. Scale: the same, from the picture."""
     m = max(1, int(multiple))
     sn = (lambda v: snap(v, m)) if m > 1 else (lambda v: max(1, int(v)))
+
+    def size(ow, oh):                                      # megapixels, then scale, then the multiple
+        if megapixels > 0:
+            ow, oh = mp_size(ow, oh, megapixels)
+        return sn(max(1, int(round(ow * scale_by)))), sn(max(1, int(round(oh * scale_by))))
+
     if resize == "custom":
         W, H = int(width), int(height)
         if W <= 0 and H <= 0:
@@ -141,14 +153,13 @@ def resize_plan(w, h, resize, width, height, fit, anchor, megapixels, scale_by, 
             W = max(1, int(round(w * H / h)))
         elif H <= 0:
             H = max(1, int(round(h * W / w)))
-        if fit == "stretch":
-            sw, sh = sn(W), sn(H)
-            return sw, sh, sw, sh, 0, 0
         if fit == "fit":
             s = min(W / w, H / h)
-            sw, sh = sn(max(1, int(round(w * s)))), sn(max(1, int(round(h * s))))
+            sw, sh = size(max(1, int(round(w * s))), max(1, int(round(h * s))))
             return sw, sh, sw, sh, 0, 0
-        cw, ch = sn(W), sn(H)
+        cw, ch = size(W, H)
+        if fit == "stretch":
+            return cw, ch, cw, ch, 0, 0
         if fit == "pad":
             s = min(cw / w, ch / h)
             sw, sh = min(cw, max(1, int(round(w * s)))), min(ch, max(1, int(round(h * s))))
@@ -157,11 +168,7 @@ def resize_plan(w, h, resize, width, height, fit, anchor, megapixels, scale_by, 
             sw, sh = max(cw, int(round(w * s))), max(ch, int(round(h * s)))
         ax, ay = _ANCHORS.get(anchor, (0.5, 0.5))
         return sw, sh, cw, ch, int(round((cw - sw) * ax)), int(round((ch - sh) * ay))
-    if resize == "scale":
-        bw, bh = mp_size(w, h, megapixels) if megapixels > 0 else (w, h)
-        sw, sh = sn(max(1, int(round(bw * scale_by)))), sn(max(1, int(round(bh * scale_by))))
-        return sw, sh, sw, sh, 0, 0
-    sw, sh = sn(w), sn(h)                                  # off: only the multiple (1 = untouched)
+    sw, sh = size(w, h) if resize == "scale" else (sn(w), sn(h))     # "off" (old workflows / API prompts): only the multiple
     return sw, sh, sw, sh, 0, 0
 
 
@@ -392,7 +399,7 @@ class Succy_Load_Image_Resize:
                 "folder": ("STRING", {"default": "", "tooltip": "Empty = the input folder · a name = a subfolder of input · a full path = any folder on this computer"}),
                 "pick": (["index", "next"], {"default": "index", "tooltip": "next = the following picture at every execution (Run, Loop lap, Pause ▶) · index = that one"}),
                 "index": ("INT", {"default": 0, "min": 0, "max": 99999, "step": 1, "tooltip": "Which picture of the folder (0 = the first)"}),
-                "resize": (["off", "custom", "scale"], {"default": "off", "tooltip": "off = real size · custom = width × height · scale = megapixels, then scale by"}),
+                "resize": (["scale", "custom", "off"], {"default": "scale", "tooltip": "scale = megapixels, then scale by, then multiple · custom = width × height, then the same · off = old workflows (real size)"}),
                 "width": ("INT", {"default": 1024, "min": 0, "max": 16384, "step": 1, "tooltip": "custom: width (0 = from the height, same proportions)"}),
                 "height": ("INT", {"default": 1024, "min": 0, "max": 16384, "step": 1, "tooltip": "custom: height (0 = from the width, same proportions)"}),
                 "fit": (["fit", "fill", "pad", "stretch"], {"default": "fit", "tooltip": "fit = inside the box · fill = cover it, trim the rest · pad = inside + borders · stretch = exactly"}),
@@ -418,10 +425,7 @@ class Succy_Load_Image_Resize:
             "optional": {
                 "image": ("IMAGE", {"tooltip": "Resize this picture instead (the folder steps aside)"}),
                 "mask": ("MASK", {"tooltip": "The starting mask, resized with the picture: the box, the brush, grow and feather edit it (like Succy Crop)"}),
-                # EXT chip doors: a wire here wins over the number on the node
-                "index_in": ("INT", {"forceInput": True, "tooltip": "Folder index from a wire (a Loop's iteration_index)"}),
-                "width_in": ("INT", {"forceInput": True, "tooltip": "custom width from a wire"}),
-                "height_in": ("INT", {"forceInput": True, "tooltip": "custom height from a wire"}),
+                # EXT v2 (D-225): no `_in` sockets any more, a wire on a widget's own socket arrives under the widget's name
             },
             "hidden": {"unique_id": "UNIQUE_ID", "dynprompt": "DYNPROMPT"},
         }
@@ -453,7 +457,7 @@ class Succy_Load_Image_Resize:
         return ""
 
     @staticmethod
-    def _ext(kw, index_in, width_in, height_in):
+    def _ext(kw, index_in, width_in, height_in):           # EXT before D-225 (an old API prompt): the `_in` wire wins over the widget
         if index_in is not None:
             kw["index"] = max(0, int(index_in))
         if width_in is not None:
@@ -478,7 +482,7 @@ class Succy_Load_Image_Resize:
                 raise ValueError(f"{_TAG} {w.why}")
             if key is not None:
                 _MEMO.put(did, key, (out, om, info, pic))
-        _keep(_LAST, did, {"in_image": image, "in_mask": mask, "in_index": index_in, "in_width": width_in, "in_height": height_in}, _LAST_MAX)
+        _keep(_LAST, did, {"in_image": image, "in_mask": mask, "in_kw": {k: kw[k] for k in _EXT if k in kw}}, _LAST_MAX)
         if hit is None:
             live_touch()
         send_preview(did, pic, _TAG)                       # the view shows the picture it draws on: before the resize
@@ -498,6 +502,9 @@ class Succy_Load_Image_Resize:
                 raise LiveWait("run", f"the Load's {inp} comes from a wire: Run once so it gets there")
             got[inp] = v
         kw = coerce_widgets(cls, widgets)
-        kw = cls._ext(kw, *(last.get("in_" + k) if inputs.linked(k + "_in") else None for k in ("index", "width", "height")))
+        # EXT doors (D-225, the widget's own socket): a wired value is known only after a Run; until then the widget stands in
+        for k, v in (last.get("in_kw") or {}).items():
+            if inputs.linked(k) or inputs.linked(k + "_in"):
+                kw[k] = v
         out, om, info, _ = produce(kw, got.get("image"), got.get("mask"), node_id, advance=False)
         return {"image": out, "mask": om, "_info": info}
