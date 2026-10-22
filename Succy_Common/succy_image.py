@@ -443,6 +443,12 @@ def live_empty(spec, name):
     return LiveInputs(spec or {}, node_mapping()).empty(name)
 
 
+def live_inputs(spec):
+    """The LiveInputs of a chain a browser POSTed ({linked, from}): what door_values (D-228) reads in a route."""
+    from _succy_common import LiveInputs
+    return LiveInputs(spec or {}, node_mapping())
+
+
 def live_input(spec, name):
     """Full-size value of input `name` from the live chain a browser sent ({linked, from}), or None. Raises LiveWait."""
     from _succy_common import LiveInputs

@@ -23,7 +23,7 @@ import threading
 from collections import OrderedDict
 
 __all__ = ["AnyType", "ANY", "parse_bool", "parse_int", "parse_float", "loads_loose", "to_container", "convert_text", "same_origin", "DISPLAY",
-           "LiveWait", "LiveInputs", "live_eval", "live_touch", "live_types", "coerce_widgets", "same_value", "ValueMemo", "value_memo", "memo_stats"]
+           "LiveWait", "LiveInputs", "live_eval", "live_touch", "door_values", "live_types", "coerce_widgets", "same_value", "ValueMemo", "value_memo", "memo_stats"]
 
 
 class AnyType(str):
@@ -252,6 +252,34 @@ class LiveInputs:
         if outs.get(out) is None:
             raise LiveWait("run", f"{src.get('type', 'the node')} has no live '{out}': Run once")
         return outs[out]
+
+
+def door_values(widgets, inputs, last, doors, who="the node", wait=True):
+    """D-228: ONE way for every node's live view to read its rings (EXT doors), so the view says what the Run will do.
+    doors = [(widget key, (input names...), (last-Run keys...))]. A ring the browser could read NOW never gets here as a wire: the kit
+    folds its value into `widgets` (SurvivalKit nodePorts.doorValue). A ring still wired: a live Succy source -> its value now; else the
+    last Run's; else wait=True raises LiveWait ("Run once"), wait=False leaves it out and names it in `unknown`. Never a made-up default.
+    -> (widgets with the rings filled in, set of keys nobody can read yet)."""
+    out, unknown, last = dict(widgets or {}), set(), last or {}
+    for key, names, lkeys in doors:
+        src = next((n for n in names if inputs.linked(n)), None)
+        if src is None:
+            continue
+        v = None
+        if getattr(inputs, "live", None) is None or inputs.live(src):        # a stand-in without live() = try it
+            try:
+                v = inputs.get(src)
+            except LiveWait:
+                v = None
+        if v is None:
+            v = next((last[k] for k in lkeys if last.get(k) is not None), None)
+        if v is None:
+            if wait:
+                raise LiveWait("run", f"{who}'s {key} comes from a wire only a Run can read: Run once")
+            unknown.add(key)
+            continue
+        out[key] = v
+    return out, unknown
 
 
 def live_eval(spec, mapping, depth=0):

@@ -104,16 +104,14 @@ class Succy_Pick_Combo:
                 "choice":         ("COMBO", {"options": [], "default": "Option 1"}),
                 "table":          ("STRING", {"default": ""}),
             },
-            # EXT chip door (D-86): a real socket that takes the row NAME from any STRING source. The frontend only shows it
-            # in Chip mode; unplugged or hidden, `choice` (the widget) speaks for itself.
-            "optional": {
-                "choice_in":      (ANY, {"forceInput": True}),
-            },
+            # EXT v2 (D-226): no `choice_in` any more. With use_choice on, a wire on `choice` (the widget's own socket, opened
+            # as "*" by the frontend) brings a row NAME (text) or a row INDEX (whole number).
         }
 
     @classmethod
-    def VALIDATE_INPUTS(cls, choice=None, **kwargs):
-        # the `choice` list belongs to the single node (frontend): don't validate it against options=[]
+    def VALIDATE_INPUTS(cls, choice=None, input_types=None, **kwargs):
+        # the `choice` list belongs to the single node (frontend): don't validate it against options=[]. `input_types` named here
+        # = ComfyUI skips its type check, so a STRING name or an INT index may arrive on the COMBO socket (D-226)
         return True
 
     RETURN_TYPES = (ANY,) * (MAX_COLS + 3)
@@ -135,12 +133,13 @@ class Succy_Pick_Combo:
         # 1) EXT: by name (the `choice` widget can be wired from outside through a reroute).
         #    With duplicate labels the chosen row wins if it has that name, otherwise the first one.
         if use_choice:
-            # the chip door wins when somebody is plugged into it (she brought her own date), else the widget
-            if isinstance(choice_in, (int, float)) and not isinstance(choice_in, bool):
-                idx = int(choice_in)                  # a whole number plugged into the chip door = the row INDEX
+            # an old API prompt's choice_in wins (she brought her own date), else `choice` (the widget or the wire on its socket)
+            got = choice_in if choice_in is not None else choice
+            if isinstance(got, (int, float)) and not isinstance(got, bool):
+                idx = int(got)                        # a whole number on the door = the row INDEX
                 ch = None
             else:
-                ch = str(choice_in if choice_in is not None else choice).strip()
+                ch = str(got).strip()
             if ch is None:
                 pass
             elif 0 <= sel < n and labels[sel].strip() == ch:

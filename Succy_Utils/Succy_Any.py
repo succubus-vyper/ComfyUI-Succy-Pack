@@ -6,7 +6,7 @@ import re
 import torch
 import comfy.utils
 
-from _succy_common import ANY, LiveWait, coerce_widgets, live_touch, parse_bool, parse_int   # the shared drawer (loaded once by __init__.py)
+from _succy_common import ANY, LiveWait, coerce_widgets, door_values, live_touch, parse_bool, parse_int   # the shared drawer (loaded once by __init__.py)
 
 # ====================================================================== #
 #  Succy_Any — switch, batch and list in one body                        #
@@ -36,7 +36,7 @@ TAG = "Succy Any"
 
 # same defaults as the frontend (dev/src/Succy_Any.js, packed defaults): a missing key means "untouched"
 DEFAULTS = {
-    "mode": "index", "index": 0, "flag": True, "range": "clamp", "start": 0, "end": -1, "every": 1, "fit": "stretch", "size": "first",
+    "mode": "index", "index": 0, "flag": True, "range": "clamp",
     "empty": "none", "type": "", "wired": "", "outs": "picked,list,batch,count", "uses": "*",
 }
 
@@ -96,34 +96,29 @@ def _nothing(d):
     return None
 
 
+DOORS = ("index", "flag")       # real widgets since D-226 (their own socket = the EXT door). From / To / Every left with D-227: list = every item
+
+
+def _arg(d, kw, key):
+    """A value a wire can bring: the old `<key>_in` socket of an API prompt from before D-226, then the widget (or the wire on its
+    own socket, ComfyUI hands both under the same name), then the old packed `data` key. First come, first served, darling."""
+    for v in (kw.get(key + "_in"), kw.get(key)):
+        if v is not None:
+            return v
+    return d.get(key)
+
+
 def _target(d, kw, wired):
     """Name of the socket `picked` gives, or None (auto: decided in run, among what really arrived).
     Sockets keep their number (D-154): unplug 1 and 2 and the 3 is still the 3 — a hole is a hole, never a promotion."""
     mode = str(d.get("mode") or "index")
     if mode == "bool":
-        flag = kw.get("bool_in")
-        flag = parse_bool(d.get("flag")) if flag is None else bool(flag)
-        return IN_NAMES[0] if flag else IN_NAMES[1]
+        return IN_NAMES[0] if parse_bool(_arg(d, kw, "flag")) else IN_NAMES[1]
     if mode == "auto":
         return None
-    idx = kw.get("index_in")
     top = IN_NAMES.index(wired[-1]) + 1 if wired else 0
-    k = _norm_index(d.get("index") if idx is None else idx, top, str(d.get("range") or "clamp"))
+    k = _norm_index(_arg(d, kw, "index"), top, str(d.get("range") or "clamp"))
     return IN_NAMES[k - 1] if k else None
-
-
-# ---------------- items: From · To · Every (0-based like ImageFromBatch, negatives count from the end) ----------------
-def pick_items(start, end, every, n):
-    """Positions (0-based) kept out of n items: from `start` to `end` (both included) taking one every `every`.
-    Counted from 0 like ComfyUI's ImageFromBatch / LatentFromBatch (D-214b): 0 = first, -1 = last, -2 = the one before.
-    Past either end = that end. From after To = backwards. Every is a step, never below 1 — one at a time, darling."""
-    if n <= 0:
-        return []
-    pos = lambda v: v if v >= 0 else n + v
-    a = max(0, min(n - 1, pos(parse_int(start, tag=TAG))))
-    b = max(0, min(n - 1, pos(parse_int(end, tag=TAG))))
-    k = max(1, parse_int(every, tag=TAG))
-    return list(range(a, b + 1, k)) if a <= b else list(range(a, b - 1, -k))
 
 
 # ---------------- what a value is, and its single items ----------------
@@ -302,13 +297,10 @@ def batch(items, kind, fit="stretch", size="first"):
 class Succy_Any:
     @classmethod
     def INPUT_TYPES(cls):
-        # EXT doors (shown by the frontend only when lit, and only the one of the current mode). index / bool come FIRST (D-214):
-        # ComfyUI rebuilds a loaded node's sockets in this order, so the door that chooses sits on top of what it chooses from.
-        optional = {"index_in": ("INT", {"forceInput": True}), "bool_in": ("BOOLEAN", {"forceInput": True})}
+        # EXT v2 (D-226): index / flag / From / To / Every are real widgets (hidden, drawn by the frontend); a wire on their own socket
+        # is the EXT door. index / flag come FIRST (D-214): the door that chooses sits on top of what it chooses from. Optional: an API prompt that doesn't name them still validates (the old `data` keys count).
+        optional = {"index": ("INT", {"default": 0, "min": -9999, "max": 9999}), "flag": ("BOOLEAN", {"default": True})}
         optional.update({n: (ANY, {"lazy": True, "forceInput": True}) for n in IN_NAMES})
-        optional["start_in"] = ("INT", {"forceInput": True})
-        optional["end_in"] = ("INT", {"forceInput": True})
-        optional["every_in"] = ("INT", {"forceInput": True})
         return {"required": {"data": ("STRING", {"default": ""})}, "optional": optional, "hidden": {"unique_id": "UNIQUE_ID"}}
 
     @classmethod
@@ -351,15 +343,13 @@ class Succy_Any:
         if uses & {"list", "batch", "count"}:
             vals = [kw[n] for n in present if kw.get(n) is not None]
             kind = kind_of(vals[0] if vals else None, d.get("type"))
-            allitems = [it for v in vals for it in split(v, kind)]
-            arg = lambda k: d.get(k) if kw.get(k + "_in") is None else kw[k + "_in"]       # EXT wire wins over the node
-            items = [allitems[i] for i in pick_items(arg("start"), arg("end"), arg("every"), len(allitems))]
+            items = [it for v in vals for it in split(v, kind)]     # every item, in order (D-227: no From / To / Every)
             count = len(items)
             if "batch" in uses:
-                glued = batch(items, kind, str(d.get("fit") or "stretch"), str(d.get("size") or "first"))
+                glued = batch(items, kind)
 
         if unique_id is not None:                          # what the live view falls back to for a wire only a Run fills
-            _keep(unique_id, {k: v for k, v in kw.items() if k in IN_NAMES or k.endswith("_in")})
+            _keep(unique_id, {k: v for k, v in kw.items() if k in IN_NAMES or k in DOORS or k.endswith("_in")})
             live_touch()
 
         # outputs follow the frontend's layout (batch may be gone, then count slides into its place)
@@ -379,8 +369,8 @@ class Succy_Any:
         mode = str(d.get("mode") or "index")
         if mode == "auto" or str(d.get("empty") or "none") != "none":
             return None
-        ext = "bool_in" if mode == "bool" else "index_in"
-        if ext in linked and ext not in kw:
+        ext = "flag" if mode == "bool" else "index"
+        if any(e in linked and e not in kw for e in (ext, ext.replace("flag", "bool") + "_in")):
             return None
         name = _target(d, kw, _wired(d, {n: True for n in linked}))
         layout = [o for o in _csv(d.get("outs")) if o in ("picked", "list", "batch", "count")] or ["picked", "list", "batch", "count"]
@@ -393,7 +383,8 @@ class Succy_Any:
 
     @classmethod
     def succy_live(cls, widgets, inputs, node_id):
-        d = _data(coerce_widgets(cls, widgets).get("data", ""))
+        w = coerce_widgets(cls, widgets)
+        d = _data(w.get("data", ""))
         last = _LAST.get(node_id) or {}
         wired = [n for n in _csv(d.get("wired")) if n in IN_NAMES]
         vals, missing = {}, []
@@ -407,12 +398,15 @@ class Succy_Any:
                 missing.append(n)
             else:
                 vals[n] = v
-        for n in ("index_in", "bool_in", "start_in", "end_in", "every_in"):      # EXT: a wired number is known after a Run
-            if inputs.linked(n) and last.get(n) is not None:
-                vals[n] = last[n]
+        # the rings (D-228, the kit's one reader): now, else the last Run's; a wire nobody can read yet is not a 0, it is `unknown`
+        rings, unknown = door_values({n: w[n] for n in DOORS if n in w}, inputs, last, [(n, (n, n + "_in"), (n, n + "_in")) for n in DOORS], "the Any", wait=False)
+        vals.update({n: v for n, v in rings.items() if n not in unknown})
+        mode = str(d.get("mode") or "index")
+        if (mode == "index" and "index" in unknown) or (mode == "bool" and "flag" in unknown):
+            raise LiveWait("run", "the Any's choice comes from a wire that only a Run fills: Run once so it gets there")
         outs = {}
         have = [n for n in wired if n in vals]
-        if str(d.get("mode")) == "auto":
+        if mode == "auto":
             name = next(iter(have), None)
         else:
             name = _target(d, vals, wired)
@@ -425,10 +419,8 @@ class Succy_Any:
                 kind = kind_of(vals[have[0]], d.get("type"))
                 if kind in ("IMAGE", "MASK"):               # only pictures travel live
                     items = [it for n in have for it in split(vals[n], kind)]
-                    arg = lambda k: d.get(k) if vals.get(k + "_in") is None else vals[k + "_in"]
-                    items = [items[i] for i in pick_items(arg("start"), arg("end"), arg("every"), len(items))]
                     if items:
-                        outs["batch"] = batch(items, kind, str(d.get("fit") or "stretch"), str(d.get("size") or "first"))
+                        outs["batch"] = batch(items, kind)
             except Exception as exc:
                 print(f"[{TAG}] live batch skipped: {exc}")
         if "picked" not in outs and "_empty" not in outs:

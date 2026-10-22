@@ -202,9 +202,7 @@ class Succy_LoopStart:
             "optional": {
                 "state": (ANY,),
                 "initial_iteration_value": (ANY,),
-                # The direct override is kept for compatibility, but the new JS 
-                # also handles the native "Convert to input" conversion just fine
-                "iterations_override": ("INT", {"forceInput": True}),
+                # EXT v2 (D-226): no iterations_override socket any more, a wire on num_iterations (its own socket) is the door
             },
             "hidden": {
                 "unique_id": "UNIQUE_ID",
@@ -235,7 +233,7 @@ class Succy_LoopStart:
         unique_id=None,
         dynprompt=None,
     ):
-        # Priority to the override socket — it always gets its way
+        # an old API prompt's iterations_override still gets its way
         if iterations_override is not None:
             try:
                 ov = int(iterations_override)

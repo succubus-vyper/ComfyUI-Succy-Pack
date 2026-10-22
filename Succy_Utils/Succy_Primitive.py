@@ -3,7 +3,7 @@ import json
 import torch
 import comfy.model_management
 
-from _succy_common import ANY, LiveWait, coerce_widgets, convert_text, parse_bool, parse_float, parse_int   # the shared drawer (loaded once by __init__.py)
+from _succy_common import ANY, LiveWait, coerce_widgets, convert_text, door_values, parse_bool, parse_float, parse_int   # the shared drawer (loaded once by __init__.py)
 
 # ====================================================================== #
 #  Succy_Primitive — "the ultimate madafacca primitive"                   #
@@ -11,8 +11,9 @@ from _succy_common import ANY, LiveWait, coerce_widgets, convert_text, parse_boo
 #  SEED, BOOL, TEXT, MULTILINE, LIST, COLOR, RESOLUTION, IMAGE, MASK,     #
 #  LATENT, or a COMBO copied from the widget you wire her to), and she    #
 #  stays that, no going back. A real node: subgraphs and API love her.    #
-#  Everything the UI sets arrives packed in ONE hidden widget `data`      #
-#  (JSON, only what differs from the default). `seed` is a real widget    #
+#  The settings arrive packed in ONE hidden widget `data` (JSON, only     #
+#  what differs from the default). The VALUES are real widgets (D-226):   #
+#  a wire on a value's own socket makes her a bridge. `seed` is real too, #
 #  so ComfyUI's own control_after_generate rolls it before/after a run.   #
 #  Outputs (LIVE order, the frontend shows only the ones the kind uses):  #
 #     value · value2 · value3 · value4                                    #
@@ -34,6 +35,32 @@ DEFAULTS = {
     "color_v": "#ff4fa3ff", "w": 1024, "h": 1024, "mult": 8, "scale": 1.0, "batch": 1, "fill": "#000000",
     "mask_v": 1.0, "latent_family": "sd",
 }
+
+
+BIG = 9007199254740991       # the browser's last exact integer (Number.MAX_SAFE_INTEGER)
+# the VALUES are real widgets since D-226 (their own socket = the EXT door). Same defaults as the frontend (VALS); optional, so an API
+# prompt written before them still validates and its packed `data` keys count.
+VALUES = {
+    "int_v": ("INT", {"default": 0, "min": -BIG, "max": BIG}),
+    "float_v": ("FLOAT", {"default": 0.0, "min": -1e15, "max": 1e15, "step": 0.000001, "round": False}),
+    "bool_v": ("BOOLEAN", {"default": True}),
+    "text_v": ("STRING", {"default": ""}),
+    "ml_v": ("STRING", {"default": "", "multiline": True}),
+    "combo_v": ("STRING", {"default": ""}),
+    "list_v": ("STRING", {"default": "", "multiline": True}),
+    "color_v": ("STRING", {"default": "#ff4fa3ff"}),
+    "w": ("INT", {"default": 1024, "min": 1, "max": MAX_SIDE}),
+    "h": ("INT", {"default": 1024, "min": 1, "max": MAX_SIDE}),
+    "scale": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 16.0, "step": 0.01}),
+    "batch": ("INT", {"default": 1, "min": 1, "max": MAX_BATCH}),
+    "fill": ("STRING", {"default": "#000000"}),
+    "mask_v": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
+}
+
+
+def _merge(d, kw):
+    """The packed settings + the values from their own widgets (or the wires on them). A widget beats an old packed key."""
+    return {**d, **{k: kw[k] for k in VALUES if kw.get(k) is not None}}
 
 
 def _data(raw):
@@ -74,7 +101,10 @@ def _mp(w, h):
 
 def _list_items(d):
     """LIST kind: the text read the pack's one LIST way (a [literal] is used as is, otherwise one item per non-empty line)."""
-    return convert_text(d.get("list_v") or "", "LIST", tag=TAG)
+    v = d.get("list_v")
+    if isinstance(v, (list, tuple)):                  # a wire brought a real list (a bridge)
+        return list(v)
+    return convert_text(v or "", "LIST", tag=TAG)
 
 
 def _value(d, seed):
@@ -92,12 +122,16 @@ def _value(d, seed):
     if kind == "TEXT":
         return str(d["text_v"] or ""), None, None, None
     if kind == "MULTILINE":
-        text = str(d["ml_v"] or "")
+        text = d["ml_v"]
+        if not isinstance(text, str):                 # a bridge: a wire brought something already made, it goes on as it is
+            return text, None, None, None
+        text = text or ""
         if parse_bool(d["trim"]):
             text = text.strip()
         return convert_text(text, d["ml_out"], tag=TAG), None, None, None
     if kind == "COMBO":
-        return str(d["combo_v"] or ""), None, None, None
+        v = d["combo_v"]
+        return (v if isinstance(v, (int, float)) and not isinstance(v, bool) else str(v or "")), None, None, None
     if kind == "LIST":
         items = _list_items(d)
         return items, len(items), None, None
@@ -132,7 +166,13 @@ class Succy_Primitive:
                 # real widget: ComfyUI adds its own control_after_generate next to it (the frontend keeps it on "fixed" unless kind = SEED)
                 "seed": ("INT", {"default": 0, "min": 0, "max": SEED_MAX, "control_after_generate": True}),
             },
+            "optional": dict(VALUES),
         }
+
+    @classmethod
+    def VALIDATE_INPUTS(cls, input_types=None, **kwargs):
+        # `input_types` named here = ComfyUI skips its type check: Combo's door is "*" (a sampler list, a STRING, an INT...) (D-226)
+        return True
 
     RETURN_TYPES = (ANY, ANY, ANY, ANY)
     RETURN_NAMES = ("value", "value2", "value3", "value4")
@@ -142,11 +182,11 @@ class Succy_Primitive:
     @classmethod
     def succy_cache_pure(cls, kw):
         """SmartCache asks before precomputing: a picture or a mask is heavy and has no exact text form, so ComfyUI keeps those."""
-        return str(_data(kw.get("data", "")).get("kind") or "") not in ("IMAGE", "MASK")
+        return str(_merge(_data(kw.get("data", "")), kw).get("kind") or "") not in ("IMAGE", "MASK")
     CATEGORY = "Succy Pack"
 
     def run(self, data="", seed=0, **kwargs):
-        d = _data(data)
+        d = _merge(_data(data), kwargs)
         out = _value(d, seed)
         if d.get("kind") == "SEED":
             return {"ui": {"seed": [out[0]]}, "result": out}
@@ -157,8 +197,10 @@ class Succy_Primitive:
 
     @classmethod
     def succy_live(cls, widgets, inputs, node_id):
+        # her values on a wire (D-228, the kit's one reader): live from a Succy source, else "Run once" (she keeps no last Run)
+        widgets, _ = door_values(widgets, inputs, {}, [(k, (k,), ()) for k in VALUES], "the Primitive")
         w = coerce_widgets(cls, widgets)
-        d = _data(w.get("data", ""))
+        d = _merge(_data(w.get("data", "")), w)
         if str(d.get("kind") or "") not in ("IMAGE", "MASK"):
             raise LiveWait("run", "the Primitive is not a picture or a mask")
         with torch.inference_mode():

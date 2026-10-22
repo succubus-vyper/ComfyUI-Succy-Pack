@@ -12,12 +12,12 @@ from aiohttp import web
 import comfy.model_management
 from server import PromptServer
 
-from _succy_common import same_origin, LiveWait, live_touch, value_memo   # the shared drawer (loaded once by __init__.py)
+from _succy_common import same_origin, LiveWait, door_values, live_touch, value_memo   # the shared drawer (loaded once by __init__.py)
 # the picture helpers moved to the shared picture drawer (D-156): Load & Resize uses them too. Same functions, old names.
 from _succy_image import (display_id as _display_id, png_bytes as _png_bytes, snap as _snap, mp_size as _mp_size, resize as _resize,
                           prep_mask as _prep_mask, load_source as _load_source, decode_brush as _decode_brush, runmax as _runmax,
                           hex_rgb as _hex_rgb, grow as _grow, box1 as _box1, blur as _blur, load_mask as _load_mask,
-                          send_preview, live_input, live_empty, file_stamp as _file_stamp, parse_warp as _parse_warp, warp_quad as _warp_quad,
+                          send_preview, live_input, live_inputs, live_empty, file_stamp as _file_stamp, parse_warp as _parse_warp, warp_quad as _warp_quad,
                           homography as _homography, rect_pts as _rect_pts, bend_quad as _bend_quad, warp_corners as _warp_corners, remap as _remap, quad_mask as _quad_mask, quad_region as _quad_region)
 
 # ===================================================
@@ -67,6 +67,9 @@ def _send_preview(did, image, *_box):
     send_preview(did, image, _TAG)
 
 
+# the rings (EXT doors, D-224/D-225) as door_values reads them (D-228): widget key, its sockets (own + pre-D-224), its last-Run key
+_DOORS = (("out_mp", ("out_mp", "out_mp_in"), ("in_out_mp",)), ("out_scale", ("out_scale",), ("in_out_scale",)),
+          ("multiple", ("multiple", "multiple_in"), ("in_multiple",)))
 _DOWNLOADS = ("full_img", "cutout", "mask", "crop_img", "crop_mask", "straight_img")
 
 
@@ -106,11 +109,12 @@ if _FIRST_LOAD:
             if soft:
                 return None, web.json_response({"ready": False, "need": wait[0], "why": wait[1]})
             return None, web.json_response({"error": wait[1] + ", then download"}, status=404)
-        # EXT doors (D-130, D-224 on the widget's own socket): a wired number is known only after a Run; until then the slider stands in
-        widgets = dict(widgets)
-        for inp, key in (("out_mp_in", "out_mp"), ("multiple_in", "multiple"), ("out_scale", "out_scale")):
-            if (key in linked or inp in linked) and last.get("in_" + key) is not None:
-                widgets[key] = last["in_" + key]
+        try:                                               # the rings (D-228): the kit's one reader, as the live view
+            widgets, _ = await asyncio.to_thread(door_values, widgets, live_inputs(data), last, _DOORS, "the Crop")
+        except LiveWait as w:
+            if soft:
+                return None, web.json_response({"ready": False, "need": w.need, "why": w.why})
+            return None, web.json_response({"error": w.why + ", then download"}, status=404)
         try:
             outs = await asyncio.to_thread(_crop_now, widgets, got.get("image"), got.get("mask"), nid)
         except Exception as exc:
@@ -434,10 +438,7 @@ class Succy_Crop:
             got[inp] = v
         if "image" not in got and not str(widgets.get("source") or ""):
             raise LiveWait("image", "the Crop has no picture: load one on it")
-        widgets = dict(widgets)
-        for inp, key in (("out_mp_in", "out_mp"), ("multiple_in", "multiple"), ("out_scale", "out_scale")):       # EXT: a wired number is known after a Run
-            if (inputs.linked(key) or inputs.linked(inp)) and last.get("in_" + key) is not None:
-                widgets[key] = last["in_" + key]
+        widgets, _ = door_values(widgets, inputs, last, _DOORS, "the Crop")      # the rings (D-228): now, else the last Run, else "Run once"
         outs = _crop_now(widgets, got.get("image"), got.get("mask"), node_id)
         return {"mask": outs["mask"], "cutout": outs["cutout"], "stitch": outs["stitch"], "crop": outs["crop_img"]}
 
@@ -460,6 +461,7 @@ class Succy_Crop:
                 if hit is not None:
                     result, entry = hit
                     _send_preview(did, entry["full_img"])
+                    live_touch()                           # the last Run changed (maybe back to an older result): the live views ask again
                     _remember(did, {**entry, "in_image": image if image is not None else entry["in_image"], "in_mask": mask,
                                     "in_out_mp": out_mp, "in_out_scale": out_scale, "in_multiple": multiple})
                     return result

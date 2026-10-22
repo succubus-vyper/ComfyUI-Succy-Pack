@@ -12,7 +12,7 @@ from PIL import Image, ImageOps
 import folder_paths
 from server import PromptServer
 
-from _succy_common import LiveWait, coerce_widgets, live_touch, same_origin, value_memo
+from _succy_common import LiveWait, coerce_widgets, door_values, live_touch, same_origin, value_memo
 from _succy_image import (IMAGE_EXT, blur, decode_brush, display_id, file_stamp, grow, hex_rgb, input_path, load_picture, mp_size, send_preview,
                           snap, parse_warp, quad_mask)
 
@@ -483,8 +483,7 @@ class Succy_Load_Image_Resize:
             if key is not None:
                 _MEMO.put(did, key, (out, om, info, pic))
         _keep(_LAST, did, {"in_image": image, "in_mask": mask, "in_kw": {k: kw[k] for k in _EXT if k in kw}}, _LAST_MAX)
-        if hit is None:
-            live_touch()
+        live_touch()                                       # hit or not, the last Run changed: the live views ask again (D-228)
         send_preview(did, pic, _TAG)                       # the view shows the picture it draws on: before the resize
         return (out, om, info["width"], info["height"], os.path.splitext(info["filename"])[0], info["index"], bool(info["is_last"]))
 
@@ -501,10 +500,9 @@ class Succy_Load_Image_Resize:
             if v is None:
                 raise LiveWait("run", f"the Load's {inp} comes from a wire: Run once so it gets there")
             got[inp] = v
+        # the rings (D-225 on the widget's own socket, read the kit's one way D-228): now, else the last Run, else "Run once"
+        lk = last.get("in_kw") or {}
+        widgets, _ = door_values(widgets, inputs, {("kw:" + k): v for k, v in lk.items()}, [(k, (k, k + "_in"), ("kw:" + k,)) for k in _EXT], "the Load")
         kw = coerce_widgets(cls, widgets)
-        # EXT doors (D-225, the widget's own socket): a wired value is known only after a Run; until then the widget stands in
-        for k, v in (last.get("in_kw") or {}).items():
-            if inputs.linked(k) or inputs.linked(k + "_in"):
-                kw[k] = v
         out, om, info, _ = produce(kw, got.get("image"), got.get("mask"), node_id, advance=False)
         return {"image": out, "mask": om, "_info": info}
