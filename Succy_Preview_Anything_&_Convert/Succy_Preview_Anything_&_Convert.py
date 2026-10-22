@@ -489,6 +489,100 @@ def _save_as(video, path, ext, comps, fps, keep_audio=True):
     encode_video(c.images, c.audio if keep_audio and ext != "gif" else None, fps, path, ext)
 
 
+# containers a re-timed copy goes in, by video codec: what a browser plays and ComfyUI opens again (D-241)
+_REMUX = {"h264": "mp4", "hevc": "mp4", "av1": "mp4", "mpeg4": "mp4", "vp8": "webm", "vp9": "webm"}
+
+
+def _template_stream(out, stream):
+    fn = getattr(out, "add_stream_from_template", None)          # PyAV 14+; older ones take template=
+    return fn(stream) if callable(fn) else out.add_stream(template=stream)
+
+
+def decode_audio(src):
+    """A file's whole sound track -> AUDIO (float, [1, C, S]); None without one. Only the sound is decoded."""
+    import av
+    import numpy as np
+    with av.open(src, mode="r") as c:
+        if not c.streams.audio:
+            return None
+        st = c.streams.audio[0]
+        parts, sr = [], int(st.codec_context.sample_rate or 0)
+        for fr in c.decode(st):
+            arr = fr.to_ndarray()
+            if not fr.format.is_planar:                              # interleaved: [1, S*C] -> [C, S]
+                arr = arr.reshape(-1, len(fr.layout.channels)).T
+            parts.append(arr.astype(np.float32) / (32768.0 if arr.dtype == np.int16 else 2147483648.0 if arr.dtype == np.int32 else 1.0))
+            sr = sr or int(fr.sample_rate)
+    if not parts or not sr:
+        return None
+    return {"waveform": torch.from_numpy(np.concatenate(parts, axis=1)).unsqueeze(0), "sample_rate": sr}
+
+
+def video_codec_of(src):
+    """The video codec's name in a file ('h264', 'vp9'...), asked to the container; None = no video / can't open."""
+    import av
+    if hasattr(src, "seek"):
+        src.seek(0)
+    with av.open(src, mode="r") as c:
+        return c.streams.video[0].codec_context.name if c.streams.video else None
+
+
+def remux_at_fps(src, dst, fps_from, fps_to, sound=None, until=None):
+    """The very same frames at another fps WITHOUT decoding them (D-241): every video packet is copied, only its time stamps are
+    stretched (fps_from / fps_to). Sound: None = the file's own track copied as it is (cut at the new end, never stretched: like
+    before; `until` = the new length in s), an AUDIO = that one encoded, False = none. Returns False when the codec can't go in a container a browser plays."""
+    import av
+    from fractions import Fraction
+    if hasattr(src, "seek"):
+        src.seek(0)
+    with av.open(src, mode="r") as inp:
+        if not inp.streams.video:
+            return False
+        vin = inp.streams.video[0]
+        fmt = _REMUX.get(vin.codec_context.name)
+        if not fmt or not dst.endswith("." + fmt):
+            return False
+        ratio = Fraction(fps_from).limit_denominator(100000) / Fraction(fps_to).limit_denominator(100000)
+        tb = Fraction(1, 90000)                                       # fine enough that a faster clip never stacks two stamps
+        ain = inp.streams.audio[0] if inp.streams.audio and sound is None else None
+        with av.open(dst, mode="w", format=fmt) as out:
+            vout = _template_stream(out, vin)
+            aout = _template_stream(out, ain) if ain is not None else None
+            snd = None
+            if isinstance(sound, dict):
+                acodec = _VENC[fmt][3]
+                snd = _fit_rate(sound, acodec)
+                ch = min(2, int(snd["waveform"].shape[1]))
+                aout = out.add_stream(acodec, rate=int(snd["sample_rate"]), layout="stereo" if ch == 2 else "mono")
+            # times count from the first frame SHOWN (start_time = the first pts): with B-frames the first dts is negative,
+            # and counting from it pushed every frame later (her PC: 2 s at 12 fps gave frame 22, not 24)
+            first, last = vin.start_time or 0, None
+            for pkt in inp.demux(*[s for s in (vin, ain) if s is not None]):
+                if pkt.dts is None and pkt.pts is None:
+                    continue                                          # the demuxer's flush packet
+                if pkt.stream is vin:
+                    pts, dts = pkt.pts, pkt.dts if pkt.dts is not None else pkt.pts
+                    nd = int(round((dts - first) * vin.time_base * ratio / tb))
+                    if last is not None and nd <= last:
+                        nd = last + 1
+                    np_ = nd if pts is None else int(round((pts - first) * vin.time_base * ratio / tb))
+                    pkt.dts, pkt.pts = nd, max(np_, nd)
+                    if pkt.duration:
+                        pkt.duration = int(round(pkt.duration * vin.time_base * ratio / tb))
+                    pkt.time_base = tb
+                    last = nd
+                    pkt.stream = vout
+                    out.mux(pkt)
+                elif aout is not None:
+                    if until is not None and pkt.pts is not None and float(pkt.pts * ain.time_base) >= until:
+                        continue                                      # the sound never outlasts the frames
+                    pkt.stream = aout
+                    out.mux(pkt)
+            if snd is not None:
+                _mux_audio(out, aout, snd)
+    return True
+
+
 def write_audio(path, audio, ext):
     """AUDIO -> file: WAV by hand (no codec), the rest with PyAV."""
     if ext == "wav":
@@ -1201,7 +1295,7 @@ class Succy_Preview_Anything_Convert:
             dur_out = round(float(out_audio["waveform"].shape[-1]) / sr, 3) if sr else 0.0
             info = (f"Type: AUDIO\nSample rate: {sr} Hz\nChannels: {channels}\nDuration: {duration:.3f} s\n"
                     f"Selection: {s:.3f} -> {e:.3f} s\nOut: {dur_out:.3f} s as .{ext}")
-            media.update(duration=duration, fps=0, gain=g, sample_rate=sr, channels=channels, start=s, end=e, trimmed=trimmed,
+            media.update(duration=duration, fps=0, gain=g, sample_rate=sr, channels=channels, start=s, end=e, trimmed=trimmed, current=round(min(max(float(current_time or 0.0), s), max(s, e - 0.001)), 3),
                          peaks=audio_peaks(source["waveform"]), format="audio.wav")
             line = f"{duration:.3f} s · {sr} Hz · {channels} ch"
             if preview:
@@ -1223,10 +1317,13 @@ class Succy_Preview_Anything_Convert:
             _remember(_CLIPS, node_key, {"kind": "video", "ref": weakref.ref(source), "auto_fps": vi.fps, "audio_in": audio_in, "gain": gain})
             fps, where = fps_of(vi.fps, "video") if fps_of else (vi.fps, "video")
             orig, ready = source, None
-            ready = None                                     # the live switch (D-205d): this re-timing is already on disk
-            if audio_in is not None or abs(fps - vi.fps) > 1e-3 or (abs(g - 1.0) > 1e-6 and vi.has_audio is not False):
+            ready = None                                     # this re-timing is already on disk (D-205d live switch, D-241 every Run)
+            retime = audio_in is not None or abs(fps - vi.fps) > 1e-3 or (abs(g - 1.0) > 1e-6 and vi.has_audio is not False)
+            if retime:
                 sig = _retime_sig(fps, audio_in, g)
-                ready = _retimed_file(node_key, source, sig) if getattr(self, "_view", False) else None
+                ready = _retimed_file(node_key, source, sig) or _remux_retime(node_key, source, vi, fps, audio_in, g, sig)
+                if ready:
+                    files.append(ready)                      # kept while it is the source of `output`, shown or not
             if ready:                                        # its player IS the re-timed video: opened lazily, nothing decoded
                 source = _video_from_file(os.path.join(temp, ready))
                 vi = _VideoInfo(source)
@@ -1281,7 +1378,7 @@ class Succy_Preview_Anything_Convert:
                        else f"Out: {f1 - f0} frames as IMAGE (+ its sound on audio)" if want == "IMAGE" else f"Out: {dur_out:.3f} s as AUDIO"))
             frame = vi.frame(fc) if need(5) else None
             media.update(duration=vi.duration, fps=fps, fps_from=where, gain=g, key=node_key, frames=n, width=vi.width, height=vi.height, has_audio=vi.has_audio,
-                         start=s, end=e, trimmed=trimmed, split=split, format="video." + src_fmt)
+                         start=s, end=e, current=fc / fps if fps else s, trimmed=trimmed, split=split, format="video." + src_fmt)
             line = (f"{vi.width}×{vi.height} · {fps:.2f} fps{_fps_note(where)} · {vi.duration:.3f} s · {n} frames · {src_fmt}"
                     + (" · audio" if vi.has_audio else ""))
             if preview:
@@ -1344,7 +1441,7 @@ class Succy_Preview_Anything_Convert:
         origin = vhs[3] if vhs else "IMAGE batch"
 
         media = {"kind": "video", "duration": duration, "fps": fps, "fps_from": where, "gain": gain_value(gain), "key": node_key, "frames": n, "width": W, "height": H,
-                 "has_audio": has_audio, "start": s, "end": e, "trimmed": trimmed, "split": False, "format": "video.mp4",
+                 "has_audio": has_audio, "start": s, "end": e, "current": fc / fps, "trimmed": trimmed, "split": False, "format": "video.mp4",
                  "frames_in": True, "vhs": bool(vhs)}
         line = f"{W}×{H} · {fps:.2f} fps{_fps_note(where)} · {duration:.3f} s · {n} frames" + (" · audio" if has_audio else "")
         info = (f"Type: IMAGE batch as a clip ({origin})\nResolution: {W} x {H}\nMegapixels: {mp:.4f}\nFPS: {fps:.3f} ({where or 'auto'})\n"
@@ -1415,6 +1512,34 @@ def _retime_sig(fps, audio_in, gain):
     return (round(float(fps), 4), id(audio_in["waveform"]) if audio_in is not None else None, round(gain_value(gain), 3))
 
 
+def _remux_retime(node_key, video, vi, fps, audio_in, g, sig):
+    """D-241, her test (a new fps froze the node on EVERY Run): the clip at `fps` as a real file, its packets copied with
+    stretched time stamps (remux_at_fps: nothing decoded, nothing encoded but a changed sound), remembered for this very
+    video at this fps / sound / volume, so a trim change re-runs in no time. None = can't (odd codec, no file): the old way."""
+    if not callable(getattr(video, "get_stream_source", None)):
+        return None                                              # frames only (VideoFromComponents): nothing to copy
+    try:
+        src = video.get_stream_source()
+        n = vi.frames
+        sound = None                                             # the file's own track, copied
+        if audio_in is not None:
+            sound = gain_audio(slice_audio(audio_in, 0.0, n / fps), g)
+        elif abs(g - 1.0) > 1e-6 and vi.has_audio is not False:
+            a = decode_audio(src)
+            sound = gain_audio(slice_audio(a, 0.0, n / fps), g) if a else False
+        ext = _REMUX.get(video_codec_of(src))
+        if not ext:
+            return None
+        name = _temp_name(node_key, "fps", ext)
+        if not remux_at_fps(src, os.path.join(folder_paths.get_temp_directory(), name), vi.fps, fps, sound=sound, until=n / fps):
+            return None
+        _remember(_RETIMED, node_key, (_ref(video), sig, name))
+        return name
+    except Exception as ex:
+        print(f"[PreviewAny] fps by remux failed, decoding instead: {ex}")
+        return None
+
+
 def _retimed_file(node_key, video, sig):
     """The player file already made for this very video at this fps / sound / volume, or None."""
     hit = _RETIMED.get(node_key)
@@ -1474,15 +1599,19 @@ def apply_fps(key, fps=None, auto=False):
         width, height = int(src.shape[2]), int(src.shape[1])
     else:
         vi = _VideoInfo(src)
-        vi.check_decode(vi.frames)
-        c = vi.components()
-        n = vi.frames
-        snd = slice_audio(ctx["audio_in"], 0.0, n / target) if ctx["audio_in"] is not None else c.audio
-        full = gain_audio(snd, ctx["gain"])
-        play = _temp_name(key, "vid", "mp4")
-        encode_video(c.images, full, target, os.path.join(temp, play), "mp4")
+        n, sig = vi.frames, _retime_sig(target, ctx["audio_in"], ctx["gain"])
+        # D-241: the packets copied with new time stamps (nothing decoded); the old full decode + encode only as a fallback
+        play = _retimed_file(key, src, sig) or _remux_retime(key, src, vi, target, ctx["audio_in"], gain_value(ctx["gain"]), sig)
+        full = True if vi.has_audio or ctx["audio_in"] is not None else None
+        if not play:
+            vi.check_decode(vi.frames)
+            c = vi.components()
+            snd = slice_audio(ctx["audio_in"], 0.0, n / target) if ctx["audio_in"] is not None else c.audio
+            full = gain_audio(snd, ctx["gain"])
+            play = _temp_name(key, "vid", "mp4")
+            encode_video(c.images, full, target, os.path.join(temp, play), "mp4")
+            _remember(_RETIMED, key, (_ref(src), sig, play))
         width, height = vi.width, vi.height
-        _remember(_RETIMED, key, (_ref(src), _retime_sig(target, ctx["audio_in"], ctx["gain"]), play))
     _add_file(key, play)
     auto_from = "video" if ctx["kind"] == "video" else ("VHS" if ctx.get("vhs") else "default")
     return {"fps": target, "fps_from": auto_from if auto else "manual",
