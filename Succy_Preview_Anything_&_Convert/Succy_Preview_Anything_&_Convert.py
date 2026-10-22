@@ -54,10 +54,56 @@ def _unwrap_scalar(value):
     return value
 
 
+# D-244: a LIST of pictures goes out as a list again ("List of images" / "List of masks" in the dropdown)
+PICTURE_LISTS = ["IMAGE_LIST", "MASK_LIST"]
+
+
+def picture_list(value):
+    """A list / tuple of IMAGE (4 dims) or MASK (3 dims) tensors, all one kind -> ("IMAGE" | "MASK", [tensors]); else None."""
+    if not isinstance(value, (list, tuple)) or len(value) < 1 or not all(isinstance(t, torch.Tensor) for t in value):
+        return None
+    dims = {t.dim() for t in value}
+    if dims == {4}:
+        return "IMAGE", list(value)
+    if dims == {3}:
+        return "MASK", list(value)
+    return None
+
+
+def as_kind(t, kind, invert=False):
+    """One picture tensor as IMAGE (B,H,W,3) or MASK (B,H,W): a mask grows grey channels, an image gives its first one."""
+    if kind == "MASK":
+        m = t[..., 0] if t.dim() == 4 else t
+        return 1.0 - m if invert else m
+    return t[..., :3] if t.dim() == 4 else t.unsqueeze(-1).expand(*t.shape, 3)
+
+
+def letterbox(items, kind):
+    """Pictures of different sizes in one batch FOR THE LOOK only: each centred on black at the biggest width / height."""
+    H, W = max(int(t.shape[1]) for t in items), max(int(t.shape[2]) for t in items)
+    out = []
+    for t in items:
+        t = as_kind(t, kind)
+        h, w = int(t.shape[1]), int(t.shape[2])
+        y, x = (H - h) // 2, (W - w) // 2
+        c = torch.zeros((t.shape[0], H, W) + tuple(t.shape[3:]), dtype=t.dtype, device=t.device)
+        c[:, y:y + h, x:x + w] = t
+        out.append(c)
+    return torch.cat(out)
+
+
+def _item_name(v) -> str:
+    """What a non-JSON item says inside a list (D-243: a LIST of pictures reads "IMAGE 1x512x512x3", never a tensor dump)."""
+    if isinstance(v, torch.Tensor):
+        kind = "IMAGE" if v.dim() == 4 else "MASK" if v.dim() == 3 else "TENSOR"
+        return f"{kind} " + "x".join(str(x) for x in v.shape)
+    return f"{type(v).__name__}" if not isinstance(v, (str, int, float, bool)) else str(v)
+
+
 def _to_text(value) -> str:
     """Readable text: dict/list as JSON (UTF-8, never crashes on tensors/objects)."""
     if isinstance(value, (dict, list, tuple)):
-        return json.dumps(value, indent=2, ensure_ascii=False, default=str)
+        return json.dumps(value, indent=2, ensure_ascii=False, default=_item_name)
     return str(value)
 
 
@@ -379,6 +425,8 @@ def _saved(name):
 VIDEO_FORMATS = ["video.auto", "video.mp4", "video.webm", "video.mkv", "video.mov", "video.avi", "video.gif"]
 AUDIO_FORMATS = ["audio.wav", "audio.mp3", "audio.flac", "audio.ogg", "audio.m4a"]
 # container -> (av format, video codec, pixel format, audio codec or None)
+# D-242: the Format dropdown next to VIDEO (auto = as it came; a batch made into a VIDEO = mp4)
+VIDEO_CONTAINERS = ["auto", "mp4", "webm", "mkv", "mov", "avi", "gif"]
 _VENC = {"mp4": ("mp4", "libx264", "yuv420p", "aac"), "mkv": ("matroska", "libx264", "yuv420p", "aac"),
          "webm": ("webm", "libvpx-vp9", "yuv420p", "libopus"), "mov": ("mov", "libx264", "yuv420p", "aac"),
          "avi": ("avi", "mpeg4", "yuv420p", "pcm_s16le"), "gif": ("gif", "gif", "rgb8", None)}
@@ -944,7 +992,7 @@ class Succy_Preview_Anything_Convert:
                 "source": (ANY, {"tooltip": "Attach anything here."}),
                 # D-233: Convert To is a BRIDGE between nodes: VIDEO / IMAGE / AUDIO for a clip, IMAGE / MASK / VIDEO for pictures.
                 # The old file formats (VIDEO_FORMATS / AUDIO_FORMATS) stay valid so saved prompts still run: video.X = VIDEO in X.
-                "output_type": (_OUTPUT_TYPES + ["VIDEO", "AUDIO"] + VIDEO_FORMATS + AUDIO_FORMATS, {"default": "STRING"}),
+                "output_type": (_OUTPUT_TYPES + ["VIDEO", "AUDIO"] + PICTURE_LISTS + VIDEO_FORMATS + AUDIO_FORMATS, {"default": "STRING"}),
                 # only meaningful with output_type MASK: flips the mask (1 - m). The frontend shows it as the INVERT button.
                 "invert_mask": ("BOOLEAN", {"default": False}),
                 # VIDEO / AUDIO only (the frontend's timeline writes them): the kept window in seconds (end 0 = up to the end)
@@ -979,6 +1027,9 @@ class Succy_Preview_Anything_Convert:
                 # computed only when plugged (frame, audio, the gallery's frames): plugging one must change this node's key, or
                 # ComfyUI would hand back the cached None. Never read here: the prompt says it already (wired_outputs).
                 "succy_used": ("STRING", {"default": ""}),
+                # D-242: the container of a VIDEO going out (Convert To = VIDEO): auto = as it came (a video) / mp4 (a batch).
+                # Optional, so a prompt saved before it still runs.
+                "video_format": (VIDEO_CONTAINERS, {"default": "auto"}),
             },
             # the node's id: one set of preview files per node, the old ones go away when the new ones land (no pile-up in temp/).
             # prompt: to see which outputs are wired, so a frame nobody reads is never decoded.
@@ -995,12 +1046,42 @@ class Succy_Preview_Anything_Convert:
     OUTPUT_NODE = True
 
     # -------------------------------------------------------------- #
-    def execute(self, preview, source, output_type, invert_mask=False, trim_start=0.0, trim_end=0.0, current_time=0.0,
+    def execute(self, preview, source, output_type, **kw):
+        """D-244: a LIST of pictures (the Any's `list`, any node's list of images / masks) is shown as the pictures it holds.
+        Same size = a batch under another name (gallery or clip, Convert To also Batch of images / masks / VIDEO); sizes that
+        differ = the gallery only (each one letterboxed on black for the look, never in what goes out). `output` with
+        List of images / List of masks = the list itself, each item as asked. Anything else: the node as it always was."""
+        if output_type in PICTURE_LISTS and isinstance(source, torch.Tensor):     # the live As clip switch: the batch shown
+            output_type = "IMAGE" if output_type == "IMAGE_LIST" else "MASK"
+        pics = picture_list(source)
+        if pics is None:
+            return self._execute(preview, source, output_type, **kw)
+        kind, items = pics
+        same = len({tuple(t.shape[1:3]) for t in items}) == 1
+        show = torch.cat([as_kind(t, kind) for t in items]) if same else letterbox(items, kind)
+        as_list = output_type in PICTURE_LISTS or output_type in ("LIST", "ARRAY") or not same
+        if as_list:
+            if not same:
+                kw["as_clip"] = "images"                   # sizes that differ: never a clip
+            r = self._execute(preview, show, kind, **kw)
+            want = "MASK" if output_type == "MASK_LIST" else "IMAGE" if output_type == "IMAGE_LIST" else kind
+            inv = bool(kw.get("invert_mask")) and want == "MASK"
+            result = ([as_kind(t, want, inv) for t in items],) + tuple(r["result"][1:])
+        else:
+            r = self._execute(preview, show, output_type, **kw)
+            result = r["result"]
+        ui = dict(r.get("ui") or {})
+        ui["succy_listof"] = [{"kind": kind, "same": same, "n": len(items)}]
+        return {"ui": ui, "result": result}
+
+    def _execute(self, preview, source, output_type, invert_mask=False, trim_start=0.0, trim_end=0.0, current_time=0.0,
                 split_audio=False, as_clip="auto", clip_fps=DEFAULT_FPS, fps_auto=True, audio_gain=1.0, audio=None, fps_override=None,
-                unique_id=None, prompt=None, _view=False, succy_used="", compare=None, start_frame=None, end_frame=None, current_frame=None):
+                unique_id=None, prompt=None, _view=False, succy_used="", compare=None, start_frame=None, end_frame=None, current_frame=None,
+                video_format="auto"):
         # _view (D-205d): the As clip switch, live, from the route: only what the box shows, nothing computed for downstream
         self._view = bool(_view)
         self._fr = (start_frame, end_frame, current_frame)  # the frame rings (D-239): turned into seconds once the fps is known
+        self._vfmt = str(video_format or "auto").lower()    # D-242: the container a VIDEO goes out in (auto = as it came)
         if not _view:
             _remember_run(source, audio, dict(preview=preview, output_type=output_type, invert_mask=invert_mask, trim_start=trim_start,
                           trim_end=trim_end, current_time=current_time, split_audio=split_audio, as_clip=as_clip, clip_fps=clip_fps,
@@ -1026,13 +1107,13 @@ class Succy_Preview_Anything_Convert:
                     return shown
                 # the outputs follow Convert To, exactly as with the clip on show (the gallery's files are kept alongside)
                 r = self._media(kind, False, source, output_type, trim_start, trim_end, current_time, split_audio, unique_id, prompt,
-                                fps_of=fps_of, audio_in=audio_in, gain=audio_gain, also=_PREVIEW_FILES.get(_node_key(unique_id), []))
+                                fps_of=fps_of, audio_in=audio_in, gain=audio_gain, invert_mask=invert_mask, also=_PREVIEW_FILES.get(_node_key(unique_id), []))
                 return {"ui": shown["ui"], "result": r["result"]}
             except Exception as ex:
                 print(f"[PreviewAny] video as pictures failed, showing the clip: {ex}")
         if kind:
             return self._media(kind, preview, source, output_type, trim_start, trim_end, current_time, split_audio, unique_id, prompt,
-                               fps_of=fps_of, audio_in=audio_in, gain=audio_gain)
+                               fps_of=fps_of, audio_in=audio_in, gain=audio_gain, invert_mask=invert_mask)
         # Pictures (D-234): a BATCH (2+ images or masks) always hands on a clip's outputs (the kept frames, audio, frame,
         # duration, at the clip's fps): As clip only picks the box, player or gallery. One picture = the picture four (a VIDEO
         # out of one picture comes only from an old saved prompt: still made, through the clip).
@@ -1217,6 +1298,7 @@ class Succy_Preview_Anything_Convert:
         elif output_type not in ("IMAGE", "MASK") or text_output:
             # sent even when empty: the frontend refreshes the content anyway
             ui_res["succy_text"] = [text_output]
+            ui_res["succy_kind"] = [output_type]       # a LIST upstream: the JS writes 1 bare and "1" in quotes (D-242)
             if preview and _LOG:
                 print("\n" + "=" * 40)
                 print(f"PreviewAny [{output_type}]:")
@@ -1264,7 +1346,7 @@ class Succy_Preview_Anything_Convert:
 
     # -------------------------------------------------------------- #
     def _media(self, kind, preview, source, output_type, trim_start, trim_end, current_time, split_audio, unique_id, prompt,
-               fps_of=None, audio_in=None, gain=1.0, also=()):
+               fps_of=None, audio_in=None, gain=1.0, also=(), invert_mask=False):
         """VIDEO / AUDIO in (D-198). `output` = the clip with everything applied: the window [trim_start, trim_end) really cut
         (frames and samples), split_audio = silent, Convert To = the container (video) or the download file (audio).
         `frame` (video) = the frame under current_time, which always sits inside the window. `duration` = seconds of what
@@ -1343,10 +1425,12 @@ class Succy_Preview_Anything_Convert:
             s, e, trimmed = trim_window(vi.duration, fps, trim_start, trim_end)
             f0, f1 = frame_range(s, e, fps, n)
             fc = min(max(frame_at(current_time, fps, n), f0), f1 - 1)          # the current frame never leaves the window
-            want = output_type if output_type in ("IMAGE", "AUDIO") else "VIDEO"
+            want = output_type if output_type in ("IMAGE", "MASK", "AUDIO") else "VIDEO"     # AUDIO: old prompts only (D-242)
             split = bool(split_audio) and want == "VIDEO"
             src_fmt = video_format_of(source)
             ext = fmt_ext(output_type, src_fmt)
+            if getattr(self, "_vfmt", "auto") in _VENC:       # D-242: the Format dropdown beats an old video.X value
+                ext = self._vfmt
             if ext not in _VENC:
                 ext = src_fmt if src_fmt in _VENC else "mp4"
             out_video = vi.window(f0, f1) if trimmed else source
@@ -1375,7 +1459,7 @@ class Succy_Preview_Anything_Convert:
                     f"Frames: {n}\nFormat: {src_fmt}\nAudio: {'yes' if vi.has_audio else 'no' if vi.has_audio is False else '?'}\n"
                     f"Selection: {s:.3f} -> {e:.3f} s (frames {f0} -> {f1 - 1})\n" + (f"Current frame: {fc}\n" if need(5) else "")
                     + (f"Out: {dur_out:.3f} s as .{ext}" + (" (silent)" if split else "") if want == "VIDEO"
-                       else f"Out: {f1 - f0} frames as IMAGE (+ its sound on audio)" if want == "IMAGE" else f"Out: {dur_out:.3f} s as AUDIO"))
+                       else f"Out: {f1 - f0} frames as {want} (+ its sound on audio)" if want in ("IMAGE", "MASK") else f"Out: {dur_out:.3f} s as AUDIO"))
             frame = vi.frame(fc) if need(5) else None
             media.update(duration=vi.duration, fps=fps, fps_from=where, gain=g, key=node_key, frames=n, width=vi.width, height=vi.height, has_audio=vi.has_audio,
                          start=s, end=e, current=fc / fps if fps else s, trimmed=trimmed, split=split, format="video." + src_fmt)
@@ -1396,8 +1480,12 @@ class Succy_Preview_Anything_Convert:
                 except Exception as ex:
                     print(f"[PreviewAny] Video preview error: {ex}")
             _keep_files(node_key, files + list(also))
-            out = (out_video if want == "VIDEO" else (comps().images if need(0) else None) if want == "IMAGE"
+            out = (out_video if want == "VIDEO" else (comps().images if need(0) else None) if want in ("IMAGE", "MASK")
                    else window_sound() if need(0) else None)
+            if want == "MASK" and out is not None:          # D-242: a mask per frame = its first channel, like a batch going out as MASK
+                out = out[:, :, :, 0]
+                if invert_mask:
+                    out = 1.0 - out
             result = (out, vi.width, vi.height, (vi.width * vi.height) / 1_000_000.0, audio, frame, dur_out)    # the batch's seven (D-239)
 
         if preview and _LOG:
@@ -1426,6 +1514,7 @@ class Succy_Preview_Anything_Convert:
         full_audio = gain_audio(full_audio, gain)          # the volume of what goes out (the player plays it too)
         frames = source[f0:f1]
         out = frames
+        made = None
         if output_type == "MASK":
             out = frames[:, :, :, 0]
             if invert_mask:
@@ -1435,6 +1524,11 @@ class Succy_Preview_Anything_Convert:
         if output_type == "VIDEO":                          # D-233: the kept frames + their sound at this fps = a real VIDEO
             from fractions import Fraction
             out = _make_video(frames, audio_out if has_audio else None, Fraction(fps).limit_denominator(1001))
+            vf = getattr(self, "_vfmt", "auto")
+            if vf in _VENC:                                 # D-242: a real file in the chosen container (auto = in memory, saved as mp4)
+                made = _temp_name(node_key, "out", vf)
+                encode_video(frames, audio_out if has_audio and vf != "gif" else None, fps, os.path.join(temp, made), vf)
+                out = _video_from_file(os.path.join(temp, made))
         frame = source[fc:fc + 1] if need(5) else None
         dur_out = round(win, 3)
         mp = (W * H) / 1_000_000.0
@@ -1448,7 +1542,7 @@ class Succy_Preview_Anything_Convert:
                 f"Duration: {duration:.3f} s\nFrames: {n}\nAudio: {'yes' if has_audio else 'no'}\n"
                 f"Selection: {s:.3f} -> {e:.3f} s (frames {f0} -> {f1 - 1})\n" + (f"Current frame: {fc}\n" if need(5) else "")
                 + f"Out: {f1 - f0} frames, {dur_out:.3f} s as {output_type}")
-        files = []
+        files = [made] if made else []
         _remember(_CLIPS, node_key, {"kind": "frames", "ref": weakref.ref(source), "auto_fps": vhs[0] if vhs else DEFAULT_FPS,
                                      "vhs": vhs, "audio_in": audio_in, "gain": gain})
         if preview:
@@ -1456,8 +1550,8 @@ class Succy_Preview_Anything_Convert:
                 play = _player_file(node_key, source, "vid", "mp4", lambda p: encode_video(source, full_audio, fps, p, "mp4"),
                                     sig=_frames_sig(fps, snd, gain))
                 files.append(play)
-                dl = play
-                if trimmed:                                  # the download = exactly the kept window, with its sound
+                dl = made or play
+                if trimmed and not made:                     # the download = exactly the kept window, with its sound
                     dl = _temp_name(node_key, "cut", "mp4")
                     encode_video(frames, audio_out if has_audio else None, fps, os.path.join(temp, dl), "mp4")
                     files.append(dl)

@@ -142,6 +142,22 @@ def to_container(value, kind):
     return value if isinstance(value, dict) else {"value": value}
 
 
+def wired_outputs(prompt, unique_id):
+    """Output slots of this node that some node in the prompt reads (D-243: the truth, not what the browser last wrote).
+    None = can't tell (no prompt / not in it): the caller falls back to what it was told."""
+    if not isinstance(prompt, dict) or unique_id is None or str(unique_id) not in prompt:
+        return None
+    uid, out = str(unique_id), set()
+    for n in prompt.values():
+        for v in ((n or {}).get("inputs") or {}).values():
+            if isinstance(v, list) and len(v) == 2 and str(v[0]) == uid:
+                try:
+                    out.add(int(v[1]))
+                except (TypeError, ValueError):
+                    pass
+    return out
+
+
 TEXT_FORMATS = ("STRING", "INT", "FLOAT", "BOOLEAN", "LIST", "DICT", "ARRAY", "JSON", "COMBO")
 
 

@@ -6,7 +6,7 @@ import re
 import torch
 import comfy.utils
 
-from _succy_common import ANY, LiveWait, coerce_widgets, door_values, live_touch, parse_bool, parse_int   # the shared drawer (loaded once by __init__.py)
+from _succy_common import ANY, LiveWait, coerce_widgets, door_values, live_touch, parse_bool, parse_int, wired_outputs   # the shared drawer (loaded once by __init__.py)
 
 # ====================================================================== #
 #  Succy_Any — switch, batch and list in one body                        #
@@ -15,8 +15,8 @@ from _succy_common import ANY, LiveWait, coerce_widgets, door_values, live_touch
 #     picked · the ONE input chosen (by index, by a boolean, or the       #
 #              first that really shows up: auto). Sockets keep their    #
 #              number: a hole never promotes the ones below it        #
-#     list   · every item, one by one (ComfyUI runs what follows once     #
-#              per item) — works for ANY type, even models                #
+#     list   · every item in ONE value of type LIST (D-243): [1, 2, 3],   #
+#              ["a", "b"]; pictures have `batch` for that               #
 #     batch  · every item glued into one batch (IMAGE, MASK, LATENT,      #
 #              CONDITIONING, AUDIO only: the frontend drops it otherwise) #
 #     count  · how many items                                             #
@@ -61,7 +61,13 @@ def _wired(d, kw):
     return sorted(w, key=IN_NAMES.index) if w else [n for n in IN_NAMES if n in kw]
 
 
-def _uses(d):
+def _uses(d, prompt=None, unique_id=None):
+    """Outputs in use. The prompt says it for sure (D-243: a stale `uses` from the browser = list / batch / count got ONE input);
+    without a prompt, what the browser wrote; nothing written = all of them."""
+    slots = wired_outputs(prompt, unique_id)
+    if slots:
+        layout = _csv(d.get("outs")) or ["picked", "list", "batch", "count"]
+        return {layout[i] for i in slots if 0 <= i < len(layout)}
     u = _csv(d.get("uses"))
     return {"picked", "list", "batch", "count"} if not u or "*" in u else set(u)
 
@@ -301,33 +307,34 @@ class Succy_Any:
         # is the EXT door. index / flag come FIRST (D-214): the door that chooses sits on top of what it chooses from. Optional: an API prompt that doesn't name them still validates (the old `data` keys count).
         optional = {"index": ("INT", {"default": 0, "min": -9999, "max": 9999}), "flag": ("BOOLEAN", {"default": True})}
         optional.update({n: (ANY, {"lazy": True, "forceInput": True}) for n in IN_NAMES})
-        return {"required": {"data": ("STRING", {"default": ""})}, "optional": optional, "hidden": {"unique_id": "UNIQUE_ID"}}
+        return {"required": {"data": ("STRING", {"default": ""})}, "optional": optional, "hidden": {"unique_id": "UNIQUE_ID", "prompt": "PROMPT"}}
 
     @classmethod
     def VALIDATE_INPUTS(cls, **kwargs):
         return True
 
-    RETURN_TYPES = (ANY, ANY, ANY, "INT")
+    RETURN_TYPES = (ANY, "LIST", ANY, "INT")
     RETURN_NAMES = ("picked", "list", "batch", "count")
     # `list` stays at position 1 whatever happens (the frontend drops `batch` only, after it): ComfyUI reads this by position
-    OUTPUT_IS_LIST = (False, True, False, False)
+    # D-243, her rule: `list` is ONE value, a real LIST (numbers stay numbers, text stays text), never "run once per item"
+    OUTPUT_IS_LIST = (False, False, False, False)
     FUNCTION = "run"
     SUCCY_CACHE = "route"  # SmartCache (D-213): `picked` hands an input out untouched: consumers go straight to it
     CATEGORY = "Succy Pack"
 
-    def check_lazy_status(self, data="", **kw):
+    def check_lazy_status(self, data="", unique_id=None, prompt=None, **kw):
         """Ask ComfyUI only for what an output in use really needs: one socket for `picked`, all of them for list/batch/count."""
         d = _data(data)
         wired = _wired(d, kw)
         present = [n for n in wired if n in kw]                            # muted / bypassed upstream = not in the prompt at all
-        if _uses(d) & {"list", "batch", "count"}:
+        if _uses(d, prompt, unique_id) & {"list", "batch", "count"}:
             return [n for n in present if kw.get(n) is None]
         t = _target(d, kw, wired) if str(d.get("mode")) != "auto" else (present[0] if present else None)
         return [t] if t in present and kw.get(t) is None else []
 
-    def run(self, data="", unique_id=None, **kw):
+    def run(self, data="", unique_id=None, prompt=None, **kw):
         d = _data(data)
-        uses = _uses(d)
+        uses = _uses(d, prompt, unique_id)
         wired = _wired(d, kw)
         present = [n for n in wired if n in kw]
         if str(d.get("mode")) == "auto":
