@@ -857,6 +857,10 @@ class Succy_Preview_Anything_Convert:
             "optional": {
                 "audio": ("AUDIO",),
                 "fps_override": ("FLOAT", {"forceInput": True}),
+                # D-230: which outputs are plugged, written by the browser into the prompt only (hidden field). Some outputs are
+                # computed only when plugged (frame, audio, the gallery's frames): plugging one must change this node's key, or
+                # ComfyUI would hand back the cached None. Never read here: the prompt says it already (wired_outputs).
+                "succy_used": ("STRING", {"default": ""}),
             },
             # the node's id: one set of preview files per node, the old ones go away when the new ones land (no pile-up in temp/).
             # prompt: to see which outputs are wired, so a frame nobody reads is never decoded.
@@ -876,7 +880,7 @@ class Succy_Preview_Anything_Convert:
     # -------------------------------------------------------------- #
     def execute(self, preview, source, output_type, invert_mask=False, trim_start=0.0, trim_end=0.0, current_time=0.0,
                 split_audio=False, as_clip="auto", clip_fps=DEFAULT_FPS, fps_auto=True, audio_gain=1.0, audio=None, fps_override=None,
-                unique_id=None, prompt=None, _view=False):
+                unique_id=None, prompt=None, _view=False, succy_used=""):
         # _view (D-205d): the As clip switch, live, from the route: only what the box shows, nothing computed for downstream
         self._view = bool(_view)
         if not _view:
@@ -1216,7 +1220,7 @@ class Succy_Preview_Anything_Convert:
             dur_out = round((f1 - f0) / fps, 3) if fps else round(e - s, 3)
             info = (f"Type: VIDEO\nResolution: {vi.width} x {vi.height}\nFPS: {fps:.3f}\nDuration: {vi.duration:.3f} s\n"
                     f"Frames: {n}\nFormat: {src_fmt}\nAudio: {'yes' if vi.has_audio else 'no' if vi.has_audio is False else '?'}\n"
-                    f"Selection: {s:.3f} -> {e:.3f} s (frames {f0} -> {f1 - 1})\nCurrent frame: {fc}\nOut: {dur_out:.3f} s as .{ext}"
+                    f"Selection: {s:.3f} -> {e:.3f} s (frames {f0} -> {f1 - 1})\n" + (f"Current frame: {fc}\n" if need(1) else "") + f"Out: {dur_out:.3f} s as .{ext}"
                     + (" (silent)" if split else ""))
             frame = vi.frame(fc) if need(1) else None
             media.update(duration=vi.duration, fps=fps, fps_from=where, gain=g, key=node_key, frames=n, width=vi.width, height=vi.height, has_audio=vi.has_audio,
@@ -1282,7 +1286,8 @@ class Succy_Preview_Anything_Convert:
         line = f"{W}×{H} · {fps:.2f} fps{_fps_note(where)} · {duration:.3f} s · {n} frames" + (" · audio" if has_audio else "")
         info = (f"Type: IMAGE batch as a clip ({origin})\nResolution: {W} x {H}\nMegapixels: {mp:.4f}\nFPS: {fps:.3f} ({where or 'auto'})\n"
                 f"Duration: {duration:.3f} s\nFrames: {n}\nAudio: {'yes' if has_audio else 'no'}\n"
-                f"Selection: {s:.3f} -> {e:.3f} s (frames {f0} -> {f1 - 1})\nCurrent frame: {fc}\nOut: {f1 - f0} frames, {dur_out:.3f} s as {output_type}")
+                f"Selection: {s:.3f} -> {e:.3f} s (frames {f0} -> {f1 - 1})\n" + (f"Current frame: {fc}\n" if need(5) else "")
+                + f"Out: {f1 - f0} frames, {dur_out:.3f} s as {output_type}")
         files = []
         _remember(_CLIPS, node_key, {"kind": "frames", "ref": weakref.ref(source), "auto_fps": vhs[0] if vhs else DEFAULT_FPS,
                                      "vhs": vhs, "audio_in": audio_in, "gain": gain})
