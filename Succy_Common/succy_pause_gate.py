@@ -1,4 +1,4 @@
-# Succy global pause gate v1.7.0 (D-263, D-259 (3) + (4), D-264, D-266, D-267, D-268, D-271, D-273)
+# Succy global pause gate v1.8.0 (D-263, D-259 (3) + (4), D-264, D-266, D-267, D-268, D-271, D-273, D-277)
 # The ⏸ of the top bar (dev/src/NodeStructure/app/topbar.js) holds the WHOLE run between two nodes:
 #   ComfyUI's engine runs one node at a time through `execution.execute(...)`. We wrap that function: before every node that is
 #   NOT in the cache, if a pause was asked for this prompt, we wait there (short sleeps) until ▶, Stop / Interrupt or a new prompt.
@@ -325,14 +325,32 @@ def _take_changes(a, rerun=False):
         drop += [(o, nid) for o in old - new_src]
         links += [(str(v[0]), v[1], nid) for k, v in ins.items() if _is_link(v) and not _lazy(el, nid, k)]
     original.update(pulled)
+    # D-277: a node NOT green whose wires moved (the Any's choice: SmartCache moves the reader to another hidden Succy_Value)
+    # counts as changed like a value: if a green node still reads it, it runs again now with its wires of now
+    moved = {}
+    if rerun:
+        for nid in wires:
+            fn = fresh.get(nid) or {}
+            if nid not in todo and nid not in rew and fn.get("class_type") == (original.get(nid) or {}).get("class_type"):
+                moved[nid] = dict(fn.get("inputs") or {})
+                late[nid] = {**late.get(nid, {}), **moved[nid]}
     again, more = rerun_plan(original, late, todo, el) if rerun and late else (set(), [])
     redo = {n: late.pop(n) for n in list(late) if n in again}
     for nid, vals in redo.items():
         original[nid]["inputs"].update(vals)
+        if nid in moved:                              # exactly the wires of now (an input gone stays gone)
+            original[nid]["inputs"] = dict(moved[nid])
+    stack = [str(v[0]) for n in redo if n in moved for v in moved[n].values() if _is_link(v)]
+    while stack:                                       # the new sources it reads (the twin of the new choice) join the run
+        n = stack.pop()
+        if n in original or not isinstance(fresh.get(n), dict):
+            continue
+        original[n] = pulled[n] = fresh[n]
+        stack.extend(str(v[0]) for v in (fresh[n].get("inputs") or {}).values() if _is_link(v))
     links += more if redo else []
     report = {"applied": {k: sorted(v) for k, v in apply.items()}, "rerun": {k: sorted(v) for k, v in redo.items()},
               "chain": sorted(again - set(redo)), "rewired": sorted(rew), "late": {k: sorted(v) for k, v in late.items()},
-              "wires": [w for w in wires if w not in rew], "new": [n for n in new if n not in pulled]}
+              "wires": [w for w in wires if w not in rew and w not in redo], "new": [n for n in new if n not in pulled]}
     with _lock:
         STATE["last_report"] = report
     changed = set(apply) | set(redo) | set(rew) | set(pulled)
