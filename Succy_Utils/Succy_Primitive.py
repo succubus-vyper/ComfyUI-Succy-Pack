@@ -1,4 +1,6 @@
 import json
+import math
+import re
 
 import torch
 import comfy.model_management
@@ -23,6 +25,8 @@ KINDS = ("INT", "FLOAT", "SEED", "BOOL", "TEXT", "MULTILINE", "COMBO", "LIST", "
 SIZE_KINDS = ("RESOLUTION", "IMAGE", "MASK", "LATENT")
 MAX_SIDE = 16384
 MAX_BATCH = 64
+MAX_MP = 64                 # the megapixels buttons stop at 8, a wire may bring more; past this the side cap bites anyway
+LIST_FORMATS = ("STRINGS", "NUMBERS")
 MAX_DEC = 6                 # same ceiling as the frontend slider (past 6 its step turns into 1e-7)
 SEED_MAX = 0xFFFFFFFFFFFFFFFF
 LATENT_CHANNELS = {"sd": 4, "sd3": 16}
@@ -33,7 +37,7 @@ DEFAULTS = {
     "kind": "", "int_v": 0, "float_v": 0.0, "precise": False, "decimals": 4, "bool_v": True, "text_v": "",
     "ml_v": "", "trim": True, "ml_out": "STRING", "combo_v": "", "list_v": "",
     "color_v": "#ff4fa3ff", "w": 1024, "h": 1024, "mult": 8, "scale": 1.0, "batch": 1, "fill": "#000000",
-    "mask_v": 1.0, "latent_family": "sd",
+    "mask_v": 1.0, "latent_family": "sd", "swap": False, "list_fmt": "STRINGS",
 }
 
 
@@ -55,6 +59,8 @@ VALUES = {
     "batch": ("INT", {"default": 1, "min": 1, "max": MAX_BATCH}),
     "fill": ("STRING", {"default": "#000000"}),
     "mask_v": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
+    "mp": ("INT", {"default": 0, "min": 0, "max": MAX_MP}),     # D-247: megapixels (whole), 0 = off: the W x H shape, resized to that area
+    "mult": ("INT", {"default": 8, "min": 1, "max": 256}),   # D-249: Multiple of, a real widget (its own dot)
 }
 
 
@@ -86,25 +92,59 @@ def _hex_rgb(s, fallback=(0, 0, 0)):
 
 
 def _size(d, scaled=True):
-    """Width / height times Scale, snapped to the chosen multiple, never under one step nor over MAX_SIDE."""
+    """Width / height (swapped while Swap is on, wires included), then the Megapixels area if one is set (same shape, that many
+    pixels), times Scale, snapped to the chosen multiple, never under one step nor over MAX_SIDE (D-247)."""
     m = max(1, min(256, parse_int(d.get("mult"), tag=TAG) or 8))
     k = max(0.01, min(16.0, parse_float(d.get("scale"), tag=TAG) or 1.0)) if scaled else 1.0
+    w, h = max(1.0, parse_float(d.get("w"), tag=TAG)), max(1.0, parse_float(d.get("h"), tag=TAG))
+    if parse_bool(d.get("swap")):
+        w, h = h, w
+    mp = max(0, min(MAX_MP, parse_int(d.get("mp"), tag=TAG)))
+    if mp:
+        r = math.sqrt(mp * 1e6 / (w * h))
+        w, h = w * r, h * r
     def snap(v):
-        v = max(1, min(MAX_SIDE, parse_float(v, tag=TAG) * k))
+        v = max(1, min(MAX_SIDE, v * k))
         return max(m, min(MAX_SIDE // m * m, int(round(v / m)) * m))
-    return snap(d.get("w")), snap(d.get("h"))
+    return snap(w), snap(h)
 
 
 def _mp(w, h):
     return round(w * h / 1e6, 4)
 
 
+_INT_RE = re.compile(r"^[+-]?\d+$")
+
+
+def _as_number(x):
+    """One item as a number: whole = int, with decimals / exponent = float. Not a number = it stays as typed, with a word in the console."""
+    if isinstance(x, bool):
+        return int(x)
+    if isinstance(x, (int, float)):
+        return x
+    s = str(x).strip()
+    try:
+        if _INT_RE.match(s):
+            return int(s)
+        f = float(s)
+        if math.isfinite(f):
+            return f
+    except ValueError:
+        pass
+    print(f"[{TAG}] list item {s!r} is not a number -> kept as text")
+    return x
+
+
 def _list_items(d):
-    """LIST kind: the text read the pack's one LIST way (a [literal] is used as is, otherwise one item per non-empty line)."""
+    """LIST kind: the text read the pack's one LIST way (a [literal] is used as is, otherwise one item per non-empty line), then
+    every item written the picked way (D-247): List of Strings = all text, List of Numbers = all numbers. The output is a LIST either way."""
     v = d.get("list_v")
-    if isinstance(v, (list, tuple)):                  # a wire brought a real list (a bridge)
+    if isinstance(v, (list, tuple)):                  # a wire brought a real list (a bridge): it goes on as it is
         return list(v)
-    return convert_text(v or "", "LIST", tag=TAG)
+    items = convert_text(v or "", "LIST", tag=TAG)
+    if str(d.get("list_fmt") or "STRINGS").upper() == "NUMBERS":
+        return [_as_number(x) for x in items]
+    return [x if isinstance(x, str) else str(x) for x in items]
 
 
 def _value(d, seed):
@@ -138,7 +178,7 @@ def _value(d, seed):
     if kind == "COLOR":
         return str(d["color_v"] or "#000000ff"), None, None, None
     if kind in SIZE_KINDS:
-        w, h = _size(d, scaled=kind != "LATENT")
+        w, h = _size(d)
         if kind == "RESOLUTION":
             return w, h, _mp(w, h), None
         batch = max(1, min(MAX_BATCH, parse_int(d["batch"])))

@@ -151,7 +151,7 @@ def _walk(node, env):
 
 def evaluate(expr, env):
     """expr: formula text (python-ish, '^' = power). env: {name: float}. Returns float or raises."""
-    expr = str(expr).replace("^", "**")
+    expr = re.sub(r"!(?!=)", " not ", str(expr).replace("^", "**")).strip()        # `!b` reads as `not b` (D-256); `!=` stays as it is
     if len(expr) > MAX_EXPR_LEN:
         raise ValueError("formula too long")
     tree = ast.parse(expr, mode="eval")

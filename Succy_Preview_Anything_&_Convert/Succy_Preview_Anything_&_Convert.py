@@ -75,7 +75,9 @@ def as_kind(t, kind, invert=False):
     if kind == "MASK":
         m = t[..., 0] if t.dim() == 4 else t
         return 1.0 - m if invert else m
-    return t[..., :3] if t.dim() == 4 else t.unsqueeze(-1).expand(*t.shape, 3)
+    if t.dim() == 4:
+        return t if int(t.shape[-1]) == 3 else t[..., :3]      # already an RGB image: the very same tensor (ComfyUI's cache sees it)
+    return t.unsqueeze(-1).expand(*t.shape, 3)
 
 
 def letterbox(items, kind):
@@ -89,6 +91,21 @@ def letterbox(items, kind):
         c = torch.zeros((t.shape[0], H, W) + tuple(t.shape[3:]), dtype=t.dtype, device=t.device)
         c[:, y:y + h, x:x + w] = t
         out.append(c)
+    return torch.cat(out)
+
+
+def stretch(items, kind):
+    """Pictures of different sizes -> ONE batch at the first one's size (D-244d: a list going out as a batch, like the Any's
+    default fit). Bilinear; a mask stays a mask."""
+    H, W = int(items[0].shape[1]), int(items[0].shape[2])
+    out = []
+    for t in items:
+        x = as_kind(t, kind)
+        if tuple(x.shape[1:3]) != (H, W):
+            x = x.unsqueeze(1) if kind == "MASK" else x.movedim(-1, 1)
+            x = torch.nn.functional.interpolate(x.float(), size=(H, W), mode="bilinear", align_corners=False).to(t.dtype)
+            x = x.squeeze(1) if kind == "MASK" else x.movedim(1, -1)
+        out.append(x)
     return torch.cat(out)
 
 
@@ -790,6 +807,7 @@ _GALLERY = OrderedDict()     # node key -> (weak ref to the batch shown, token o
 _CLIPS = OrderedDict()       # node key -> what Apply fps needs to re-time the player without a Run (D-205c)
 _RETIMED = OrderedDict()     # node key -> (weak ref to the ORIGINAL video, its re-timing signature, the player file at that fps)
 _LAST = OrderedDict()        # node key -> the last Run's inputs (source by weak ref): As clip switches live from these (D-205d)
+_HELD = OrderedDict()        # node key -> the batch made from a LIST (D-244b): nobody else owns it, so we hold it while it shows
 
 
 def _remember(store, key, value):
@@ -797,6 +815,13 @@ def _remember(store, key, value):
     store[key] = value
     while len(store) > _KEEP_MAX:
         store.popitem(last=False)
+
+
+def mixed_batch(t):
+    """D-244c: True for a batch an Any glued from pictures of different sizes (it tags the tensor with their sizes and the
+    pictures themselves, D-244d)."""
+    sizes = getattr(t, "succy_sizes", None) if isinstance(t, torch.Tensor) else None
+    return isinstance(sizes, list) and len(set(map(tuple, sizes))) > 1 and isinstance(getattr(t, "succy_items", None), list)
 
 
 def looks_like_video(images):
@@ -996,7 +1021,7 @@ class Succy_Preview_Anything_Convert:
                 # only meaningful with output_type MASK: flips the mask (1 - m). The frontend shows it as the INVERT button.
                 "invert_mask": ("BOOLEAN", {"default": False}),
                 # VIDEO / AUDIO only (the frontend's timeline writes them): the kept window in seconds (end 0 = up to the end)
-                # and the frame that goes out of `frame`. Split audio = the video goes out silent and its sound has its own output.
+                # and the frame that goes out of `selected`. Split audio = the video goes out silent and its sound has its own output.
                 "trim_start": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1e7, "step": 0.001}),
                 "trim_end": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1e7, "step": 0.001}),
                 "current_time": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1e7, "step": 0.001}),
@@ -1038,41 +1063,97 @@ class Succy_Preview_Anything_Convert:
 
     # The slots change with the input: "*" so every shape type-checks; the sockets the user sees are typed by the frontend
     # (shape_output). text: output · image: output, width, height, megapixels · audio: output, duration ·
-    # video (D-239) and a batch (D-205 / D-234): the image four + audio, frame, duration.
-    RETURN_TYPES = (ANY,) * 7
-    RETURN_NAMES = ("output", "width", "height", "megapixels", "audio", "frame", "duration")
-    FUNCTION = "execute"
+    # video (D-239) and a batch (D-205 / D-234): the image four + audio, selected (was `frame`, D-244f), duration.
+    RETURN_TYPES = (ANY,) * 4
+    RETURN_NAMES = ("output", "selected", "audio", "duration")
+    # D-245: a NATIVE list in (an Any's `list` of pictures, any node's OUTPUT_IS_LIST) must arrive whole, not run this node once per
+    # item: INPUT_IS_LIST. ComfyUI then wraps EVERY input in a list; `comfy_run` takes the wrapping off and calls `execute`.
+    INPUT_IS_LIST = True
+    FUNCTION = "comfy_run"
     SUCCY_CACHE = "none"  # SmartCache (D-213): a viewer with files and players: ComfyUI's own cache is enough
     OUTPUT_NODE = True
 
     # -------------------------------------------------------------- #
+    def comfy_run(self, **kw):
+        """ComfyUI's entry (INPUT_IS_LIST, D-245): every input comes wrapped in a list. A widget or a hidden field = its first
+        element; `source` = the one value, or, with several, the native list itself (pictures -> the gallery of a list)."""
+        one = lambda v: v[0] if isinstance(v, list) and v else None if isinstance(v, list) else v
+        src = kw.pop("source", None)
+        if isinstance(src, list) and len(src) == 1:
+            src = src[0]
+        kw = {k: one(v) for k, v in kw.items()}
+        return self.execute(source=src, **kw)
+
     def execute(self, preview, source, output_type, **kw):
-        """D-244: a LIST of pictures (the Any's `list`, any node's list of images / masks) is shown as the pictures it holds.
-        Same size = a batch under another name (gallery or clip, Convert To also Batch of images / masks / VIDEO); sizes that
-        differ = the gallery only (each one letterboxed on black for the look, never in what goes out). `output` with
-        List of images / List of masks = the list itself, each item as asked. Anything else: the node as it always was."""
-        if output_type in PICTURE_LISTS and isinstance(source, torch.Tensor):     # the live As clip switch: the batch shown
-            output_type = "IMAGE" if output_type == "IMAGE_LIST" else "MASK"
-        pics = picture_list(source)
+        """The Run (see _pictures). D-244g: List of images / List of masks go out as ComfyUI's OWN image list: slot 0 flagged
+        OUTPUT_IS_LIST on this instance, Run by Run (ComfyUI's merge reads it from the object after the call), so a node with
+        INPUT_IS_LIST ("image list") gets every picture and any other node runs once per picture. Anything else: no list."""
+        r = self._pictures(preview, source, output_type, **kw)
+        out = (r.get("result") or (None,))[0] if isinstance(r, dict) else None
+        is_list = isinstance(out, list) and len(out) > 0 and all(isinstance(t, torch.Tensor) for t in out)
+        self.OUTPUT_IS_LIST = (is_list,) + (False,) * (len(self.RETURN_TYPES) - 1)
+        return r
+
+    def _pictures(self, preview, source, output_type, **kw):
+        """Pictures in a BATCH or a LIST are one family (D-244 / D-244d): Convert To = Batch of images / Batch of masks / List of
+        images / List of masks, + VIDEO when every picture has one size. Same size = the batch it always was (gallery or clip, the
+        seven outputs). Sizes that differ (a LIST, or an Any's batch glued from them, D-244c) = the gallery only (each one
+        letterboxed on black for the look) and output + selected (D-244e/f): the picture picked in the
+        gallery at its own size. Anything else: the node as it always was."""
+        pics, glued = picture_list(source), None
+        if pics is None and mixed_batch(source):           # D-244c: the Any glued pictures of different sizes; it keeps them
+            pics, glued = ("MASK" if source.dim() == 3 else "IMAGE", list(source.succy_items)), source
+        elif pics is None and output_type in PICTURE_LISTS and isinstance(source, torch.Tensor) and source.dim() in (3, 4) \
+                and int(source.shape[0]) >= 2:             # a batch going out as a list (D-244d), or the live As clip switch
+            pics = ("MASK" if source.dim() == 3 else "IMAGE", [source[i:i + 1] for i in range(int(source.shape[0]))])
         if pics is None:
+            if output_type in PICTURE_LISTS and isinstance(source, torch.Tensor):     # one picture: a list of one is the picture
+                output_type = "IMAGE" if output_type == "IMAGE_LIST" else "MASK"
             return self._execute(preview, source, output_type, **kw)
         kind, items = pics
         same = len({tuple(t.shape[1:3]) for t in items}) == 1
-        show = torch.cat([as_kind(t, kind) for t in items]) if same else letterbox(items, kind)
-        as_list = output_type in PICTURE_LISTS or output_type in ("LIST", "ARRAY") or not same
-        if as_list:
-            if not same:
-                kw["as_clip"] = "images"                   # sizes that differ: never a clip
+        if not same:
+            return self._mixed(preview, kind, items, glued, output_type, **kw)
+        show = source if isinstance(source, torch.Tensor) else torch.cat([as_kind(t, kind) for t in items])
+        # D-244b: a batch made from a list is ours alone (ComfyUI caches the list, not this batch): held per node, else the
+        # gallery's weak ref dies the moment execute returns and every frame reads "expired". One per node, replaced by the next Run.
+        if show is not source:
+            _remember(_HELD, _node_key(kw.get("unique_id")), show)
+        if output_type in PICTURE_LISTS or output_type in ("LIST", "ARRAY"):
             r = self._execute(preview, show, kind, **kw)
             want = "MASK" if output_type == "MASK_LIST" else "IMAGE" if output_type == "IMAGE_LIST" else kind
             inv = bool(kw.get("invert_mask")) and want == "MASK"
-            result = ([as_kind(t, want, inv) for t in items],) + tuple(r["result"][1:])
+            result = ([as_kind(t, want, inv) for t in items],) + tuple((r.get("result") or (None,) * 4)[1:])
         else:
             r = self._execute(preview, show, output_type, **kw)
-            result = r["result"]
+            result = r.get("result")
         ui = dict(r.get("ui") or {})
-        ui["succy_listof"] = [{"kind": kind, "same": same, "n": len(items)}]
+        if not isinstance(source, torch.Tensor):
+            ui["succy_listof"] = [{"kind": kind, "same": True, "n": len(items)}]
         return {"ui": ui, "result": result}
+
+    def _mixed(self, preview, kind, items, glued, output_type, **kw):
+        """Pictures of different sizes (D-244d): the gallery only, never a clip, never a VIDEO. `output` = what Convert To says:
+        a list (each item as asked) or a batch (an Any's own, else every picture stretched to the first one's size); then `selected`
+        (D-244e/f, slot 1) = the picture picked in the gallery, at its size. The browser sends Current only while `selected` is plugged."""
+        kw["as_clip"] = "images"
+        show = letterbox(items, kind)
+        _remember(_HELD, _node_key(kw.get("unique_id")), show)      # D-244b: held, the gallery serves it after execute
+        self._picked = 0
+        r = self._execute(preview, show, kind, **kw)
+        if output_type not in ("IMAGE", "MASK") + tuple(PICTURE_LISTS):
+            output_type = kind if glued is not None else kind + "_LIST"     # VIDEO / text: no such bridge here, back to what came
+        want = "MASK" if output_type in ("MASK", "MASK_LIST") else "IMAGE"
+        inv = bool(kw.get("invert_mask")) and want == "MASK"
+        if output_type in PICTURE_LISTS:
+            out = [as_kind(t, want, inv) for t in items]
+        else:
+            out = as_kind(glued if glued is not None else stretch(items, kind), want, inv)
+        i = min(max(int(getattr(self, "_picked", 0) or 0), 0), len(items) - 1)
+        sel = as_kind(items[i], want, inv)
+        ui = dict(r.get("ui") or {})
+        ui["succy_listof"] = [{"kind": kind, "same": False, "n": len(items), "batch": glued is not None}]
+        return {"ui": ui, "result": (out, sel, None, None)}
 
     def _execute(self, preview, source, output_type, invert_mask=False, trim_start=0.0, trim_end=0.0, current_time=0.0,
                 split_audio=False, as_clip="auto", clip_fps=DEFAULT_FPS, fps_auto=True, audio_gain=1.0, audio=None, fps_override=None,
@@ -1095,7 +1176,7 @@ class Succy_Preview_Anything_Convert:
             if source is None:
                 _keep_files(_node_key(unique_id), [])
                 return {"ui": {"succy_text": ["AUDIO: this clip has no sound track (VHS gives an empty audio for a silent video)."]},
-                        "result": (None,) * 7}
+                        "result": (None,) * 4}
         mode = as_clip if as_clip in CLIP_MODES else "auto"
         audio_in = as_audio(audio) if audio is not None else None
         fps_of = lambda found, where: pick_fps(fps_override, fps_auto, clip_fps, found, where)
@@ -1149,7 +1230,7 @@ class Succy_Preview_Anything_Convert:
         if source is None:
             return {
                 "ui": {"succy_text": ["No input detected."]},
-                "result": (converted, width, height, megapixels, None, None, None),
+                "result": (converted, None, None, None),
             }
 
         # ---------- IMAGE / MASK ----------
@@ -1235,7 +1316,7 @@ class Succy_Preview_Anything_Convert:
                             token = f"{random.randint(0, 1 << 30):x}"
                             _remember(_GALLERY, node_key, (weakref.ref(shown), token))
                             ui_gallery = {"key": node_key, "token": token, "total": int(shown.shape[0])}
-                            if gallery_fps:                    # the frame picked in the gallery = `frame` (current_time = index / fps)
+                            if gallery_fps:                    # the frame picked in the gallery = `selected` (current_time = index / fps)
                                 ui_gallery["fps"] = float(gallery_fps)
                         except Exception as e:
                             print(f"[PreviewAny] gallery error: {e}")
@@ -1307,7 +1388,7 @@ class Succy_Preview_Anything_Convert:
 
         return {
             "ui": ui_res,
-            "result": batch_out if batch_out is not None else (converted, width, height, megapixels, None, None, None),
+            "result": batch_out if batch_out is not None else (converted, None, None, None),
         }
 
     def _needs(self, slot, prompt, unique_id):
@@ -1342,14 +1423,14 @@ class Succy_Preview_Anything_Convert:
                       "succy_info": [f"Width: {W}   Height: {H}   Megapixels: {mp:.2f}   ·   {n} images"]}
             except Exception as ex:
                 print(f"[PreviewAny] video gallery error: {ex}")
-        return {"ui": ui, "result": (None, W, H, mp, None, None, None)}
+        return {"ui": ui, "result": (None, None, None, None)}
 
     # -------------------------------------------------------------- #
     def _media(self, kind, preview, source, output_type, trim_start, trim_end, current_time, split_audio, unique_id, prompt,
                fps_of=None, audio_in=None, gain=1.0, also=(), invert_mask=False):
         """VIDEO / AUDIO in (D-198). `output` = the clip with everything applied: the window [trim_start, trim_end) really cut
         (frames and samples), split_audio = silent, Convert To = the container (video) or the download file (audio).
-        `frame` (video) = the frame under current_time, which always sits inside the window. `duration` = seconds of what
+        `selected` (video) = the frame under current_time, which always sits inside the window. `duration` = seconds of what
         goes out (3 decimals). `audio` = the window's sound (D-239: always, like a batch; split_audio = `output` silent). The player shows the WHOLE clip (the timeline
         needs all of it); the download button gets exactly `output`. D-205: a VIDEO at another fps (field / EXT wire) is
         re-timed, a plugged `audio_in` replaces its sound: both rebuild the video from its frames before anything else.
@@ -1393,7 +1474,7 @@ class Succy_Preview_Anything_Convert:
                 except Exception as ex:
                     print(f"[PreviewAny] Audio preview error: {ex}")
             _keep_files(node_key, files + list(also))
-            result = (out_audio, dur_out, None, None, None, None, None)
+            result = (out_audio, dur_out, None, None)
         else:
             vi = _VideoInfo(source)
             _remember(_CLIPS, node_key, {"kind": "video", "ref": weakref.ref(source), "auto_fps": vi.fps, "audio_in": audio_in, "gain": gain})
@@ -1446,7 +1527,7 @@ class Succy_Preview_Anything_Convert:
                 quiet = silent_audio((f1 - f0) / fps if fps else 0.0)
                 return quiet if vi.has_audio is False else (comps().audio or quiet)
 
-            audio = window_sound() if split or need(4) else None          # D-239: the window's sound, always on `audio`
+            audio = window_sound() if split or need(2) else None          # D-239: the window's sound, always on `audio`
             made = None
             if want == "VIDEO" and ext != src_fmt or (split and ext != "gif") or (trimmed and ext not in ("mp4", "mkv", "webm")):
                 # a real file in the chosen container (silent with split): what comes out IS what the download saves
@@ -1457,10 +1538,10 @@ class Succy_Preview_Anything_Convert:
             dur_out = round((f1 - f0) / fps, 3) if fps else round(e - s, 3)
             info = (f"Type: VIDEO\nResolution: {vi.width} x {vi.height}\nFPS: {fps:.3f}\nDuration: {vi.duration:.3f} s\n"
                     f"Frames: {n}\nFormat: {src_fmt}\nAudio: {'yes' if vi.has_audio else 'no' if vi.has_audio is False else '?'}\n"
-                    f"Selection: {s:.3f} -> {e:.3f} s (frames {f0} -> {f1 - 1})\n" + (f"Current frame: {fc}\n" if need(5) else "")
+                    f"Selection: {s:.3f} -> {e:.3f} s (frames {f0} -> {f1 - 1})\n" + (f"Current frame: {fc}\n" if need(1) else "")
                     + (f"Out: {dur_out:.3f} s as .{ext}" + (" (silent)" if split else "") if want == "VIDEO"
                        else f"Out: {f1 - f0} frames as {want} (+ its sound on audio)" if want in ("IMAGE", "MASK") else f"Out: {dur_out:.3f} s as AUDIO"))
-            frame = vi.frame(fc) if need(5) else None
+            frame = vi.frame(fc) if need(1) else None
             media.update(duration=vi.duration, fps=fps, fps_from=where, gain=g, key=node_key, frames=n, width=vi.width, height=vi.height, has_audio=vi.has_audio,
                          start=s, end=e, current=fc / fps if fps else s, trimmed=trimmed, split=split, format="video." + src_fmt)
             line = (f"{vi.width}×{vi.height} · {fps:.2f} fps{_fps_note(where)} · {vi.duration:.3f} s · {n} frames · {src_fmt}"
@@ -1486,7 +1567,7 @@ class Succy_Preview_Anything_Convert:
                 out = out[:, :, :, 0]
                 if invert_mask:
                     out = 1.0 - out
-            result = (out, vi.width, vi.height, (vi.width * vi.height) / 1_000_000.0, audio, frame, dur_out)    # the batch's seven (D-239)
+            result = (out, frame, audio, dur_out)    # output, selected, audio, duration (D-245: width / height / megapixels are gone)
 
         if preview and _LOG:
             print("\n" + "=" * 40 + f"\nPreviewAny [{kind.upper()}]:\n{info}\n" + "=" * 40 + "\n")
@@ -1498,18 +1579,19 @@ class Succy_Preview_Anything_Convert:
         """An IMAGE batch shown as the clip it is (D-203 for VHS, D-205 for everyone): player + timeline at `fps`, its sound =
         the plugged `audio_in`, else the VHS loader's file (vhs = (fps, start, path, class)), else none. Handed on as what
         frame people expect: `output` = the frames of the kept window (IMAGE or MASK), width, height, megapixels, then
-        `audio` (the window's sound, silence if none), `frame` (the one under Current), `duration`."""
+        `audio` (the window's sound, silence if none), `selected` (the one under Current), `duration`."""
         n, H, W = int(source.shape[0]), int(source.shape[1]), int(source.shape[2])
         duration = n / fps
         trim_start, trim_end, current_time = frame_times(fps, trim_start, trim_end, current_time, getattr(self, "_fr", (None,) * 3))
         s, e, trimmed = trim_window(duration, fps, trim_start, trim_end)
         f0, f1 = frame_range(s, e, fps, n)
         fc = min(max(frame_at(current_time, fps, n), f0), f1 - 1)
+        self._picked = min(max(frame_at(current_time, fps, n), 0), n - 1)  # D-244d: the gallery's pick, trim or not (`selected`)
         need = lambda slot: self._needs(slot, prompt, unique_id)
         node_key = _node_key(unique_id)
         temp = folder_paths.get_temp_directory()
 
-        full_audio, snd = _frames_sound(vhs, audio_in, duration, preview or need(4))
+        full_audio, snd = _frames_sound(vhs, audio_in, duration, preview or need(2))
         has_audio = full_audio is not None
         full_audio = gain_audio(full_audio, gain)          # the volume of what goes out (the player plays it too)
         frames = source[f0:f1]
@@ -1529,7 +1611,7 @@ class Succy_Preview_Anything_Convert:
                 made = _temp_name(node_key, "out", vf)
                 encode_video(frames, audio_out if has_audio and vf != "gif" else None, fps, os.path.join(temp, made), vf)
                 out = _video_from_file(os.path.join(temp, made))
-        frame = source[fc:fc + 1] if need(5) else None
+        frame = source[fc:fc + 1] if need(1) else None
         dur_out = round(win, 3)
         mp = (W * H) / 1_000_000.0
         origin = vhs[3] if vhs else "IMAGE batch"
@@ -1540,7 +1622,7 @@ class Succy_Preview_Anything_Convert:
         line = f"{W}×{H} · {fps:.2f} fps{_fps_note(where)} · {duration:.3f} s · {n} frames" + (" · audio" if has_audio else "")
         info = (f"Type: IMAGE batch as a clip ({origin})\nResolution: {W} x {H}\nMegapixels: {mp:.4f}\nFPS: {fps:.3f} ({where or 'auto'})\n"
                 f"Duration: {duration:.3f} s\nFrames: {n}\nAudio: {'yes' if has_audio else 'no'}\n"
-                f"Selection: {s:.3f} -> {e:.3f} s (frames {f0} -> {f1 - 1})\n" + (f"Current frame: {fc}\n" if need(5) else "")
+                f"Selection: {s:.3f} -> {e:.3f} s (frames {f0} -> {f1 - 1})\n" + (f"Current frame: {fc}\n" if need(1) else "")
                 + f"Out: {f1 - f0} frames, {dur_out:.3f} s as {output_type}")
         files = [made] if made else []
         _remember(_CLIPS, node_key, {"kind": "frames", "ref": weakref.ref(source), "auto_fps": vhs[0] if vhs else DEFAULT_FPS,
@@ -1562,7 +1644,7 @@ class Succy_Preview_Anything_Convert:
         if preview and _LOG:
             print("\n" + "=" * 40 + f"\nPreviewAny [FRAMES AS CLIP]:\n{info}\n" + "=" * 40 + "\n")
         return {"ui": {"succy_media": [media], "succy_info": [line], "succy_text": [info]},
-                "result": (out, W, H, mp, audio_out, frame, dur_out)}
+                "result": (out, frame, audio_out, dur_out)}
 
 
 def _frames_sound(vhs, audio_in, duration, wanted=True):

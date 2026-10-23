@@ -406,7 +406,7 @@ def send_preview(did, image, tag=_TAG):
 
 
 def live_picture(t, longest=LIVE_MAX):
-    """A live output -> {width, height, data} for the browser: IMAGE as JPEG (PNG when it has alpha), MASK as greyscale PNG,
+    """A live output -> {width, height, count, data} for the browser: IMAGE as JPEG (PNG when it has alpha), MASK as greyscale PNG,
     downscaled to `longest` on the long side. width/height = the real size."""
     a = t[0] if t.dim() >= 3 else t
     a = (a.detach().float().clamp(0, 1) * 255.0).round().to(torch.uint8).cpu().numpy()
@@ -425,7 +425,8 @@ def live_picture(t, longest=LIVE_MAX):
     else:
         im.save(buf, format="PNG", compress_level=1)
         kind = "png"
-    return {"width": W, "height": H, "data": f"data:image/{kind};base64," + base64.b64encode(buf.getvalue()).decode("ascii")}
+    n = int(t.shape[0]) if t.dim() >= 3 else 1             # D-244b: how many frames the live value holds (only the first travels)
+    return {"width": W, "height": H, "count": n, "data": f"data:image/{kind};base64," + base64.b64encode(buf.getvalue()).decode("ascii")}
 
 
 def node_mapping():

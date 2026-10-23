@@ -22,8 +22,9 @@ from _succy_image import (IMAGE_EXT, blur, decode_brush, display_id, file_stamp,
 # One node, two ways in:
 #   image   a picture dropped / pasted / 📂 loaded on the node (or wired in), with a mask you draw on it (box + free hand, like
 #           Succy Crop) — on top of a wired mask, if any (the base every tool edits, D-166). The picture's transparency is a mask too, like ComfyUI's Load Image.
-#   folder  the pictures of a folder: `next` hands out the following one at every execution (every Run, every lap of a Succy
-#           Loop / While, every ▶ of a Pause), `index` picks one. is_last says when the folder is over (a While stops on it).
+#   folder  the pictures of a folder (no image / mask inputs there, D-248): Pick one (`index`) uses that picture; Next hands out the
+#           following one at every execution (every Run, every lap of a Succy Loop / While, every ▶ of a Pause), starting at
+#           `index_from`. is_last says when the folder is over (a While stops on it).
 # Then ONE resize for picture and mask together, so they always match: custom (width x height: fit / fill / pad / stretch,
 # anchored, pad can be an outpaint mask) or scale (megapixels, then scale by), snapped to a multiple.
 # LIVE (D-156): what this node outputs right now reaches every Succy node on its wires without a Queue (SUCCY_LIVE).
@@ -100,17 +101,19 @@ def list_pictures(path):
 
 
 def _counter(did, path):
-    """The folder counter of node `did`: {path, next, last}. A different folder starts from the top."""
+    """The folder counter of node `did`: {path, next, last, start}. A different folder starts from the top."""
     st = _STATE.get(did)
     if not st or st.get("path") != path:
-        st = {"path": path, "next": 0, "last": None}
+        st = {"path": path, "next": 0, "last": None, "start": 0}
     _keep(_STATE, did, st, _STATE_MAX)
     return st
 
 
-def folder_pick(did, folder, pick, index, advance):
+def folder_pick(did, folder, pick, index, advance, index_from=0):
     """-> (path of the folder, files, index of the picture to use). `next` + advance moves the counter (an execution);
-    without advance it reads the picture the node is on (the last one handed out, or the one that comes next)."""
+    without advance it reads the picture the node is on (the last one handed out, or the one that comes next).
+    Index From (D-248) is where Next starts: a new Index From (typed, clicked, or a wire that changed) takes the counter back
+    there, so the next execution hands out THAT picture."""
     path = resolve_folder(folder)
     files = list_pictures(path)
     if not files:
@@ -119,6 +122,11 @@ def folder_pick(did, folder, pick, index, advance):
     if pick == "index":
         return path, files, max(0, min(n - 1, int(index)))
     st = _counter(did, path)
+    start = max(0, int(index_from)) % n
+    if st.get("start") != start:
+        if not advance:                                    # the live view only looks: it shows where Next will start
+            return path, files, start
+        st.update(next=start, last=None, start=start)
     if advance:
         i = st["next"] % n
         st["last"], st["next"] = i, (i + 1) % n
@@ -127,7 +135,7 @@ def folder_pick(did, folder, pick, index, advance):
 
 
 # EXT v2 (D-225): the widgets a wire can drive (their own socket); the live view takes their last Run value while wired
-_EXT = ("index", "width", "height", "interpolation", "megapixels", "scale_by", "multiple")
+_EXT = ("index", "index_from", "width", "height", "interpolation", "megapixels", "scale_by", "multiple")
 
 
 # --- resize ---------------------------------------------------------------------------------------------------------------------
@@ -252,11 +260,13 @@ def produce(kw, image, mask, did, advance):
     """-> (picture, mask, info, source picture). kw = coerced widgets; image / mask = what came on the wires (or None)."""
     info = {"filename": "", "index": 0, "count": 1, "is_last": True, "mode": kw.get("mode", "image")}
     alpha = None
-    folder_mode = image is None and kw.get("mode") == "folder"
+    folder_mode = kw.get("mode") == "folder"               # D-248: the folder has no image / mask inputs: a wire left over is ignored
+    if folder_mode:
+        image = mask = None
     if image is not None:
         pic = image
     elif folder_mode:
-        path, files, i = folder_pick(did, kw.get("folder", ""), kw.get("pick", "next"), kw.get("index", 0), advance)
+        path, files, i = folder_pick(did, kw.get("folder", ""), kw.get("pick", "next"), kw.get("index", 0), advance, kw.get("index_from", 0))
         pic, alpha = load_picture(os.path.join(path, files[i]))
         info.update(filename=files[i], index=i, count=len(files), is_last=i == len(files) - 1, next=_STATE.get(did, {}).get("next"))
     else:
@@ -278,6 +288,141 @@ def produce(kw, image, mask, did, advance):
     out, om = apply_resize(pic, m, plan, kw.get("interpolation", "lanczos"), kw.get("pad_color", "#000000"), bool(kw.get("outpaint")))
     info.update(width=int(out.shape[2]), height=int(out.shape[1]))
     return out, om, info, pic
+
+
+DRIVES = "::drives"               # the folder browser's pseudo-path above C:\ (Windows): the list of drives
+
+
+def list_dirs(path):
+    """The in-node folder browser (D-256): where `path` is, what folders it holds, how many pictures sit in it. A path that is not a folder
+    (yet: she is still typing it) falls back to its nearest existing parent; empty = the home folder; DRIVES = the drives (Windows).
+    Only names and counts leave: no file is read, and hidden / system folders (. and $) are not offered."""
+    raw = str(path or "").strip()
+    try:
+        if raw == DRIVES and os.name == "nt":
+            import string
+            return {"path": DRIVES, "parent": None, "dirs": [f"{c}:\\" for c in string.ascii_uppercase if os.path.isdir(f"{c}:\\")], "images": 0, "sep": os.sep, "drives": True}
+        cur = os.path.expanduser(raw) if raw else os.path.expanduser("~")
+        while cur and not os.path.isdir(cur):
+            up = os.path.dirname(cur)
+            if up == cur:
+                break
+            cur = up
+        if not cur or not os.path.isdir(cur):
+            cur = os.path.expanduser("~")
+        cur = os.path.abspath(cur)
+        up = os.path.dirname(cur)
+        parent = up if up != cur else (DRIVES if os.name == "nt" else None)
+        dirs, images, note = [], 0, ""
+        try:
+            for e in os.scandir(cur):
+                if e.name.startswith((".", "$")):
+                    continue
+                if e.is_dir():
+                    dirs.append(e.name)
+                elif e.name.lower().endswith(IMAGE_EXT):
+                    images += 1
+        except OSError as exc:
+            note = "can't read this folder: " + (exc.strerror or str(exc))
+        dirs.sort(key=_natural)
+        return {"path": cur, "parent": parent, "dirs": dirs[:800], "more": max(0, len(dirs) - 800), "images": images, "sep": os.sep, "drives": False, "note": note}
+    except Exception as exc:
+        return {"error": str(exc)[:200]}
+
+
+# Windows' modern folder picker (D-258): the same Explorer window the image mode's file dialog shows (address bar, back / forward,
+# search, the side pane), asked for FOLDERS (IFileOpenDialog + FOS_PICKFOLDERS) — not the old cramped FolderBrowserDialog tree.
+# Only the path comes back: nothing is uploaded, nothing is read. Compiled once into %TEMP% (the next opening skips the compiler).
+_PICK_CS = r"""
+using System;
+using System.Runtime.InteropServices;
+public static class SuccyPickFolder {
+    [ComImport, Guid("DC1C5A9C-E88A-4dde-A5A1-60F82A20AEF7")] class FileOpenDialog {}
+    [ComImport, Guid("42f85136-db7e-439c-85f1-e4075d135fc8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IFileDialog {
+        [PreserveSig] int Show(IntPtr owner);
+        void SetFileTypes(uint n, IntPtr specs);
+        void SetFileTypeIndex(uint i);
+        void GetFileTypeIndex(out uint i);
+        void Advise(IntPtr events, out uint cookie);
+        void Unadvise(uint cookie);
+        void SetOptions(uint fos);
+        void GetOptions(out uint fos);
+        void SetDefaultFolder(IShellItem item);
+        void SetFolder(IShellItem item);
+        void GetFolder(out IShellItem item);
+        void GetCurrentSelection(out IShellItem item);
+        void SetFileName([MarshalAs(UnmanagedType.LPWStr)] string name);
+        void GetFileName([MarshalAs(UnmanagedType.LPWStr)] out string name);
+        void SetTitle([MarshalAs(UnmanagedType.LPWStr)] string title);
+        void SetOkButtonLabel([MarshalAs(UnmanagedType.LPWStr)] string label);
+        void SetFileNameLabel([MarshalAs(UnmanagedType.LPWStr)] string label);
+        void GetResult(out IShellItem item);
+    }
+    [ComImport, Guid("43826D1E-E718-42EE-BC55-A1E261C37BFE"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IShellItem {
+        void BindToHandler(IntPtr pbc, ref Guid bhid, ref Guid riid, out IntPtr ppv);
+        void GetParent(out IShellItem parent);
+        void GetDisplayName(uint sigdn, [MarshalAs(UnmanagedType.LPWStr)] out string name);
+    }
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = false)]
+    static extern void SHCreateItemFromParsingName(string path, IntPtr pbc, [MarshalAs(UnmanagedType.LPStruct)] Guid riid, out IShellItem item);
+
+    // "" = cancelled. FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_NOCHANGEDIR
+    public static string Pick(IntPtr owner, string start, string title) {
+        IFileDialog d = (IFileDialog)new FileOpenDialog();
+        uint fos; d.GetOptions(out fos); d.SetOptions(fos | 0x20 | 0x40 | 0x800 | 0x8);
+        d.SetTitle(title); d.SetOkButtonLabel("Use this folder");
+        if (!String.IsNullOrEmpty(start)) {
+            try { IShellItem s; SHCreateItemFromParsingName(start, IntPtr.Zero, typeof(IShellItem).GUID, out s); d.SetFolder(s); } catch { }
+        }
+        if (d.Show(owner) != 0) return "";
+        IShellItem r; d.GetResult(out r);
+        string path; r.GetDisplayName(0x80058000, out path);     // SIGDN_FILESYSPATH
+        return path ?? "";
+    }
+}
+"""
+
+# the PowerShell around it: a hidden, always-on-top owner window in the middle of the primary screen first, so the dialog opens in
+# front of you, not on some other monitor (D-257). The modern picker fails to build / start = the old FolderBrowserDialog, same answer.
+_PICK_PS = r"""
+Add-Type -AssemblyName System.Windows.Forms
+$o = New-Object System.Windows.Forms.Form; $o.TopMost = $true; $o.ShowInTaskbar = $false; $o.StartPosition = 'CenterScreen'
+$o.Opacity = 0; $o.Width = 1; $o.Height = 1; $o.Show(); $o.Activate()
+$start = ''; if ($env:SUCCY_START -and (Test-Path -LiteralPath $env:SUCCY_START)) { $start = $env:SUCCY_START }
+$path = $null
+try {
+    if (-not ('SuccyPickFolder' -as [type])) {
+        $dll = Join-Path $env:TEMP ('succy_pickfolder_' + $env:SUCCY_PICK_V + '.dll')
+        if (-not (Test-Path -LiteralPath $dll)) { try { Add-Type -TypeDefinition $env:SUCCY_PICK_CS -OutputAssembly $dll -OutputType Library } catch { } }
+        try { Add-Type -LiteralPath $dll } catch { Add-Type -TypeDefinition $env:SUCCY_PICK_CS }
+    }
+    $path = [SuccyPickFolder]::Pick($o.Handle, $start, 'Succy Load: pick the folder')
+} catch {
+    $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = 'Succy Load: pick the folder'; $d.ShowNewFolderButton = $false
+    if ($start) { $d.SelectedPath = $start }
+    $path = ''; if ($d.ShowDialog($o) -eq 'OK') { $path = $d.SelectedPath }
+}
+$o.Close()
+if ($path) { [Console]::OutputEncoding = [Text.Encoding]::UTF8; [Console]::Out.Write($path) }
+"""
+
+
+def folder_dialog_cmd(start, nt=None):
+    """The command + environment that open the system's own folder dialog (D-257/D-258): Windows' modern Explorer picker through
+    PowerShell, tkinter elsewhere. The script travels as -EncodedCommand and the C# in an environment variable: no command-line quoting
+    to break (the same Windows quoting that bit test_list_text)."""
+    import base64
+    import hashlib
+    import sys
+    env = dict(os.environ, SUCCY_START=start or "")
+    if (os.name == "nt") if nt is None else nt:
+        env.update(SUCCY_PICK_CS=_PICK_CS, SUCCY_PICK_V=hashlib.sha1(_PICK_CS.encode()).hexdigest()[:10])     # new C# = new dll name
+        return ["powershell", "-NoProfile", "-STA", "-EncodedCommand", base64.b64encode(_PICK_PS.encode("utf-16-le")).decode("ascii")], env
+    py = ("import os, tkinter\nfrom tkinter import filedialog\nr = tkinter.Tk(); r.withdraw(); r.attributes('-topmost', True)\n"
+          "print(filedialog.askdirectory(initialdir=os.environ.get('SUCCY_START') or None) or '', end='')")
+    return [sys.executable, "-c", py], env
 
 
 if _FIRST_LOAD:
@@ -303,37 +448,6 @@ if _FIRST_LOAD:
             return web.json_response({"error": str(exc).replace(_TAG, "").strip()})
         st = _STATE.get(nid) if (_STATE.get(nid) or {}).get("path") == path else None
         return web.json_response({"files": files, "count": len(files), "next": (st or {}).get("next", 0), "last": (st or {}).get("last")})
-
-    def _ask_folder(start):
-        # a folder dialog on THIS computer (ComfyUI runs on it): PowerShell's on Windows, tkinter elsewhere. "" = cancelled, raises = no dialog possible.
-        import subprocess
-        import sys
-        env = dict(os.environ, SUCCY_START=start or "")
-        if os.name == "nt":
-            ps = ("Add-Type -AssemblyName System.Windows.Forms; $o = New-Object System.Windows.Forms.Form; $o.TopMost = $true; "
-                  "$d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = 'Succy Load: pick the folder'; "
-                  "if ($env:SUCCY_START -and (Test-Path -LiteralPath $env:SUCCY_START)) { $d.SelectedPath = $env:SUCCY_START }; "
-                  "if ($d.ShowDialog($o) -eq 'OK') { [Console]::OutputEncoding = [Text.Encoding]::UTF8; [Console]::Out.Write($d.SelectedPath) }")
-            cmd = ["powershell", "-NoProfile", "-STA", "-Command", ps]
-        else:
-            py = ("import os, tkinter\nfrom tkinter import filedialog\nr = tkinter.Tk(); r.withdraw(); r.attributes('-topmost', True)\n"
-                  "print(filedialog.askdirectory(initialdir=os.environ.get('SUCCY_START') or None) or '', end='')")
-            cmd = [sys.executable, "-c", py]
-        out = subprocess.run(cmd, capture_output=True, env=env, timeout=600)
-        if out.returncode != 0 and not out.stdout:
-            raise RuntimeError((out.stderr or b"no folder dialog on this machine").decode("utf-8", "replace").strip()[:200])
-        return out.stdout.decode("utf-8", "replace").strip()
-
-    @PromptServer.instance.routes.post("/succy/load/pickfolder")
-    async def _load_pickfolder(request):
-        if not same_origin(request):
-            return web.json_response({"error": "cross-origin request refused"}, status=403)
-        try:
-            start = str((await request.json()).get("start") or "")
-            path = await asyncio.to_thread(_ask_folder, start)
-        except Exception as exc:
-            return web.json_response({"error": str(exc).replace(_TAG, "").strip() or "no folder dialog"})
-        return web.json_response({"path": path})
 
     def _thumb(path, size):
         mt = os.stat(path).st_mtime_ns
@@ -372,11 +486,43 @@ if _FIRST_LOAD:
             return web.Response(status=404, text=str(exc).replace(_TAG, "").strip())
         return web.Response(body=body, content_type="image/jpeg", headers={"Cache-Control": "private, max-age=300"})
 
+    @PromptServer.instance.routes.get("/succy/load/dirs")
+    async def _load_dirs(request):
+        # the in-node folder browser (D-256): ?path= -> {path, parent, dirs, images, ...} or {error}. Names and counts only, same origin only.
+        if not _fetch_ok(request):
+            return web.json_response({"error": "cross-origin request refused"}, status=403)
+        return web.json_response(await asyncio.to_thread(list_dirs, request.query.get("path", "")))
+
+    def _ask_folder(start):
+        # the system's own folder dialog on THIS computer (ComfyUI runs on it), see folder_dialog_cmd. "" = cancelled,
+        # raises = no dialog possible (the node then falls back to its in-node browser).
+        import subprocess
+        cmd, env = folder_dialog_cmd(start)
+        out = subprocess.run(cmd, capture_output=True, env=env, timeout=600)
+        if out.returncode != 0 and not out.stdout:
+            raise RuntimeError((out.stderr or b"no folder dialog on this machine").decode("utf-8", "replace").strip()[:200])
+        return out.stdout.decode("utf-8", "replace").strip()
+
+    @PromptServer.instance.routes.post("/succy/load/pickfolder")
+    async def _load_pickfolder(request):
+        if not same_origin(request):
+            return web.json_response({"error": "cross-origin request refused"}, status=403)
+        try:
+            start = str((await request.json()).get("start") or "")
+            try:
+                start = await asyncio.to_thread(resolve_folder, start)       # a name in the box = a subfolder of input: the dialog starts there
+            except Exception:
+                start = ""
+            path = await asyncio.to_thread(_ask_folder, start)
+        except Exception as exc:
+            return web.json_response({"error": str(exc).replace(_TAG, "").strip() or "no folder dialog"})
+        return web.json_response({"path": path})
+
     @PromptServer.instance.routes.post("/succy/load/seek")
     async def _load_seek(request):
         if not same_origin(request):
             return web.json_response({"error": "cross-origin request refused"}, status=403)
-        # body {node_id, folder, pos}: `next` goes on from picture `pos` (a click on the strip); pos -1 = back to the top (↺)
+        # body {node_id, folder, pos}: `next` goes on from picture `pos` (a click on the gallery); pos -1 = back to Index From (↺)
         try:
             data = await request.json()
             nid, folder, pos = str(data["node_id"]), str(data.get("folder") or ""), int(data.get("pos", -1))
@@ -384,7 +530,7 @@ if _FIRST_LOAD:
         except Exception as exc:
             return web.json_response({"error": str(exc).replace(_TAG, "").strip()}, status=400)
         st = _counter(nid, path)
-        st["next"], st["last"] = max(0, pos), None
+        st["next"], st["last"], st["start"] = max(0, pos), None, (max(0, pos) if pos >= 0 else None)   # pos -1: the next Run asks Index From again
         live_touch()
         return web.json_response({"status": "ok"})
 
@@ -397,8 +543,8 @@ class Succy_Load_Image_Resize:
                 "mode": (["image", "folder"], {"default": "image", "tooltip": "image = one picture with a mask you draw · folder = the pictures of a folder"}),
                 "source": ("STRING", {"default": "", "tooltip": "Picture dropped / pasted / loaded on the node (input folder). A connected image wins"}),
                 "folder": ("STRING", {"default": "", "tooltip": "Empty = the input folder · a name = a subfolder of input · a full path = any folder on this computer"}),
-                "pick": (["index", "next"], {"default": "index", "tooltip": "next = the following picture at every execution (Run, Loop lap, Pause ▶) · index = that one"}),
-                "index": ("INT", {"default": 0, "min": 0, "max": 99999, "step": 1, "tooltip": "Which picture of the folder (0 = the first)"}),
+                "pick": (["index", "next"], {"default": "index", "tooltip": "Next = the following picture at every execution (Run, Loop lap, Pause ▶), from Index From · Pick one (index) = that one"}),
+                "index": ("INT", {"default": 0, "min": 0, "max": 99999, "step": 1, "tooltip": "Index Pick: which picture of the folder (0 = the first)"}),
                 "resize": (["scale", "custom", "off"], {"default": "scale", "tooltip": "scale = megapixels, then scale by, then multiple · custom = width × height, then the same · off = old workflows (real size)"}),
                 "width": ("INT", {"default": 1024, "min": 0, "max": 16384, "step": 1, "tooltip": "custom: width (0 = from the height, same proportions)"}),
                 "height": ("INT", {"default": 1024, "min": 0, "max": 16384, "step": 1, "tooltip": "custom: height (0 = from the width, same proportions)"}),
@@ -421,9 +567,11 @@ class Succy_Load_Image_Resize:
                 "brush": ("STRING", {"default": "", "tooltip": "Free hand mask drawn on the node (managed by the frontend)"}),
                 # last on purpose (D-178): old workflows keep their widget values in line
                 "quad": ("STRING", {"default": "", "tooltip": "The box's corners dragged: Ctrl + corner / rotate (managed by the frontend)"}),
+                # after `quad` on purpose (D-248): workflows saved before it keep their widget values in line
+                "index_from": ("INT", {"default": 0, "min": 0, "max": 99999, "step": 1, "tooltip": "Next: the picture it starts from (0 = the first). A new value takes Next back there"}),
             },
             "optional": {
-                "image": ("IMAGE", {"tooltip": "Resize this picture instead (the folder steps aside)"}),
+                "image": ("IMAGE", {"tooltip": "Resize this picture instead (Image mode only: the Folder has no image input)"}),
                 "mask": ("MASK", {"tooltip": "The starting mask, resized with the picture: the box, the brush, grow and feather edit it (like Succy Crop)"}),
                 # EXT v2 (D-225): no `_in` sockets any more, a wire on a widget's own socket arrives under the widget's name
             },
@@ -468,8 +616,11 @@ class Succy_Load_Image_Resize:
 
     def load(self, image=None, mask=None, index_in=None, width_in=None, height_in=None, unique_id=None, dynprompt=None, **widgets):
         did = display_id(dynprompt, unique_id)
+        widgets.pop("loop", None)                          # D-258: the `loop` socket is gone; a prompt saved with it still loads
         kw = self._ext(dict(widgets), index_in, width_in, height_in)
         # D-210: the key = the values that really came in. folder + next hands out a new picture at every execution: never remembered
+        if kw.get("mode") == "folder":                     # D-248: no image / mask in a folder, even a stale wire
+            image = mask = None
         stamp = "" if image is not None else self.IS_CHANGED(**{**kw, "index": kw.get("index", 0)})
         key = None if isinstance(stamp, float) else {"kw": kw, "image": image, "mask": mask, "file": stamp}
         hit = _MEMO.get(did, key) if key is not None else _MEMO.skip(did)
@@ -492,7 +643,7 @@ class Succy_Load_Image_Resize:
         last = _LAST.get(node_id) or {}
         got = {}
         for inp in ("image", "mask"):
-            if not inputs.linked(inp):
+            if not inputs.linked(inp) or widgets.get("mode") == "folder":
                 continue
             v = inputs.get(inp)
             if v is None:

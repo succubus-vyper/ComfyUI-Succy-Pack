@@ -216,7 +216,15 @@ def _batch_pixels(items, kind, fit, size):
     h, w = _target_size([(x.shape[-2], x.shape[-1]) for x in xs], size)
     dev = xs[0].device
     out = torch.cat([_fit(x.to(dev), h, w, fit) for x in xs], 0)
-    return out.squeeze(1) if kind == "MASK" else out.movedim(1, -1)
+    out = out.squeeze(1) if kind == "MASK" else out.movedim(1, -1)
+    sizes = [(int(x.shape[-2]), int(x.shape[-1])) for x in xs for _ in range(x.shape[0])]
+    if len(set(sizes)) > 1:                 # D-244c: pictures of different sizes made one batch: the Preview shows them as a gallery only
+        try:
+            out.succy_sizes = sizes         # a tag on the tensor itself (ComfyUI hands this very object on); a copy downstream drops it
+            out.succy_items = [x[i:i + 1] for x in items for i in range(x.shape[0])]   # D-244d: and the pictures as they came (views)
+        except Exception:
+            pass
+    return out
 
 
 def _batch_latent(items, fit, size):
@@ -313,10 +321,13 @@ class Succy_Any:
     def VALIDATE_INPUTS(cls, **kwargs):
         return True
 
-    RETURN_TYPES = (ANY, "LIST", ANY, "INT")
+    # `list`: "*" for the backend's type check; the frontend types the socket (D-245): pictures / masks = ComfyUI's own image list
+    # (IMAGE / MASK + OUTPUT_IS_LIST), numbers and text = one LIST value, anything else = no `list` at all (`batch` is for those).
+    RETURN_TYPES = (ANY, ANY, ANY, "INT")
     RETURN_NAMES = ("picked", "list", "batch", "count")
     # `list` stays at position 1 whatever happens (the frontend drops `batch` only, after it): ComfyUI reads this by position
-    # D-243, her rule: `list` is ONE value, a real LIST (numbers stay numbers, text stays text), never "run once per item"
+    # D-243, her rule: `list` of numbers / text is ONE value, a real LIST, never "run once per item". D-245: of pictures / masks it is
+    # ComfyUI's native list, flagged on the INSTANCE each Run (the slot moves with the layout)
     OUTPUT_IS_LIST = (False, False, False, False)
     FUNCTION = "run"
     SUCCY_CACHE = "route"  # SmartCache (D-213): `picked` hands an input out untouched: consumers go straight to it
@@ -363,6 +374,8 @@ class Succy_Any:
         by = {"picked": picked, "list": items if "list" in uses else [], "batch": glued, "count": count}
         layout = [o for o in _csv(d.get("outs")) if o in by] or ["picked", "list", "batch", "count"]
         result = tuple(by[o] for o in layout) + (None,) * (4 - len(layout))
+        native = str(d.get("type") or "").upper() in ("IMAGE", "MASK") and "list" in uses
+        self.OUTPUT_IS_LIST = tuple(native and o == "list" for o in layout) + (False,) * (4 - len(layout))
         ui = {"picked": [IN_NAMES.index(name) + 1 if name in IN_NAMES else 0], "count": [count]}
         return {"ui": ui, "result": result}
 
