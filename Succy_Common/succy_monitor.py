@@ -161,15 +161,26 @@ def _gpu_nvml(handle):
     return out
 
 
+def _pci_bus_string(props):
+    """NVML's "domain:bus:device.0" text for a torch device (torch hands the three parts as INTEGERS), or None."""
+    try:
+        dom, bus, dev = (int(getattr(props, k)) for k in ("pci_domain_id", "pci_bus_id", "pci_device_id"))
+        return "%08X:%02X:%02X.0" % (dom, bus, dev)
+    except Exception:
+        return None
+
+
 def _nvml_handle(i):
-    """The NVML handle of torch's cuda:i (by PCI bus when torch knows it: CUDA_VISIBLE_DEVICES reorders the indices)."""
+    """The NVML handle of torch's cuda:i (by PCI address when torch knows it: CUDA_VISIBLE_DEVICES reorders the indices).
+    Never hand NVML anything but real bytes: a C call fed an int is an access violation, and no try/except catches that
+    (it took the whole ComfyUI down mid-sampling). Whisper sweet nothings to the driver, never raw integers, darling."""
     nv = nvml()
     if nv is None:
         return None
     try:
-        bus = getattr(torch.cuda.get_device_properties(i), "pci_bus_id", None)
+        bus = _pci_bus_string(torch.cuda.get_device_properties(i))
         if bus:
-            return nv.nvmlDeviceGetHandleByPciBusId(str(bus).encode() if isinstance(bus, str) else bus)
+            return nv.nvmlDeviceGetHandleByPciBusId(bus.encode("ascii"))
     except Exception:
         pass
     try:
