@@ -135,3 +135,36 @@ async def _menu_reboot(request):
         return _refused()
     threading.Thread(target=_restart, name="succy-reboot", daemon=True).start()
     return web.json_response({"ok": True, "boot": BOOT_ID})
+
+
+# The top-bar resource monitor's route (D-262) rides along with this file: __init__.py loads us, we load it.
+def _load_monitor():
+    import importlib.util
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "succy_monitor.py")
+    try:
+        spec = importlib.util.spec_from_file_location("_succy_monitor", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        sys.modules["_succy_monitor"] = mod
+    except Exception as e:
+        print(f"[Succy Pack] Resource monitor route not installed: {e}")
+
+
+_load_monitor()
+
+
+# The global pause gate (D-263, the ⏸ of the top bar) rides along the same way.
+def _load_pause_gate():
+    import importlib.util
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "succy_pause_gate.py")
+    try:
+        spec = importlib.util.spec_from_file_location("_succy_pause_gate", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        sys.modules["_succy_pause_gate"] = mod
+        mod.setup()
+    except Exception as e:
+        print(f"[Succy Pack] Global pause not installed: {e}")
+
+
+_load_pause_gate()

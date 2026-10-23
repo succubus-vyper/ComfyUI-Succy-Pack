@@ -121,7 +121,14 @@ One loader that also resizes, and shares what it holds with the rest of the pack
 **Loop Start / Loop End** repeat a piece of the graph N times, carrying values from one pass to the next. **While Start / End** keep going until your condition says stop. Four nodes, one idea: loops without copy-pasting the same chain ten times.
 
 ### ⏸ Pause Execution
-Stops the workflow right where you put it and waits for you. **Continue** or **Stop**, with a timeout that decides for you if you wander off (1 s to 1 h). It plays a little ding when it's waiting, passes any type through, and survives undo, reloads and subgraphs. Patience is a virtue. I just make it look good.
+Stops the workflow right where you put it and waits for you. **Continue** or **Stop**, with a timeout that decides for you if you wander off (1 s to 1 h). It plays a little ding when it's waiting, passes any type through, and survives undo, reloads and subgraphs. While it waits it behaves exactly like the **Global pause** below: coloured borders, and whatever you change counts when you press **Continue** (or the ▶ in the top bar) — no restart. Inside a started Loop / While your edits wait for the next Run. Patience is a virtue. I just make it look good.
+
+### ⏸ Global pause (top bar)
+Not a node: the ⏸ at the head of the progress bars holds the **whole run** between two nodes. The node at work always finishes (a KSampler ends its steps), then everything waits for you, and the borders tell you what an edit will do: **green** = still to run · **amber** = already through, but something still to run reads it, so a changed value runs again *now* · **red** = done, a change waits for the next Run. **▶** goes on, **Stop** ends it.
+- **Change your mind while it waits**: edit any value and press ▶. A green node takes the new value in this very run. An amber node runs again *now* — flip a Bool or an Any switch and the conditioning, latent, number or picture behind it is swapped before the sampler starts. Any type, inside subgraphs too.
+- **What waits for the next Run**: red nodes (nothing still to run reads them), moved / added / removed wires on amber or red nodes, new nodes.
+- **A started Loop / While is a closed world**: once it has begun, everything inside it counts as through (red). To stop *inside* a loop, use the **Pause Execution** node.
+- Want to know what ▶ did with your edits? Settings → Monitor → **Pause log**: one short line in the console. Off by default, because nobody likes a chatty partner.
 
 ### 🧹 Clean VRAM
 Passes anything straight through while it empties your VRAM on the way. Three moods: **soft** (clear the cache), **hard** (unload every model), **nuke** (and then some). Set a free-VRAM threshold and it only bothers when it needs to. A live VRAM reading sits right on the node, and it reports how much it freed.

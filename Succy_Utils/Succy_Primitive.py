@@ -191,8 +191,12 @@ def _value(d, seed):
             v = max(0.0, min(1.0, parse_float(d["mask_v"])))
             return torch.full((batch, h, w), v, dtype=torch.float32), w, h, _mp(w, h)
         ch = LATENT_CHANNELS.get(str(d["latent_family"]), 4)
-        lat = torch.zeros([batch, ch, h // 8, w // 8], device=comfy.model_management.intermediate_device())
-        return {"samples": lat}, w, h, None
+        mm = comfy.model_management
+        dt = mm.intermediate_dtype() if hasattr(mm, "intermediate_dtype") else torch.float32
+        lat = torch.zeros([batch, ch, h // 8, w // 8], device=mm.intermediate_device(), dtype=dt)
+        # like ComfyUI's EmptyLatentImage: "this is /8". A /16 model (Flux2, Krea2) then resizes the empty latent to the SAME
+        # picture size instead of reading 128x128 as a 2048 px canvas. She says how big she is, so nobody gets the wrong idea.
+        return {"samples": lat, "downscale_ratio_spacial": 8}, w, h, None
     # still undecided: nothing to give yet
     return None, None, None, None
 
