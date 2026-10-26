@@ -4,11 +4,13 @@
 #   (the output folder's and the models folder's drive), one entry per CUDA GPU (load, temperature, watts, VRAM split in three:
 #   models loaded by ComfyUI, torch's working memory, everything outside ComfyUI).
 # Every source is optional: psutil (ComfyUI ships it), pynvml (nvidia-ml-py: load / temperature / watts), torch.cuda (VRAM).
+# ?tiles=ram,gpu (A9): the page says which tiles it shows; only those sources are read (RAM alone = no NVML, no sensors, no disk).
 # A missing one leaves its fields at None and the page hides that tile. One snapshot costs ~1 ms (no blocking calls).
 # Loaded by succy_canvas_menu.py (so __init__.py stays untouched). She watches everything, darling: that's how she knows when to strike.
 import os
 import shutil
 import threading
+import time
 
 from aiohttp import web
 from server import PromptServer
@@ -26,6 +28,27 @@ except Exception:
 GB = 1024 ** 3
 _nvml = {"ok": None, "mod": None}
 _lock = threading.Lock()
+
+# Slow readings kept for a while (A9): the temperature sensors and the drive usage don't change every 1.5 s, and the NVML handle
+# and the device name of a card are the same for as long as ComfyUI runs.
+_TTL = {"temp": 8.0, "disks": 30.0}
+_cache = {}
+_handles = {}
+_names = {}
+
+
+def _cached(key, ttl, fn):
+    """fn() at most once per `ttl` seconds; its last value in between (a failing fn keeps the last good one)."""
+    now = time.monotonic()
+    hit = _cache.get(key)
+    if hit and now - hit[0] < ttl:
+        return hit[1]
+    try:
+        val = fn()
+    except Exception:
+        val = hit[1] if hit else None
+    _cache[key] = (now, val)
+    return val
 
 
 def _gb(n):
@@ -67,7 +90,7 @@ def cpu_temp(sensors):
     return None
 
 
-def read_cpu():
+def read_cpu(temp_too=True):
     if psutil is None:
         return None
     try:
@@ -75,7 +98,8 @@ def read_cpu():
         total = round(sum(cores) / len(cores), 1) if cores else None
         temp = None
         try:
-            temp = cpu_temp(psutil.sensors_temperatures()) if hasattr(psutil, "sensors_temperatures") else None
+            if temp_too:
+                temp = _cached("temp", _TTL["temp"], lambda: cpu_temp(psutil.sensors_temperatures()) if hasattr(psutil, "sensors_temperatures") else None)
         except Exception:
             pass
         return {"pct": total, "cores": [round(c, 1) for c in cores], "temp": temp,
@@ -189,7 +213,17 @@ def _nvml_handle(i):
         return None
 
 
-def read_gpus(models):
+def _handle_cached(i):
+    """NVML handle of cuda:i, looked up once (a real handle only: a failed lookup is retried next time)."""
+    h = _handles.get(i)
+    if h is None:
+        h = _nvml_handle(i)
+        if h is not None:
+            _handles[i] = h
+    return h
+
+
+def read_gpus(models, with_nvml=True):
     if torch is None:
         return []
     try:
@@ -205,9 +239,12 @@ def read_gpus(models):
             reserved = torch.cuda.memory_reserved(i)
             mine = sum(m[1] for m in models if m[3] == f"cuda:{i}" or (i == 0 and m[3] == "cuda"))
             s = split_vram(total, free, reserved, mine)
-            g = {"index": i, "name": torch.cuda.get_device_name(i), "total": _gb(total), "pct": _pct(s["used"], total),
+            if i not in _names:
+                _names[i] = torch.cuda.get_device_name(i)
+            g = {"index": i, "name": _names[i], "total": _gb(total), "pct": _pct(s["used"], total),
                  **{k: _gb(v) for k, v in s.items()}}
-            g.update(_gpu_nvml(_nvml_handle(i)))
+            if with_nvml:
+                g.update(_gpu_nvml(_handle_cached(i)))
             gpus.append(g)
         except Exception:
             continue
@@ -225,6 +262,11 @@ def _folder(kind):
 
 
 def read_disks():
+    """Drive usage, re-read every 30 s at most (it moves slowly and statting a spun-down disk is not free)."""
+    return _cached("disks", _TTL["disks"], _read_disks) or []
+
+
+def _read_disks():
     """The drive of the output folder and the one of the models folder (once if they are the same drive)."""
     out, seen = [], set()
     for kind in ("output", "models"):
@@ -250,16 +292,26 @@ def read_disks():
     return out
 
 
-def snapshot():
-    models = loaded_models()
+def parse_tiles(raw):
+    """?tiles=ram,gpu -> {"ram","gpu"}; None (no parameter) = everything, as before. An empty list = nothing to read."""
+    if raw is None:
+        return None
+    return {t for t in (x.strip() for x in raw.split(",")) if t in ("cpu", "ram", "vram", "gpu", "hdd")}
+
+
+def snapshot(tiles=None):
+    """tiles: families the page shows (cpu, ram, vram, gpu, hdd) or None for all. A source nobody shows is not touched."""
+    want = (lambda k: True) if tiles is None else (lambda k: k in tiles)
+    gpu_wanted = want("vram") or want("gpu")
+    models = loaded_models() if (want("ram") or gpu_wanted) else []
     return {
         "v": 1,
-        "cpu": read_cpu(),
-        "ram": read_ram(models),
-        "gpus": read_gpus(models),
-        "disks": read_disks(),
+        "cpu": read_cpu(temp_too=True) if want("cpu") else None,
+        "ram": read_ram(models) if want("ram") else None,
+        "gpus": read_gpus(models, with_nvml=want("gpu")) if gpu_wanted else [],
+        "disks": read_disks() if want("hdd") else [],
         "models": [{"name": m[0], "vram": _gb(m[1]), "ram": _gb(m[2]), "device": m[3]} for m in models],
-        "nvml": bool(nvml()),
+        "nvml": bool(nvml()) if want("gpu") else False,
     }
 
 
@@ -273,6 +325,6 @@ except Exception:
 @PromptServer.instance.routes.get("/succy/monitor/stats")
 async def _monitor_stats(request):
     try:
-        return web.json_response(snapshot())
+        return web.json_response(snapshot(parse_tiles(request.rel_url.query.get("tiles"))))
     except Exception as e:
         return web.json_response({"v": 1, "error": str(e)}, status=500)

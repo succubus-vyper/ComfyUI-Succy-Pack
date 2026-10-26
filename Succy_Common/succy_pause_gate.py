@@ -44,11 +44,15 @@ import threading
 import time
 
 STEP = 0.1                                     # seconds between two looks at the flags while holding
+TOPBAR_HOLD_S = 30 * 60                        # A3: a ⏸ of the top bar lets go by itself after 30 min (continue): a dead tab never jams the queue
+ORPHAN_GRACE_S = 60                            # A3: ...and sooner when no page is connected for this long (closed tab, crashed browser)
 NEED = ("server", "dynprompt", "caches", "current_item")
 _lock = threading.Lock()
 STATE = {"hooked": False, "why": "not installed", "want": False, "prompt": None, "paused": False, "node": None,
          "done": [], "todo": [], "pauses": 0, "changes": None, "last_report": None,
-         "by": None, "deadline": None, "on_timeout": "continue", "closed": False, "live": []}   # D-267: who asked (a Pause node) and its timeout
+         "by": None, "deadline": None, "on_timeout": "continue", "closed": False, "live": [],
+         "hold_s": None, "forever": False}       # A3: the top bar's window (starts when the hold does) / "hold forever", only when asked
+_orphan = {"since": None}                      # A3: when the last page went away while a top-bar pause holds   # D-267: who asked (a Pause node) and its timeout
 _run = {"prompt": None, "done": set(), "dp": None, "held": set(), "staged": set()}   # what the gate has seen pass in the current prompt (cache included)
 PENDING = None                                 # execution.ExecutionResult.PENDING, found by install(): lets a held node step back
 FAILURE = None                                 # D-273: ExecutionResult.FAILURE: Stop while held ends the run as ComfyUI's own interrupt
@@ -87,10 +91,14 @@ def snapshot():
         return {k: (list(v) if isinstance(v, (list, set)) else v) for k, v in STATE.items() if k != "changes"} | {"has_changes": STATE["changes"] is not None}
 
 
-def ask(on, prompt_id=None, by=None, timeout=None, on_timeout="continue", closed=False):
+def ask(on, prompt_id=None, by=None, timeout=None, on_timeout="continue", closed=False, forever=False):
     """⏸ asked (on=True) for this prompt, or the ask taken back before it landed (on=False). `by` / `timeout` / `closed`: a Pause
-    node asked it (D-267); the ⏸ of the top bar asks without them (no timeout, edits on)."""
+    node asked it (D-267); the ⏸ of the top bar asks without them (edits on) and gets TOPBAR_HOLD_S + the orphan release (A3),
+    unless `forever` says, out loud, to wait for ever."""
+    topbar = bool(on and by is None and not timeout)
     with _lock:
+        STATE.update(hold_s=TOPBAR_HOLD_S if topbar and not forever else None, forever=bool(topbar and forever))
+        _orphan["since"] = None
         STATE["want"] = bool(on)
         STATE["prompt"] = str(prompt_id) if on and prompt_id else None
         STATE.update(by=str(by) if on and by is not None else None, on_timeout=str(on_timeout or "continue"),
@@ -124,11 +132,36 @@ def node_action(by, action, prompt=None):
     return True
 
 
+def _pages_open():
+    """True / False = a page is / is not connected to the server's websocket; None = cannot tell (never releases on a guess)."""
+    try:
+        from server import PromptServer
+        socks = getattr(PromptServer.instance, "sockets", None)
+        return None if not isinstance(socks, dict) else len(socks) > 0
+    except Exception:
+        return None
+
+
+def _orphaned():
+    """A3: a top-bar pause (not 'forever') with no page connected for ORPHAN_GRACE_S: nobody is left to press ▶."""
+    with _lock:
+        topbar = STATE["by"] is None and STATE["hold_s"] is not None
+    if not topbar or _pages_open() is not False:
+        _orphan["since"] = None
+        return False
+    now = time.time()
+    if _orphan["since"] is None:
+        _orphan["since"] = now
+    return now - _orphan["since"] >= ORPHAN_GRACE_S
+
+
 def _expired():
-    """The Pause node's timeout ran out while holding: on_timeout 'continue' lets go (no edits), anything else stops the run."""
+    """The Pause node's timeout (or the top bar's window, A3) ran out while holding, or the page that paused is gone: on_timeout
+    'continue' lets go (no edits), anything else stops the run."""
+    orphan = _orphaned()
     with _lock:
         d = STATE["deadline"]
-        if d is None or time.time() < d:
+        if not orphan and (d is None or time.time() < d):
             return False
         stop = STATE["on_timeout"] != "continue"
         STATE.update(want=False, deadline=None, changes=None)
@@ -376,7 +409,7 @@ def _hold_for(prompt_id):
             return False
         if STATE["prompt"] not in (None, str(prompt_id)):
             STATE["want"], STATE["prompt"] = False, None     # asked for a run that has ended: never leaks onto the next one
-            STATE.update(by=None, deadline=None, closed=False)
+            STATE.update(by=None, deadline=None, closed=False, hold_s=None, forever=False)
             return False
         return True
 
@@ -547,6 +580,8 @@ def _enter(a):
     loop = _loop_running(dp, el, node)
     with _lock:
         closed = STATE["closed"] = STATE["closed"] or loop
+        if STATE["deadline"] is None and STATE["hold_s"]:
+            STATE["deadline"] = time.time() + STATE["hold_s"]     # A3: the top bar's window starts when the run really stops
     live = [] if closed or not _can_rerun(el) else live_of(dp, el, node, done)
     done = [d for d in done if d not in live]
     with _lock:
@@ -560,7 +595,8 @@ def _leave(pid, report=None, timeout=False):
     why = "stop" if _interrupted() else "timeout" if timeout else "play"
     with _lock:
         by = STATE["by"]
-        STATE.update(paused=False, node=None, done=[], todo=[], live=[], by=None, deadline=None, closed=False)
+        STATE.update(paused=False, node=None, done=[], todo=[], live=[], by=None, deadline=None, closed=False, hold_s=None, forever=False)
+        _orphan["since"] = None
         if why == "stop":
             STATE["want"], STATE["prompt"], STATE["changes"] = False, None, None
     _send("succy.run.resumed", {"prompt_id": pid, "why": why, "report": report, "by": by})
@@ -733,7 +769,7 @@ def _routes():
             data = await request.json()
         except Exception:
             data = {}
-        return web.json_response(ask(bool(data.get("on", True)), data.get("prompt_id")) if isinstance(data, dict) else snapshot())
+        return web.json_response(ask(bool(data.get("on", True)), data.get("prompt_id"), forever=bool(data.get("forever"))) if isinstance(data, dict) else snapshot())
 
     @R.post("/succy/run/resume")
     async def _resume(request):
