@@ -467,7 +467,7 @@ def _install_routes():
     if srv is None or getattr(srv, "_succy_live_routes", False):
         return
     srv._succy_live_routes = True
-    from _succy_common import LiveWait, live_eval, live_types, memo_stats, same_origin
+    from _succy_common import LiveWait, live_eval, live_types, memo_stats, refused, same_origin
 
     @srv.routes.get("/succy/memo/stats")
     async def _memo_stats(request):
@@ -496,7 +496,7 @@ def _install_routes():
     @srv.routes.post("/succy/live/view")
     async def _live_view(request):
         if not same_origin(request):
-            return web.json_response({"error": "cross-origin request refused"}, status=403)
+            return refused()
         # ?output=<name>&max=<px> · body = the chain {node_id, type, widgets, linked, from}. Not ready = 200 {ready: false, need, why}
         output = str(request.query.get("output", ""))
         try:

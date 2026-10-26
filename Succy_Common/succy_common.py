@@ -19,6 +19,7 @@ What lives here, and why one copy:
 import ast
 import json
 import math
+import re
 import threading
 from collections import OrderedDict
 
@@ -192,6 +193,35 @@ def same_origin(request):
         return urlsplit(origin).netloc.lower() == host
     except Exception:
         return False
+
+
+def refused():
+    """The one answer for a route that won't serve a cross-site poke: 403 + this text (the check itself is same_origin)."""
+    from aiohttp import web
+    return web.json_response({"error": "cross-origin request refused"}, status=403)
+
+
+def is_link(v):
+    """True for a prompt link, [node_id, output_slot] (ComfyUI's own is_link, without needing the engine)."""
+    return isinstance(v, (list, tuple)) and len(v) == 2 and isinstance(v[0], str) and isinstance(v[1], int)
+
+
+def clean_label(raw, i):
+    """A user-typed result name made safe for the debug pane: letters, digits, space, _ and -, 18 chars; empty = r<i>."""
+    return re.sub(r"[^a-zA-Z0-9 _-]", "", str(raw or "")).strip()[:18] or f"r{i}"
+
+
+def display_id(dynprompt, node_id):
+    """The id the frontend shows (clones of nested loops have other internal ids). Same type in, same type out:
+    None stays None, a failing/absent dynprompt gives node_id back untouched (callers that want text wrap it in str())."""
+    if node_id is None:
+        return None
+    try:
+        if dynprompt is not None and hasattr(dynprompt, "get_display_node_id"):
+            return dynprompt.get_display_node_id(node_id)
+    except Exception:
+        pass
+    return node_id
 
 
 # ---------------------------------------------------------------------------

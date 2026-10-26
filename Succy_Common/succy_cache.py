@@ -440,7 +440,7 @@ def _install_routes():
         import asyncio
         from aiohttp import web
         from server import PromptServer
-        from _succy_common import same_origin
+        from _succy_common import refused, same_origin
     except Exception:
         return
     srv = getattr(PromptServer, "instance", None)
@@ -458,7 +458,7 @@ def _install_routes():
     @srv.routes.post("/succy/cache/precompute")
     async def _precompute(request):
         if not same_origin(request):
-            return web.json_response({"error": "cross-origin request refused"}, status=403)
+            return refused()
         try:
             body = await request.json()
             res = await asyncio.to_thread(precompute, body.get("nodes") or {}, body.get("want") or {}, mapping())
@@ -476,7 +476,7 @@ def _install_routes():
     @srv.routes.post("/succy/cache/switch")
     async def _switch(request):
         if not same_origin(request):
-            return web.json_response({"error": "cross-origin request refused"}, status=403)
+            return refused()
         try:
             b = await request.json()
         except Exception:

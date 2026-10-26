@@ -12,7 +12,7 @@ from aiohttp import web
 import comfy.model_management
 from server import PromptServer
 
-from _succy_common import same_origin, LiveWait, door_values, live_touch, value_memo   # the shared drawer (loaded once by __init__.py)
+from _succy_common import refused, same_origin, LiveWait, door_values, live_touch, value_memo   # the shared drawer (loaded once by __init__.py)
 # the picture helpers moved to the shared picture drawer (D-156): Load & Resize uses them too. Same functions, old names.
 from _succy_image import (display_id as _display_id, png_bytes as _png_bytes, snap as _snap, mp_size as _mp_size, resize as _resize,
                           prep_mask as _prep_mask, load_source as _load_source, decode_brush as _decode_brush, runmax as _runmax,
@@ -77,7 +77,7 @@ if _FIRST_LOAD:
     @PromptServer.instance.routes.post("/succy/crop/action")
     async def _crop_action(request):
         if not same_origin(request):
-            return web.json_response({"error": "cross-origin request refused"}, status=403)
+            return refused()
         try:
             data = await request.json()
         except Exception:
@@ -124,7 +124,7 @@ if _FIRST_LOAD:
     @PromptServer.instance.routes.post("/succy/crop/download")
     async def _crop_download(request):
         if not same_origin(request):
-            return web.json_response({"error": "cross-origin request refused"}, status=403)
+            return refused()
         # ?node_id=<shown id>&which=<output> -> that output as a PNG. The file carries the way back in (tEXt "succy_crop", D-123).
         nid, which = str(request.query.get("node_id", "")), request.query.get("which", "")
         if which not in _DOWNLOADS:
@@ -144,7 +144,7 @@ if _FIRST_LOAD:
     @PromptServer.instance.routes.post("/succy/crop/stitch")
     async def _crop_stitch(request):
         if not same_origin(request):
-            return web.json_response({"error": "cross-origin request refused"}, status=403)
+            return refused()
         # What Stitch's live preview needs from a Crop, no Queue (D-123). ?node_id=<Crop shown id>&what=
         #   info = JSON {region, selection, orig_size, work_size} · base = the ORIGINAL region as PNG · mask = the crop's mask over the region as PNG
         #   "not yet" (no picture, a wire that fills only at Run) is NOT an error: 200 {ready: false, need, why} keeps the console quiet
@@ -181,7 +181,7 @@ if _FIRST_LOAD:
     @PromptServer.instance.routes.post("/succy/stitch/render")
     async def _stitch_render(request):
         if not same_origin(request):
-            return web.json_response({"error": "cross-origin request refused"}, status=403)
+            return refused()
         # Stitch's Copy / Download (D-124): the FULL-resolution result, no Queue, computed by Succy_Stitch.stitch itself (pixel = Queue).
         # ?node_id=<Stitch shown id> · body {widgets, linked} of the Stitch + crop: {node_id, widgets, linked} of the Crop on its wire.
         nid = str(request.query.get("node_id", ""))

@@ -12,7 +12,7 @@ import json
 import math
 import re
 
-from _succy_common import parse_bool, parse_float, parse_int, to_container   # the shared drawer (loaded once by __init__.py)
+from _succy_common import clean_label as _clean_label, parse_bool, parse_float, parse_int, to_container   # the shared drawer (loaded once by __init__.py)
 
 MAX_OPERATIONS = 15
 INPUT_NAMES = list("abcdefghij")
@@ -100,10 +100,6 @@ def _text(v):
     if shape is not None and hasattr(v, "dtype") and not isinstance(v, (str, bytes)):
         return f"<tensor {'x'.join(str(int(d)) for d in shape)}>"
     return str(v)
-
-
-def _clean_label(raw, i):
-    return re.sub(r"[^a-zA-Z0-9 _-]", "", str(raw or "")).strip()[:18] or f"r{i}"
 
 
 def _show_value(v, limit=30):

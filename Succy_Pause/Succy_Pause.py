@@ -7,7 +7,7 @@ from aiohttp import web
 from comfy_api.latest import io
 from server import PromptServer
 
-from _succy_common import DISPLAY, same_origin   # the shared drawer (loaded once by __init__.py)
+from _succy_common import DISPLAY, display_id, is_link as _is_link, refused, same_origin   # the shared drawer (loaded once by __init__.py)
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -18,20 +18,6 @@ _NODE_STATES: dict[str, str] = {}
 
 _LOOP_STARTS = ("Succy_LoopStart", "Succy_WhileStart")
 _LOOP_ENDS = ("Succy_LoopEnd", "Succy_WhileEnd")
-
-
-def _is_link(value) -> bool:
-    return (isinstance(value, (list, tuple)) and len(value) == 2
-            and isinstance(value[0], str) and isinstance(value[1], int))
-
-
-def _display_id(dynprompt, unique_id) -> str:
-    try:
-        if dynprompt is not None and hasattr(dynprompt, "get_display_node_id"):
-            return str(dynprompt.get_display_node_id(unique_id))
-    except Exception:
-        pass
-    return str(unique_id)
 
 
 def _is_in_loop(dynprompt, unique_id) -> bool:
@@ -101,7 +87,7 @@ def _notify_frontend(display_id: str, in_loop: bool, gate: bool = False) -> None
 async def _pause_action(request: web.Request) -> web.Response:
     """Receives the user's action (continue/stop) from the frontend."""
     if not same_origin(request):
-        return web.json_response({"error": "cross-origin request refused"}, status=403)
+        return refused()
     try:
         data = await request.json()
     except Exception:
@@ -197,7 +183,7 @@ class Succy_PauseExecution(io.ComfyNode):
     def execute(cls, input, pause_flow, timeout_seconds, on_timeout,
                 emit_sound, run_id):
         dynprompt = getattr(cls.hidden, "dynprompt", None)
-        unique_id = _display_id(dynprompt, cls.hidden.unique_id)
+        unique_id = str(display_id(dynprompt, cls.hidden.unique_id))
 
         # --- Immediate pass-throughs ---
         if not pause_flow:

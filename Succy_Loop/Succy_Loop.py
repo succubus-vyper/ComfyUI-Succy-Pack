@@ -20,7 +20,7 @@ except Exception:
     _HAS_PROMPT_SERVER = False
 
 
-from _succy_common import ANY   # the shared drawer (loaded once by __init__.py)
+from _succy_common import ANY, display_id as _display_id   # the shared drawer (loaded once by __init__.py)
 
 _FLOW_TAG = "SuccyFlow"
 _STATE_TAG = "_succy"
@@ -89,17 +89,6 @@ def _emit_while_status(start_id, iteration, side, active_slots, condition=None, 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-def _display_id(dynprompt, node_id):
-    """Id shown in the frontend (clones of nested loops have different internal ids)."""
-    if node_id is None:
-        return None
-    try:
-        if dynprompt is not None and hasattr(dynprompt, "get_display_node_id"):
-            return dynprompt.get_display_node_id(node_id)
-    except Exception:
-        pass
-    return node_id
-
 def _is_flow(value):
     return (
         isinstance(value, (tuple, list))

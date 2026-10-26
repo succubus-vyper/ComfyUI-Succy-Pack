@@ -16,10 +16,9 @@ import time
 from aiohttp import web
 from server import PromptServer
 
-from _succy_common import same_origin
+from _succy_common import refused as _refused, same_origin
 
 BOOT_ID = f"{os.getpid()}-{time.time():.3f}"
-_refused = lambda: web.json_response({"error": "cross-origin request refused"}, status=403)
 
 
 def _queue_counts():

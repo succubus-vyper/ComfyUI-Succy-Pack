@@ -12,6 +12,8 @@ import math
 import re
 from decimal import Decimal, ROUND_HALF_UP
 
+from _succy_common import clean_label as _clean_label   # the shared drawer (loaded once by __init__.py)
+
 MAX_EQUATIONS = 15
 INPUT_NAMES = list("abcdefghij")
 FORMAT_OPTIONS = ["FLOAT", "INT", "STRING", "BOOL"]
@@ -162,11 +164,6 @@ def evaluate(expr, env):
 
 # ---- text helpers --------------------------------------------------------------------------------------
 _TOKEN = re.compile(r"@\{?([A-Za-z_][A-Za-z0-9_]*)\}?")
-
-
-def _clean_label(raw, i):
-    clean = re.sub(r"[^a-zA-Z0-9 _-]", "", str(raw or "")).strip()[:18]
-    return clean or f"r{i}"
 
 
 def _build_debug_labels(kwargs, n):

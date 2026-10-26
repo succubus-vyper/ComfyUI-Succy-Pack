@@ -12,7 +12,7 @@ from PIL import Image, ImageOps
 import folder_paths
 from server import PromptServer
 
-from _succy_common import LiveWait, coerce_widgets, door_values, live_touch, same_origin, value_memo
+from _succy_common import LiveWait, coerce_widgets, door_values, live_touch, refused, same_origin, value_memo
 from _succy_image import (IMAGE_EXT, blur, decode_brush, display_id, file_stamp, grow, hex_rgb, input_path, load_picture, mp_size, send_preview,
                           snap, parse_warp, quad_mask)
 
@@ -434,7 +434,7 @@ if _FIRST_LOAD:
     @PromptServer.instance.routes.post("/succy/load/list")
     async def _load_list(request):
         if not same_origin(request):
-            return web.json_response({"error": "cross-origin request refused"}, status=403)
+            return refused()
         # body {node_id, folder} -> {files, count, next, last} or {error}: the strip of thumbnails under the picture
         try:
             data = await request.json()
@@ -490,7 +490,7 @@ if _FIRST_LOAD:
     async def _load_dirs(request):
         # the in-node folder browser (D-256): ?path= -> {path, parent, dirs, images, ...} or {error}. Names and counts only, same origin only.
         if not _fetch_ok(request):
-            return web.json_response({"error": "cross-origin request refused"}, status=403)
+            return refused()
         return web.json_response(await asyncio.to_thread(list_dirs, request.query.get("path", "")))
 
     def _ask_folder(start):
@@ -506,7 +506,7 @@ if _FIRST_LOAD:
     @PromptServer.instance.routes.post("/succy/load/pickfolder")
     async def _load_pickfolder(request):
         if not same_origin(request):
-            return web.json_response({"error": "cross-origin request refused"}, status=403)
+            return refused()
         try:
             start = str((await request.json()).get("start") or "")
             try:
@@ -521,7 +521,7 @@ if _FIRST_LOAD:
     @PromptServer.instance.routes.post("/succy/load/seek")
     async def _load_seek(request):
         if not same_origin(request):
-            return web.json_response({"error": "cross-origin request refused"}, status=403)
+            return refused()
         # body {node_id, folder, pos}: `next` goes on from picture `pos` (a click on the gallery); pos -1 = back to Index From (↺)
         try:
             data = await request.json()

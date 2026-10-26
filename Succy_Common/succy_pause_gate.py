@@ -750,9 +750,10 @@ def _routes():
     from aiohttp import web
     from server import PromptServer
     try:
-        from _succy_common import same_origin
+        from _succy_common import refused, same_origin
     except Exception:
         same_origin = lambda r: True               # noqa: E731 (the shared drawer is always there in ComfyUI)
+        refused = lambda: web.json_response({"error": "cross-origin request refused"}, status=403)   # noqa: E731
     R = PromptServer.instance.routes
 
     @R.get("/succy/run/state")
@@ -762,7 +763,7 @@ def _routes():
     @R.post("/succy/run/pause")
     async def _pause(request):
         if not same_origin(request):
-            return web.json_response({"error": "cross-origin request refused"}, status=403)
+            return refused()
         if not STATE["hooked"]:
             return web.json_response({"error": "pause gate not hooked: " + STATE["why"]} | snapshot(), status=409)
         try:
@@ -774,7 +775,7 @@ def _routes():
     @R.post("/succy/run/resume")
     async def _resume(request):
         if not same_origin(request):
-            return web.json_response({"error": "cross-origin request refused"}, status=403)
+            return refused()
         try:
             data = await request.json()
         except Exception:

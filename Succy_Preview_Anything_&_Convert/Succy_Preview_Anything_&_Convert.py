@@ -17,7 +17,7 @@ import torch
 from PIL import Image
 
 
-from _succy_common import ANY, parse_bool, parse_float, parse_int, to_container   # the shared drawer (loaded once by __init__.py)
+from _succy_common import ANY, parse_bool, parse_float, parse_int, to_container, wired_outputs   # the shared drawer (loaded once by __init__.py)
 
 _PREVIEW_FILES = OrderedDict()   # node key -> the temp files it currently shows (the next run deletes the ones it no longer needs)
 _PLAYER = OrderedDict()          # node key -> (weak ref to the source video/audio, its player file): same source = no re-save
@@ -232,21 +232,6 @@ def audio_peaks(waveform, bins=_AUDIO_PEAKS):
     x = torch.nn.functional.pad(x, (0, k * n - n_s)).reshape(n, k).amax(1)
     top = float(x.max()) or 1.0
     return [round(float(v) / top, 3) for v in x]
-
-
-def wired_outputs(prompt, unique_id):
-    """Output slots of this node that some node downstream reads. None = can't tell (then everything gets computed)."""
-    if not isinstance(prompt, dict) or unique_id is None or str(unique_id) not in prompt:
-        return None
-    uid, out = str(unique_id), set()
-    for n in prompt.values():
-        for v in ((n or {}).get("inputs") or {}).values():
-            if isinstance(v, list) and len(v) == 2 and str(v[0]) == uid:
-                try:
-                    out.add(int(v[1]))
-                except (TypeError, ValueError):
-                    pass
-    return out
 
 
 def _video_classes():
@@ -1808,7 +1793,7 @@ def _register_routes():
     try:
         from aiohttp import web
         from server import PromptServer
-        from _succy_common import same_origin
+        from _succy_common import refused, same_origin
         srv = PromptServer.instance
         if getattr(srv, "_succy_preview_routes", False) is True:
             return
@@ -1834,7 +1819,7 @@ def _register_routes():
     @srv.routes.post("/succy/preview/fps")
     async def _fps(request):
         if not same_origin(request):
-            return web.json_response({"error": "cross-origin request refused"}, status=403)
+            return refused()
         try:
             data = await request.json()
             out = await asyncio.to_thread(apply_fps, data.get("key", ""), data.get("fps"), bool(data.get("auto")))
@@ -1848,7 +1833,7 @@ def _register_routes():
     @srv.routes.post("/succy/preview/view")
     async def _view(request):
         if not same_origin(request):
-            return web.json_response({"error": "cross-origin request refused"}, status=403)
+            return refused()
         try:
             data = await request.json()
             out = await asyncio.to_thread(switch_view, data.get("key", ""), data.get("fields") or {})
