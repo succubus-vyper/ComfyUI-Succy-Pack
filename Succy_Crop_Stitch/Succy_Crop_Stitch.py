@@ -12,7 +12,7 @@ from aiohttp import web
 import comfy.model_management
 from server import PromptServer
 
-from _succy_common import refused, same_origin, LiveWait, door_values, live_touch, value_memo   # the shared drawer (loaded once by __init__.py)
+from _succy_common import refused, same_origin, LiveWait, door_values, live_touch, ram_holder, value_memo, say   # the shared drawer (loaded once by __init__.py)
 # the picture helpers moved to the shared picture drawer (D-156): Load & Resize uses them too. Same functions, old names.
 from _succy_image import (display_id as _display_id, png_bytes as _png_bytes, snap as _snap, mp_size as _mp_size, resize as _resize,
                           prep_mask as _prep_mask, load_source as _load_source, decode_brush as _decode_brush, runmax as _runmax,
@@ -53,6 +53,7 @@ _LAST_MAX = 12               # nodes remembered at once: the oldest one lets go 
 # D-210: the value memo — same values in (widgets, wires, files) = the last result out, no file read, no mask, no resize. Never with
 # the hold on (the node must stop and show the fresh picture), never for a download (_quiet / _all)
 _MEMO_CROP, _MEMO_STITCH = value_memo("crop", _LAST_MAX), value_memo("stitch", _LAST_MAX)
+ram_holder("crop / stitch last run", _LAST.clear, lambda: list(_LAST.values()))   # D-308: counted in the RAM row, let go by ComfyUI's free
 
 
 def _remember(did, entry):
@@ -333,7 +334,7 @@ def _hold(display_id, timeout):
             comfy.model_management.throw_exception_if_processing_interrupted()
             st = _NODE_STATES.get(display_id, "wait")
             if st == "stop":
-                print(f"{_TAG} node {display_id} stopped by user.")
+                say(f"{_TAG} node {display_id} stopped by user.")
                 comfy.model_management.interrupt_current_processing()
                 return
             if st == "continue" or time.time() - t0 >= timeout:
@@ -482,7 +483,7 @@ class Succy_Crop:
         if not _quiet:                                     # a download (D-117) neither shows nor waits
             _send_preview(did, image, x, y, w, h)
         if hold and not _quiet and not str(run_id).endswith("_continue"):
-            print(f"{_TAG} node {did} waiting up to {hold_timeout}s for a selection...")
+            say(f"{_TAG} node {did} waiting up to {hold_timeout}s for a selection...")
             _hold(did, hold_timeout)
 
         # --- selection (full-size [H,W] mask): base = input mask (if it has pixels) ∪ the rectangle (if on and drawn, softened by
@@ -599,7 +600,7 @@ def _fit_mode(w, h, rw, rh, mode):
     diff = abs((w / h) / (rw / rh) - 1.0)
     if diff < 0.02:
         return "crop_center"
-    print(f"{_TAG} worked image is {w}x{h} but the crop region is {rw}x{rh} "
+    say(f"{_TAG} worked image is {w}x{h} but the crop region is {rw}x{rh} "
           f"({diff * 100:.1f}% off in proportions): stretching it. Pick crop_center / fit to change that.")
     return "stretch"
 
@@ -811,7 +812,7 @@ def _resolve_stitch(st, base, mask):
     if mask is None:                                       # a new base for Crop's cut: it must be the same picture, same size
         oW, oH = st["orig_size"]
         if (W, H) != (oW, oH):
-            print(f"{_TAG} base image is {W}x{H}, the Crop worked at {oW}x{oH}: resizing the base to fit the cut.")
+            say(f"{_TAG} base image is {W}x{H}, the Crop worked at {oW}x{oH}: resizing the base to fit the cut.")
             orig = _resize(orig.permute(0, 3, 1, 2), oH, oW).permute(0, 2, 3, 1).contiguous()
         return {**st, "image": orig}
     m = _prep_mask(mask, H, W).to(orig.device)
@@ -941,7 +942,7 @@ class Succy_Stitch:
             _remember(did, {"st_image": image, "st_base": base_image, "st_mask": mask})
             _send_preview(did, image, 0, 0, 0, 0)
             if hold and not str(run_id).endswith("_continue"):            # retouch on the fresh result, then ▶ (same shield as Crop / Pause)
-                print(f"{_TAG} node {did} waiting up to {hold_timeout}s for a retouch...")
+                say(f"{_TAG} node {did} waiting up to {hold_timeout}s for a retouch...")
                 _hold(did, hold_timeout)
         orig = stitch["image"]
         B_o, H, W, C = orig.shape

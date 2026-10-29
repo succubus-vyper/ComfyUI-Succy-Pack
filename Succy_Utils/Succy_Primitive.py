@@ -5,7 +5,7 @@ import re
 import torch
 import comfy.model_management
 
-from _succy_common import ANY, LiveWait, coerce_widgets, convert_text, door_values, parse_bool, parse_float, parse_int   # the shared drawer (loaded once by __init__.py)
+from _succy_common import ANY, LiveWait, coerce_widgets, convert_text, door_values, parse_bool, parse_float, parse_int, say   # the shared drawer (loaded once by __init__.py)
 
 # ====================================================================== #
 #  Succy_Primitive — "the ultimate madafacca primitive"                   #
@@ -74,7 +74,7 @@ def _data(raw):
     try:
         d = json.loads(raw) if isinstance(raw, str) and raw.strip() else {}
     except (json.JSONDecodeError, TypeError):
-        print(f"[{TAG}] data JSON unreadable -> defaults")
+        say(f"[{TAG}] data JSON unreadable -> defaults")
         d = {}
     if not isinstance(d, dict):
         d = {}
@@ -131,7 +131,7 @@ def _as_number(x):
             return f
     except ValueError:
         pass
-    print(f"[{TAG}] list item {s!r} is not a number -> kept as text")
+    say(f"[{TAG}] list item {s!r} is not a number -> kept as text")
     return x
 
 

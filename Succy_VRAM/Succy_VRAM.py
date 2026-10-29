@@ -9,7 +9,7 @@ from aiohttp import web
 from server import PromptServer
 
 
-from _succy_common import ANY as any_type   # the shared drawer (loaded once by __init__.py)
+from _succy_common import ANY as any_type, say   # the shared drawer (loaded once by __init__.py)
 
 
 _CLASS = "Succy_CleanVram"
@@ -30,7 +30,7 @@ def _clean(min_free_vram_gb=0.0, clean_mode="hard", when=""):
     # Threshold check: enough room already, nothing to do
     if min_free_vram_gb > 0 and free_before is not None and free_before > min_free_vram_gb:
         report = f"Cleanup skipped{when}. Free VRAM ({free_before:.2f} GB) > threshold ({min_free_vram_gb:.2f} GB)."
-        print(f"[Succy Pack] {report}")
+        say(f"[Succy Pack] {report}")
         return f"skipped{when} · {free_before:.2f} GB free > {min_free_vram_gb:.2f} GB", report
 
     report_lines = [f"[Succy Pack] VRAM cleanup ({clean_mode}){when}..."]
@@ -71,7 +71,7 @@ def _clean(min_free_vram_gb=0.0, clean_mode="hard", when=""):
         short = f"{clean_mode}{when} · freed {freed:.2f} GB ({free_before:.2f} → {free_after:.2f} GB free)"
 
     final_report = "\n".join(report_lines)
-    print(final_report)
+    say(final_report)
     return short, final_report
 
 
@@ -131,7 +131,7 @@ def install_cached_cleaner(server):
                 orig("executed", {"node": nid, "display_node": nid, "output": {"vram_report": [short]}, "prompt_id": pid}, sid)
         except Exception as e:                                       # a cleaner never breaks a Run
             HOOK["last"] = f"error: {type(e).__name__}: {e}"
-            print(f"[Succy Pack] Clean VRAM (cached): skipped, {type(e).__name__}: {e}")
+            say(f"[Succy Pack] Clean VRAM (cached): skipped, {type(e).__name__}: {e}")
 
     send_sync.__succy_vram__ = True
     server.send_sync = send_sync

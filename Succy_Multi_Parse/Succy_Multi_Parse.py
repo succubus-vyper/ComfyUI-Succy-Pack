@@ -12,7 +12,7 @@ import json
 import math
 import re
 
-from _succy_common import clean_label as _clean_label, parse_bool, parse_float, parse_int, to_container   # the shared drawer (loaded once by __init__.py)
+from _succy_common import clean_label as _clean_label, parse_bool, parse_float, parse_int, to_container, say   # the shared drawer (loaded once by __init__.py)
 
 MAX_OPERATIONS = 15
 INPUT_NAMES = list("abcdefghij")
@@ -403,7 +403,7 @@ class Succy_Multi_Parse:
                 raw_val = run_mode(mode, kind, raw, nums, env, wired, bool(cfg.get(f"tm_{i}", False)))
             except Exception as e:                  # a broken block gives a neutral value and a red line, never a dead queue
                 err = f"{type(e).__name__}: {e}"
-                print(f"[Succy Multi Parse] r{i} ('{labels[f'r{i}']}', {mode}): {err}")
+                say(f"[Succy Multi Parse] r{i} ('{labels[f'r{i}']}', {mode}): {err}")
                 raw_val = _neutral(fmt)
             shown = shown if shown.strip(" |") else "(empty)"
             if len(shown) > 140:

@@ -1,6 +1,6 @@
 import json
 
-from _succy_common import ANY, convert_text   # the shared drawer (loaded once by __init__.py)
+from _succy_common import ANY, convert_text, say   # the shared drawer (loaded once by __init__.py)
 
 # ====================================================================== #
 #  Succy_Pick_Combo — multi-column "Pick Combo" (D-67)                    #
@@ -74,7 +74,7 @@ def _pc_table(raw):
     try:
         t = json.loads(raw) if isinstance(raw, str) and raw.strip() else {}
     except (json.JSONDecodeError, TypeError):
-        print("[Succy Pick Combo] table JSON unreadable -> empty table")
+        say("[Succy Pick Combo] table JSON unreadable -> empty table")
         t = {}
     if not isinstance(t, dict):
         t = {}
@@ -154,7 +154,7 @@ class Succy_Pick_Combo:
                         idx = i
                         break
             if idx is None:
-                print(f"[Succy Pick Combo] choice '{ch[:40]}' is not a label -> row {sel}")
+                say(f"[Succy Pick Combo] choice '{ch[:40]}' is not a label -> row {sel}")
         # 2) row chosen in the node — her own pick, no outside influence
         if idx is None:
             idx = sel

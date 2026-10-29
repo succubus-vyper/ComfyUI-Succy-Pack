@@ -4,6 +4,7 @@
 #   POST /succy/menu/free_soft   -> empty the CUDA cache (models stay loaded)
 #   POST /succy/menu/force_stop  -> clear the queue, interrupt, and if the job won't listen: an interrupt thrown INSIDE the worker
 #   POST /succy/menu/reboot      -> restart ComfyUI WITHOUT auto-launch: no new browser tab, the tab that asked reloads itself
+#   GET/POST /succy/console      -> may the nodes talk in ComfyUI's console (D-311, the page sends its setting at boot and on change)
 # Hard VRAM, Clear Queue and Interrupt use ComfyUI's own routes (/free, /queue, /interrupt) from the page.
 # She says when to stop, and she means it.
 import ctypes
@@ -16,7 +17,7 @@ import time
 from aiohttp import web
 from server import PromptServer
 
-from _succy_common import refused as _refused, same_origin
+from _succy_common import TALK, refused as _refused, same_origin, set_talk
 
 BOOT_ID = f"{os.getpid()}-{time.time():.3f}"
 
@@ -128,6 +129,22 @@ def _restart():
         os.execv(sys.executable, [sys.executable] + args)
 
 
+@PromptServer.instance.routes.get("/succy/console")
+async def _console_get(request):
+    return web.json_response({"talk": TALK["on"]})
+
+
+@PromptServer.instance.routes.post("/succy/console")
+async def _console_set(request):
+    if not same_origin(request):
+        return _refused()
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    return web.json_response({"talk": set_talk(body.get("talk"))})
+
+
 @PromptServer.instance.routes.post("/succy/menu/reboot")
 async def _menu_reboot(request):
     if not same_origin(request):
@@ -167,3 +184,20 @@ def _load_pause_gate():
 
 
 _load_pause_gate()
+
+
+# The RAM keeper (D-308: ComfyUI's free empties our memos too, the RAM ceiling at the end of a Run) rides along the same way.
+def _load_ram():
+    import importlib.util
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "succy_ram.py")
+    try:
+        spec = importlib.util.spec_from_file_location("_succy_ram", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        sys.modules["_succy_ram"] = mod
+        mod.setup()
+    except Exception as e:
+        print(f"[Succy Pack] RAM keeper not installed: {e}")
+
+
+_load_ram()

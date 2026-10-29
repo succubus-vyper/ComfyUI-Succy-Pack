@@ -187,6 +187,8 @@ Every input and output name becomes a **chip**: click it and pick what to connec
 - **Load Image & Resize, Folder mode**: a full path can point anywhere on the computer that runs ComfyUI (like other folder loaders). Its thumbnails route only answers ComfyUI's own page and only with picture files of that folder.
 - **Live link**: Succy nodes ask each other for a reduced picture while you edit; the full size is computed only on Run, Copy and Download. Primitive (Image / Mask), Any, Load, Crop and Stitch send; Crop, Stitch, Load, Any and Preview receive. **Empty → Block** needs a ComfyUI that has `ExecutionBlocker` (anything recent); otherwise it hands out nothing, as in the plain mode.
 - **Smart cache**: the pack tells ComfyUI which values are really new. Change a row of a Pick Combo, a Primitive, a Multi Math... and only what *truly* changed runs again. Switch an Any to another branch with the same result downstream and the sampler stays asleep; the branches an Any doesn't pick don't run at all. A Preview between two stages doesn't redo the second one.
+- **Ctrl+Z without the freeze**: ComfyUI's own undo reloads the whole workflow at every step (up to a second of dead screen on a big graph). The pack puts the step back in place instead: wires and reroutes, nodes deleted or added, widget values (any node, not just mine), titles, bypass, colours, collapse, groups, even inside subgraphs and a deleted subgraph. Same history as ComfyUI's, just instant. The Monitor's *Ctrl+Z reloads* row counts the rare steps that still reload, and why.
+- **A quiet console**: my nodes keep their chatter out of ComfyUI's terminal. Want to hear them? *Settings → Succy Pack → Console → Talk*. Real errors always show.
 - **Regex safety**: install the optional `regex` package and Multi Parse gets a real 2-second timeout. Without it, dangerous nested patterns are refused instead.
 - **Reboot from the menu** relaunches ComfyUI with the same command line plus `--disable-auto-launch`, so the browser isn't opened a second time. **Force Stop**'s inside-the-thread interrupt is the same `InterruptProcessingException` ComfyUI uses for its own Stop: the run ends as "interrupted", nothing else is touched.
 - **If a ComfyUI frontend update ever breaks something** the pack draws or patches: press Ctrl+Shift+D (the Monitor says which piece and which file), or switch the whole UI layer off with `SuccyKill.on()` in the console + F5 (`?succy=off` in the address does it for one visit). The nodes keep working with plain ComfyUI widgets. A console line also warns you when your frontend is newer than the one the pack was tested on.
@@ -197,4 +199,10 @@ Every input and output name becomes a **chip**: click it and pick what to connec
 
 If my nodes made your nights a little more fun, you know where to find me: **[ko-fi.com/succubusvyper](https://ko-fi.com/succubusvyper)** ☕💋
 
-© 2026 Succubus (succubus-vyper). All rights reserved.
+---
+
+## 💋 Rights
+
+© 2026 **Succubus Vyper** ([succubus-vyper](https://github.com/succubus-vyper)). Released under the **MIT License with attribution** (see [LICENSE](LICENSE)).
+
+Take it, use it, fork it, learn from it, build on it, even sell what you make with it. Just one thing, darling: **credit me** where your users can see it, something like *"Based on ComfyUI-Succy-Pack by Succubus Vyper"* with a link back here. And if it's only an *idea* of mine that seduced you, a little *"inspired by Succubus Vyper"* is the polite way to say thank you. Borrowing is flattering; borrowing without a kiss on the cheek is just rude. 😈

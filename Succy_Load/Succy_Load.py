@@ -12,7 +12,7 @@ from PIL import Image, ImageOps
 import folder_paths
 from server import PromptServer
 
-from _succy_common import LiveWait, coerce_widgets, door_values, live_touch, refused, same_origin, value_memo
+from _succy_common import LiveWait, coerce_widgets, door_values, live_touch, ram_holder, refused, same_origin, value_memo
 from _succy_image import (IMAGE_EXT, blur, decode_brush, display_id, file_stamp, grow, hex_rgb, input_path, load_picture, mp_size, send_preview,
                           snap, parse_warp, quad_mask)
 
@@ -51,6 +51,7 @@ _LISTS = PromptServer.instance._succy_load_lists       # folder -> (mtime, [file
 _THUMBS = PromptServer.instance._succy_load_thumbs     # (path, mtime, size) -> JPEG bytes, the strip under the picture
 _STATE_MAX, _LAST_MAX, _LISTS_MAX, _THUMBS_MAX = 64, 12, 16, 256
 _MEMO = value_memo("load", _LAST_MAX)                  # D-210: same values in = the last result out, no file read nor resize
+ram_holder("load last run", _LAST.clear, lambda: list(_LAST.values()))   # D-308: counted in the RAM row, let go by ComfyUI's free
 
 
 def _keep(d, k, v, cap):

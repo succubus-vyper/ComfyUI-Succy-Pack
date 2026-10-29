@@ -24,7 +24,8 @@ import threading
 from collections import OrderedDict
 
 __all__ = ["AnyType", "ANY", "parse_bool", "parse_int", "parse_float", "loads_loose", "to_container", "convert_text", "same_origin", "DISPLAY",
-           "LiveWait", "LiveInputs", "live_eval", "live_touch", "door_values", "live_types", "coerce_widgets", "same_value", "ValueMemo", "value_memo", "memo_stats"]
+           "LiveWait", "LiveInputs", "live_eval", "live_touch", "door_values", "live_types", "coerce_widgets", "same_value", "ValueMemo", "value_memo", "memo_stats",
+           "tensor_bytes", "ram_holder", "ours_ram", "forget_ours", "set_memo_budget", "say", "set_talk", "TALK"]
 
 
 class AnyType(str):
@@ -34,6 +35,22 @@ class AnyType(str):
 
 
 ANY = AnyType("*")
+
+# ---- the nodes' voice in ComfyUI's console (D-311): quiet unless she lets them talk (Succy Pack -> Console, sent by the page) ----
+# say() is print() for chatter (a node paused, a value read as 0...); real failures keep print(), they always show
+TALK = {"on": False}
+
+
+def say(*args, **kw):
+    """print() that only speaks when the nodes may talk. A lady knows when to keep her mouth shut."""
+    if TALK["on"]:
+        print(*args, **kw)
+
+
+def set_talk(on):
+    TALK["on"] = bool(on)
+    return TALK["on"]
+
 
 # node key -> display name; __init__.py writes it before it loads the nodes (Pause reads it for its v3 schema)
 DISPLAY = {}
@@ -63,7 +80,7 @@ def _num_error(value, kind, strict, tag):
     if strict:
         raise ValueError(f"cannot parse {value!r} as {kind}")
     if tag and str(value).strip():
-        print(f"[{tag}] '{str(value)[:40]}' is not a number -> 0")
+        say(f"[{tag}] '{str(value)[:40]}' is not a number -> 0")
     return 0 if kind == "INT" else 0.0
 
 
@@ -455,8 +472,117 @@ def _mark(t):
             return ("?", id(t))
 
 
+def _storage(t):
+    """(identity, bytes) of the memory under a tensor: views of one picture share it, so it is counted once."""
+    try:
+        s = t.untyped_storage()
+        return ("t", s.data_ptr()), int(s.nbytes())
+    except Exception:
+        pass
+    b = t
+    while getattr(b, "base", None) is not None:          # numpy views (the bench): the array that owns the memory
+        b = b.base
+    try:
+        return ("n", id(b)), int(b.nbytes)
+    except Exception:
+        try:
+            return ("n", id(b)), int(t.element_size() * t.nelement())
+        except Exception:
+            return ("n", id(b)), 0
+
+
+def tensor_bytes(tensors, seen=None):
+    """Bytes really held by these tensors: each piece of memory once, however many views point at it. `seen` is shared to sum several groups."""
+    seen = {} if seen is None else seen
+    for t in tensors:
+        k, n = _storage(t)
+        seen[k] = n
+    return sum(seen.values())
+
+
 _MEMO_COUNT = {"hit": "hits", "miss": "misses", "skip": "skips"}
 _MEMOS = OrderedDict()       # name -> ValueMemo: a module reloaded finds its memo (and its counters) again
+# D-308: every memo together lives under ONE budget in bytes (12 entries of 8k pictures were ~10 GB), the oldest entry of any memo goes first
+_BUDGET = {"bytes": int(2 * 1024 ** 3), "evicted": 0, "too_big": 0, "seq": 0}
+_BUDGET_LOCK = threading.Lock()
+_HOLDERS = OrderedDict()     # name -> (forget(), tensors()): other things of ours that keep pictures (the last Run of Load / Crop)
+
+
+def set_memo_budget(gb):
+    """The memos' budget in GB (0 = no memo at all); fits them under it at once."""
+    _BUDGET["bytes"] = max(0, int(float(gb) * 1024 ** 3))
+    _fit_budget()
+    return _BUDGET["bytes"]
+
+
+def _memo_bytes():
+    seen = {}
+    for m in list(_MEMOS.values()):
+        with m._lock:
+            groups = [e[2] for e in m._d.values()]
+        for marks in groups:
+            tensor_bytes([t for t, _ in marks], seen)
+    return sum(seen.values())
+
+
+def _fit_budget():
+    """Oldest entries out (any memo) until all of them fit the budget. Counts what went."""
+    with _BUDGET_LOCK:
+        while _memo_bytes() > _BUDGET["bytes"]:
+            old = None
+            for m in list(_MEMOS.values()):
+                with m._lock:
+                    for node, e in m._d.items():
+                        if old is None or e[3] < old[2]:
+                            old = (m, node, e[3])
+                        break                              # each memo is in order: its first entry is its oldest
+            if old is None:
+                break
+            with old[0]._lock:
+                old[0]._d.pop(old[1], None)
+            _BUDGET["evicted"] += 1
+
+
+def ram_holder(name, forget, tensors):
+    """Registers something of ours that keeps pictures: forget() lets them go, tensors() lists them (for the RAM row)."""
+    _HOLDERS[name] = (forget, tensors)
+
+
+def ours_ram():
+    """What the pack itself keeps in RAM: {"memo", "held": {name: bytes}, "total"} in bytes (shared memory counted once in total)."""
+    seen = {}
+    for m in list(_MEMOS.values()):
+        with m._lock:
+            groups = [e[2] for e in m._d.values()]
+        for marks in groups:
+            tensor_bytes([t for t, _ in marks], seen)
+    memo = sum(seen.values())
+    held = {}
+    for name, (_f, tensors) in list(_HOLDERS.items()):
+        try:
+            ts = _tensors(list(tensors()), [])
+        except Exception:
+            ts = []
+        held[name] = tensor_bytes(ts)
+        tensor_bytes(ts, seen)
+    kept = sum(len(m._d) for m in list(_MEMOS.values()))
+    return {"memo": memo, "held": held, "total": sum(seen.values()), "kept": kept, "budget": _BUDGET["bytes"],
+            "evicted": _BUDGET["evicted"], "too_big": _BUDGET["too_big"]}
+
+
+def forget_ours():
+    """Every memo and every holder lets go (ComfyUI's free, the RAM ceiling). Returns how many entries went."""
+    n = 0
+    for m in list(_MEMOS.values()):
+        with m._lock:
+            n += len(m._d)
+        m.forget()
+    for name, (forget, _t) in list(_HOLDERS.items()):
+        try:
+            forget()
+        except Exception:
+            pass
+    return n
 
 
 class ValueMemo:
@@ -464,7 +590,7 @@ class ValueMemo:
     skip() counts a run that must not use the memo (a hold that stops), stats() is what the Monitor reads."""
     def __init__(self, name, cap=12):
         self.name, self.cap = name, cap
-        self._d = OrderedDict()                            # node id -> (key, result, [(tensor, its mark when stored)])
+        self._d = OrderedDict()                            # node id -> (key, result, [(tensor, its mark when stored)], order of arrival)
         self._per = OrderedDict()                          # node id -> {"hits", "misses", "skips", "last"}
         self._lock = threading.Lock()
         self.hits = self.misses = self.skips = 0
@@ -496,11 +622,20 @@ class ValueMemo:
 
     def put(self, node, key, result):
         node = str(node)
+        ts = _tensors((key, result), [])
         with self._lock:
             self._d.pop(node, None)
-            self._d[node] = (key, result, [(t, _mark(t)) for t in _tensors((key, result), [])])
+        if tensor_bytes(ts) > _BUDGET["bytes"]:            # bigger than the whole budget: never kept (it would push everyone else out)
+            _BUDGET["too_big"] += 1
+            return
+        with _BUDGET_LOCK:
+            _BUDGET["seq"] += 1
+            seq = _BUDGET["seq"]
+        with self._lock:
+            self._d[node] = (key, result, [(t, _mark(t)) for t in ts], seq)
             while len(self._d) > self.cap:
                 self._d.popitem(last=False)
+        _fit_budget()
 
     def skip(self, node):
         node = str(node)
@@ -517,7 +652,12 @@ class ValueMemo:
 
     def stats(self):
         with self._lock:
-            return {"hits": self.hits, "misses": self.misses, "skips": self.skips, "kept": len(self._d), "cap": self.cap,
+            groups = [e[2] for e in self._d.values()]
+        seen = {}
+        for marks in groups:
+            tensor_bytes([t for t, _ in marks], seen)
+        with self._lock:
+            return {"hits": self.hits, "misses": self.misses, "skips": self.skips, "kept": len(self._d), "cap": self.cap, "bytes": sum(seen.values()),
                     "nodes": {k: dict(v) for k, v in self._per.items()}}
 
 

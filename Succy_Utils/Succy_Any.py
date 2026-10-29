@@ -6,7 +6,7 @@ import re
 import torch
 import comfy.utils
 
-from _succy_common import ANY, LiveWait, coerce_widgets, door_values, live_touch, parse_bool, parse_int, wired_outputs   # the shared drawer (loaded once by __init__.py)
+from _succy_common import ANY, LiveWait, coerce_widgets, door_values, live_touch, parse_bool, parse_int, wired_outputs, say   # the shared drawer (loaded once by __init__.py)
 
 # ====================================================================== #
 #  Succy_Any — switch, batch and list in one body                        #
@@ -46,7 +46,7 @@ def _data(raw):
     try:
         d = json.loads(raw) if isinstance(raw, str) and raw.strip() else {}
     except (json.JSONDecodeError, TypeError):
-        print(f"[{TAG}] data JSON unreadable -> defaults")
+        say(f"[{TAG}] data JSON unreadable -> defaults")
         d = {}
     return {**DEFAULTS, **(d if isinstance(d, dict) else {})}
 
@@ -98,7 +98,7 @@ def _nothing(d):
                 from comfy_execution.graph import ExecutionBlocker            # older / re-exported
             return ExecutionBlocker(None)
         except Exception:
-            print(f"[{TAG}] ExecutionBlocker not available in this ComfyUI: handing out None")
+            say(f"[{TAG}] ExecutionBlocker not available in this ComfyUI: handing out None")
     return None
 
 
@@ -442,7 +442,7 @@ class Succy_Any:
                     if items:
                         outs["batch"] = batch(items, kind)
             except Exception as exc:
-                print(f"[{TAG}] live batch skipped: {exc}")
+                say(f"[{TAG}] live batch skipped: {exc}")
         if "picked" not in outs and "_empty" not in outs:
             raise LiveWait("run", "the Any's choice comes from a wire that only a Run fills: Run once so it gets there")
         return outs

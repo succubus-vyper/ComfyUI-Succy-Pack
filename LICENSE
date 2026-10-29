@@ -1,11 +1,27 @@
-Copyright (c) 2026 Succubus (succubus-vyper). All rights reserved.
+MIT License (with attribution)
 
-This software and its documentation are provided for use as a ComfyUI custom node pack by their
-owner and by anyone the owner has given a copy to. Except for that use, no part of it may be
-copied, modified, merged, published, distributed, sublicensed, or sold without the prior written
-permission of the owner.
+Copyright (c) 2026 Succubus Vyper (github.com/succubus-vyper)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction,
+including without limitation the rights to use, copy, modify, merge, publish, distribute,
+sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+1. The above copyright notice and this permission notice shall be included in all copies or
+   substantial portions of the Software.
+
+2. Attribution. Any project, node pack, fork, app or service that includes, adapts or is derived
+   from this Software (or substantial parts of it) must credit the author in a place its users can
+   see (its README, about page or documentation), for example:
+       "Based on ComfyUI-Succy-Pack by Succubus Vyper — https://github.com/succubus-vyper/ComfyUI-Succy-Pack"
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT
 NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-NONINFRINGEMENT. IN NO EVENT SHALL THE OWNER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY
-ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN IT.
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES
+OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+A friendly request, not a condition: if one of my ideas (a node, a trick, a way of doing things)
+inspired your own work even without a line of my code, a small "inspired by Succubus Vyper" makes
+my day. Borrowing is flattering; borrowing without a kiss on the cheek is just rude.

@@ -20,6 +20,8 @@ import time
 
 import numpy as np
 import torch
+
+from _succy_common import say   # quiet unless the nodes may talk (D-311)
 import torch.nn.functional as F
 from PIL import Image, ImageOps
 
@@ -146,7 +148,7 @@ def decode_brush(data, h, w, device):
         raw = base64.b64decode(data.split(",", 1)[1])
         arr = np.asarray(Image.open(io.BytesIO(raw)).convert("RGB")).astype(np.float32) / 255.0
     except Exception as exc:
-        print(f"{_TAG} free hand mask unreadable, ignored: {exc}")
+        say(f"{_TAG} free hand mask unreadable, ignored: {exc}")
         return None, None
     t = torch.from_numpy(arr).to(device).permute(2, 0, 1)[None]            # 1,3,mh,mw
     t = resize(t[:, :2], h, w, "bilinear")[0]                               # stretched to the picture, like the browser does

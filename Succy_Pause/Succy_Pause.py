@@ -7,7 +7,7 @@ from aiohttp import web
 from comfy_api.latest import io
 from server import PromptServer
 
-from _succy_common import DISPLAY, display_id, is_link as _is_link, refused, same_origin   # the shared drawer (loaded once by __init__.py)
+from _succy_common import DISPLAY, display_id, is_link as _is_link, refused, same_origin, say   # the shared drawer (loaded once by __init__.py)
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -187,11 +187,11 @@ class Succy_PauseExecution(io.ComfyNode):
 
         # --- Immediate pass-throughs ---
         if not pause_flow:
-            print(f"Succy Pause: node {unique_id} bypassed (pause_flow is off).")
+            say(f"Succy Pause: node {unique_id} bypassed (pause_flow is off).")
             return io.NodeOutput(input)
 
         if run_id.endswith("_continue"):
-            print(f"Succy Pause: node {unique_id} post-edit transit, passing through.")
+            say(f"Succy Pause: node {unique_id} post-edit transit, passing through.")
             return io.NodeOutput(input)
 
         # --- Actual pause ---
@@ -206,12 +206,12 @@ class Succy_PauseExecution(io.ComfyNode):
             held = False
         _notify_frontend(unique_id, in_loop, held)
         if held:
-            print(f"Succy Pause: node {unique_id} asked the gate to hold the run for {timeout_seconds}s...")
+            say(f"Succy Pause: node {unique_id} asked the gate to hold the run for {timeout_seconds}s...")
             return io.NodeOutput(input)
 
         _NODE_STATES[unique_id] = "wait"
         start_time = time.time()
-        print(f"Succy Pause: node {unique_id} paused for {timeout_seconds}s...")
+        say(f"Succy Pause: node {unique_id} paused for {timeout_seconds}s...")
 
         try:
             while True:
@@ -219,20 +219,20 @@ class Succy_PauseExecution(io.ComfyNode):
                 comfy.model_management.throw_exception_if_processing_interrupted()
 
                 if _NODE_STATES.get(unique_id, "wait") == "stop":
-                    print(f"Succy Pause: node {unique_id} stopped by user.")
+                    say(f"Succy Pause: node {unique_id} stopped by user.")
                     comfy.model_management.interrupt_current_processing()
                     return io.NodeOutput(input)
 
                 if _NODE_STATES.get(unique_id) == "continue":
                     # "In place" resume: used inside loops (the cycle carries on from where it was).
-                    print(f"Succy Pause: node {unique_id} resumed by user.")
+                    say(f"Succy Pause: node {unique_id} resumed by user.")
                     return io.NodeOutput(input)
 
                 if time.time() - start_time >= timeout_seconds:
                     if on_timeout == "continue":
-                        print(f"Succy Pause: node {unique_id} timeout expired, continuing.")
+                        say(f"Succy Pause: node {unique_id} timeout expired, continuing.")
                         return io.NodeOutput(input)
-                    print(f"Succy Pause: node {unique_id} timeout expired, stopping workflow.")
+                    say(f"Succy Pause: node {unique_id} timeout expired, stopping workflow.")
                     comfy.model_management.interrupt_current_processing()
                     return io.NodeOutput(input)
 

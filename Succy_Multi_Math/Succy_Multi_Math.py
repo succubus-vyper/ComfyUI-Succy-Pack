@@ -12,7 +12,7 @@ import math
 import re
 from decimal import Decimal, ROUND_HALF_UP
 
-from _succy_common import clean_label as _clean_label   # the shared drawer (loaded once by __init__.py)
+from _succy_common import clean_label as _clean_label, say   # the shared drawer (loaded once by __init__.py)
 
 MAX_EQUATIONS = 15
 INPUT_NAMES = list("abcdefghij")
@@ -285,7 +285,7 @@ class Succy_Multi_Math:
                     raw = evaluate(expr, env)
                 except Exception as e:             # a broken formula gives 0 and a red line, never a dead queue
                     err = f"{type(e).__name__}: {e}"
-                    print(f"[Succy Multi Math] eq {i} ('{expr}'): {err}")
+                    say(f"[Succy Multi Math] eq {i} ('{expr}'): {err}")
                     raw = 0.0
             env[f"r{i}"] = raw                     # later formulas can use @r{i}
             try:

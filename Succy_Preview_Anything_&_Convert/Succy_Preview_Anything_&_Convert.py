@@ -17,7 +17,7 @@ import torch
 from PIL import Image
 
 
-from _succy_common import ANY, parse_bool, parse_float, parse_int, to_container, wired_outputs   # the shared drawer (loaded once by __init__.py)
+from _succy_common import ANY, parse_bool, parse_float, parse_int, to_container, wired_outputs, say   # the shared drawer (loaded once by __init__.py)
 
 _PREVIEW_FILES = OrderedDict()   # node key -> the temp files it currently shows (the next run deletes the ones it no longer needs)
 _PLAYER = OrderedDict()          # node key -> (weak ref to the source video/audio, its player file): same source = no re-save
@@ -346,7 +346,15 @@ def _probe_audio(video):
 
 
 def _node_key(unique_id):
-    return re.sub(r"[^A-Za-z0-9_-]", "_", str(unique_id)) if unique_id is not None else "x"
+    """A file-safe key of the node. A Loop clone's raw id grows with every pass (`1765.0.0.Recurse.0.0...1798`, 400+ chars) and
+    Windows refused the temp file (Errno 22, D-309): past 48 chars it becomes the original node (last piece) + a short hash of the whole."""
+    if unique_id is None:
+        return "x"
+    k = re.sub(r"[^A-Za-z0-9_-]", "_", str(unique_id))
+    if len(k) <= 48:
+        return k
+    import hashlib
+    return k.rsplit("_", 1)[-1][-16:] + "_" + hashlib.sha1(str(unique_id).encode()).hexdigest()[:12]
 
 
 def _keep_files(node_key, files):
@@ -953,7 +961,7 @@ def gallery_frame(key, token, index, side=_THUMB_SIDE):
         try:
             im = vf.get(i, side)
         except Exception as ex:
-            print(f"[PreviewAny] gallery frame {i}: {ex}")
+            say(f"[PreviewAny] gallery frame {i}: {ex}")
             im = None
         if im is None:
             return None
@@ -1176,7 +1184,7 @@ class Succy_Preview_Anything_Convert:
                                 fps_of=fps_of, audio_in=audio_in, gain=audio_gain, invert_mask=invert_mask, also=_PREVIEW_FILES.get(_node_key(unique_id), []))
                 return {"ui": shown["ui"], "result": r["result"]}
             except Exception as ex:
-                print(f"[PreviewAny] video as pictures failed, showing the clip: {ex}")
+                say(f"[PreviewAny] video as pictures failed, showing the clip: {ex}")
         if kind:
             return self._media(kind, preview, source, output_type, trim_start, trim_end, current_time, split_audio, unique_id, prompt,
                                fps_of=fps_of, audio_in=audio_in, gain=audio_gain, invert_mask=invert_mask)
@@ -1200,7 +1208,7 @@ class Succy_Preview_Anything_Convert:
                                              trim_start, trim_end, current_time, unique_id, prompt, gain=audio_gain)["result"]
                     gallery_fps = fps
                 except Exception as ex:                      # the clip went wrong: pictures, as before. Never a dead queue.
-                    print(f"[PreviewAny] batch outputs failed, showing pictures: {ex}")
+                    say(f"[PreviewAny] batch outputs failed, showing pictures: {ex}")
         if output_type == "VIDEO":                           # the gallery of a batch sent on as VIDEO shows the pictures
             output_type = "IMAGE"
         converted = source
@@ -1357,19 +1365,19 @@ class Succy_Preview_Anything_Convert:
             if ui_compare:
                 ui_res["succy_compare"] = [ui_compare]
             if preview and _LOG:
-                print("\n" + "=" * 40)
-                print("PreviewAny [IMAGE]:")
-                print(info_string)
-                print("=" * 40 + "\n")
+                say("\n" + "=" * 40)
+                say("PreviewAny [IMAGE]:")
+                say(info_string)
+                say("=" * 40 + "\n")
         elif output_type not in ("IMAGE", "MASK") or text_output:
             # sent even when empty: the frontend refreshes the content anyway
             ui_res["succy_text"] = [text_output]
             ui_res["succy_kind"] = [output_type]       # a LIST upstream: the JS writes 1 bare and "1" in quotes (D-242)
             if preview and _LOG:
-                print("\n" + "=" * 40)
-                print(f"PreviewAny [{output_type}]:")
-                print(text_output)
-                print("=" * 40 + "\n")
+                say("\n" + "=" * 40)
+                say(f"PreviewAny [{output_type}]:")
+                say(text_output)
+                say("=" * 40 + "\n")
 
         return {
             "ui": ui_res,
@@ -1555,7 +1563,7 @@ class Succy_Preview_Anything_Convert:
             result = (out, frame, audio, dur_out)    # output, selected, audio, duration (D-245: width / height / megapixels are gone)
 
         if preview and _LOG:
-            print("\n" + "=" * 40 + f"\nPreviewAny [{kind.upper()}]:\n{info}\n" + "=" * 40 + "\n")
+            say("\n" + "=" * 40 + f"\nPreviewAny [{kind.upper()}]:\n{info}\n" + "=" * 40 + "\n")
         return {"ui": {"succy_media": [media], "succy_info": [line], "succy_text": [info]}, "result": result}
 
     # -------------------------------------------------------------- #
@@ -1627,7 +1635,7 @@ class Succy_Preview_Anything_Convert:
                 print(f"[PreviewAny] clip preview error: {ex}")
         _keep_files(node_key, files if preview else _player_kept(node_key))      # outputs only: the player stays for later
         if preview and _LOG:
-            print("\n" + "=" * 40 + f"\nPreviewAny [FRAMES AS CLIP]:\n{info}\n" + "=" * 40 + "\n")
+            say("\n" + "=" * 40 + f"\nPreviewAny [FRAMES AS CLIP]:\n{info}\n" + "=" * 40 + "\n")
         return {"ui": {"succy_media": [media], "succy_info": [line], "succy_text": [info]},
                 "result": (out, frame, audio_out, dur_out)}
 
@@ -1641,7 +1649,7 @@ def _frames_sound(vhs, audio_in, duration, wanted=True):
         try:
             return file_audio(vhs[2], vhs[1], duration), ("file", vhs[2], vhs[1], round(duration, 4))
         except Exception as ex:
-            print(f"[PreviewAny] VHS audio could not be read: {ex}")
+            say(f"[PreviewAny] VHS audio could not be read: {ex}")
     return None, None
 
 
@@ -1697,7 +1705,7 @@ def _remux_retime(node_key, video, vi, fps, audio_in, g, sig):
         _remember(_RETIMED, node_key, (_ref(video), sig, name))
         return name
     except Exception as ex:
-        print(f"[PreviewAny] fps by remux failed, decoding instead: {ex}")
+        say(f"[PreviewAny] fps by remux failed, decoding instead: {ex}")
         return None
 
 
