@@ -629,7 +629,7 @@ def _install_routes():
     if srv is None or getattr(srv, "_succy_live_routes", False):
         return
     srv._succy_live_routes = True
-    from _succy_common import LIVE_STATS, LiveWait, live_eval, live_job, live_types, memo_stats, refused, same_origin
+    from _succy_common import LIVE_STATS, LiveStale, LiveWait, live_drop, live_eval, live_job, live_question, live_stale, live_types, memo_stats, refused, same_origin
 
     @srv.routes.get("/succy/memo/stats")
     async def _memo_stats(request):
@@ -640,6 +640,17 @@ def _install_routes():
     async def _live_stats(request):
         # D-336: the ONE live queue: jobs done, ms busy, the slowest job, the longest wait, how many wait now (SUCCY_LIVE reads it)
         return web.json_response({**LIVE_STATS, "nodes": {k: dict(v) for k, v in LIVE_STATS["nodes"].items()}})
+
+    @srv.routes.post("/succy/live/drop")
+    async def _live_drop(request):
+        # D-339: {slot, seq}: that view has a newer question, its older ones still in the queue step aside (no torch here)
+        if not same_origin(request):
+            return refused()
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"error": "bad JSON"}, status=400)
+        return web.json_response({"ok": live_drop((body or {}).get("slot"), (body or {}).get("seq"))})
 
     @srv.routes.get("/succy/live/types")
     async def _live_types(request):
@@ -677,8 +688,17 @@ def _install_routes():
             spec = await request.json()
         except Exception:
             return web.json_response({"error": "bad JSON"}, status=400)
+        slot, seq = str(request.query.get("slot", "")), request.query.get("seq")
+
+        def _turn():
+            with live_question(slot, seq):                     # D-340: dropped mid-chain = stops before the next node
+                if live_stale(slot, seq):                      # D-339: she moved on while it waited in the queue
+                    raise LiveStale()
+                return _view(spec, output, longest)
         try:
-            return web.json_response(await asyncio.to_thread(live_job, _view, spec, output, longest))
+            return web.json_response(await asyncio.to_thread(live_job, _turn))
+        except LiveStale:
+            return web.json_response({"ready": False, "need": "stale", "why": "a newer question took its place"})
         except LiveWait as w:
             return web.json_response({"ready": False, "need": w.need, "why": w.why})
         except Exception as exc:

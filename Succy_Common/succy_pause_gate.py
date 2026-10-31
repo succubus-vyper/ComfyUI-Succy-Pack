@@ -1,4 +1,4 @@
-# Succy global pause gate v1.9.0 (D-263, D-259 (3) + (4), D-264, D-266, D-267, D-268, D-271, D-273, D-277, D-332)
+# Succy global pause gate v1.11.0 (D-263, D-259 (3) + (4), D-264, D-266, D-267, D-268, D-271, D-273, D-277, D-332, D-348, D-355)
 # The ⏸ of the top bar (dev/src/NodeStructure/app/topbar.js) holds the WHOLE run between two nodes:
 #   ComfyUI's engine runs one node at a time through `execution.execute(...)`. We wrap that function: before every node that is
 #   NOT in the cache, if a pause was asked for this prompt, we wait there (short sleeps) until ▶, Stop / Interrupt or a new prompt.
@@ -41,6 +41,15 @@
 # the node again with her values) · ▶ pressed between the node's ask and the hold keeps her edits (`go`) · the holder she retouched
 # runs again NOW even when nobody still to run reads it (a Stitch at the end) · `more_to_run()`: something still to run after the
 # node (else the node waits the old way: nothing would hold).
+# D-348 (her rule: one pause for everybody): a node that waits IN ITSELF (Crop / Rotate / Tile Split / Stitch on Stop with no gate, or
+# the last node of the run: succy_common.wait_here) tells the gate (`wait_begin` / `wait_end`): the page hears the same
+# "succy.run.paused" / "succy.run.resumed" {by, once, in_place} as a gate hold, so the top bar says "Paused by <node>" and its ▶
+# (`resume`, POST /succy/run/resume {prompt}) = the node's own ▶ with the values of now; ComfyUI's ■ (interrupt) already ends both.
+# D-355 (her Rotate turned while the LAST node, a Stitch on Stop, waits in itself): ▶ used to take only the Stitch's own values, the
+# Rotate's new angle waited for the next Run. Now the node (succy_common.after_wait) asks `redo_wanted`: her graph changed something it
+# reads -> it raises `redo_error` (a child of ComfyUI's interrupt); the gate catches it as the node's result, writes her graph into the
+# running prompt (D-264 / D-266 / D-277, same code), stages the changed chain again and answers PENDING: the chain runs (a Split on
+# Stop lets it through, once), then the node runs again on the new result and stops again. Page: "succy.run.resumed" why = "redo".
 # Loaded by succy_canvas_menu.py (so __init__.py stays untouched). She lets you catch your breath... only when SHE decides.
 import asyncio
 import inspect
@@ -55,11 +64,12 @@ _lock = threading.Lock()
 STATE = {"hooked": False, "why": "not installed", "want": False, "prompt": None, "paused": False, "node": None,
          "done": [], "todo": [], "pauses": 0, "changes": None, "last_report": None,
          "by": None, "deadline": None, "on_timeout": "continue", "closed": False, "live": [],
-         "hold_s": None, "forever": False, "once": False, "go": False}       # A3: the top bar's window (starts when the hold does) / "hold forever", only when asked
+         "hold_s": None, "forever": False, "once": False, "go": False, "waiting": [], "redos": 0}       # A3: the top bar's window (starts when the hold does) / "hold forever", only when asked
 _orphan = {"since": None}                      # A3: when the last page went away while a top-bar pause holds   # D-267: who asked (a Pause node) and its timeout
 _run = {"prompt": None, "done": set(), "dp": None, "held": set(), "staged": set(), "el": None, "cur": None}   # what the gate has seen pass in the current prompt (cache included)
 PENDING = None                                 # execution.ExecutionResult.PENDING, found by install(): lets a held node step back
 FAILURE = None                                 # D-273: ExecutionResult.FAILURE: Stop while held ends the run as ComfyUI's own interrupt
+WAITERS = {}                                   # D-348: display id -> fn(action, prompt) of a node waiting in itself (wait_here)
 ALWAYS = {}                                    # D-271: class_type (or class) -> predicate(inputs) "must run now" (the Succy Pause, pause_flow on)
 STAGE = {}                                     # D-273: class_type (or class) -> predicate(dynprompt, id) "stage it at the start of the prompt"
 _ORIG_IS_CACHED = None                         # ExecutionList.is_cached before the patch (the gate's own questions use it)
@@ -194,8 +204,48 @@ def _expired():
     return True
 
 
+def wait_begin(did, fn, prompt_id=None):
+    """D-348: node `did` waits in itself; `fn(action, prompt)` is its own ▶ / ■. The page hears it as a hold by that node."""
+    did = str(did)
+    with _lock:
+        WAITERS[did] = fn
+        STATE["waiting"] = list(WAITERS)
+        pid = prompt_id if prompt_id is not None else _run.get("prompt")
+    _send("succy.run.paused", {"prompt_id": pid, "node": did, "done": [], "todo": [], "live": [], "by": did, "closed": False,
+                               "once": True, "in_place": True})
+
+
+def wait_end(did, why="play", prompt_id=None):
+    """D-348: the node's own wait is over (why = play | stop | timeout): the page lets go of it like a gate hold."""
+    did = str(did)
+    with _lock:
+        had = WAITERS.pop(did, None) is not None
+        STATE["waiting"] = list(WAITERS)
+        pid = prompt_id if prompt_id is not None else _run.get("prompt")
+    if had:
+        _send("succy.run.resumed", {"prompt_id": pid, "why": str(why), "report": None, "by": did, "once": True, "in_place": True})
+
+
+def _wake_waiters(action, prompt):
+    """D-348: the top bar's ▶ reaches the nodes waiting in themselves exactly as their own ▶ (her values of now ride along)."""
+    with _lock:
+        fns = list(WAITERS.values())
+    for fn in fns:
+        try:
+            fn(action, prompt)
+        except Exception as exc:
+            print(f"[Succy] waiting node did not take the bar's {action}: {exc}")
+    return len(fns)
+
+
 def resume(prompt=None):
-    """▶: the gate lets the run go on. `prompt` = the page's prompt of now (graphToPrompt().output): the green nodes' edits."""
+    """▶: the gate lets the run go on. `prompt` = the page's prompt of now (graphToPrompt().output): the green nodes' edits.
+    D-348: a node waiting in itself takes it as its own ▶."""
+    woke = _wake_waiters("continue", prompt if isinstance(prompt, dict) and prompt else None)
+    with _lock:
+        idle = not STATE["want"] and not STATE["paused"]
+    if woke and idle:
+        return snapshot()                              # only the waiting node was held: the gate keeps no edits for later
     with _lock:
         if STATE["want"] and not STATE["paused"] and STATE["by"] is not None:
             STATE["go"] = True                         # D-332: asked, not held yet (the node still at work): hold, take her edits, go
@@ -358,13 +408,17 @@ async def _refresh_keys(caches, dynprompt, changed, ids):
         await ks.add_keys(sorted(ids))
 
 
-def _take_changes(a, rerun=False):
+def _take_changes(a, rerun=False, fresh=None):
     """Writes the edits into the running prompt; returns (report, ids whose cache keys must be computed again,
-    links to make again once the keys are new). `rerun`: the engine can run red nodes again (D-264)."""
-    with _lock:
-        fresh, STATE["changes"] = STATE["changes"], None
-        closed = STATE["closed"]
-        holder = STATE["by"] if STATE["once"] else None
+    links to make again once the keys are new). `rerun`: the engine can run red nodes again (D-264).
+    D-355: `fresh` = the graph a node waiting in itself brought with its ▶ (the gate's own state is not touched)."""
+    if fresh is not None:
+        closed, holder = False, None
+    else:
+        with _lock:
+            fresh, STATE["changes"] = STATE["changes"], None
+            closed = STATE["closed"]
+            holder = STATE["by"] if STATE["once"] else None
     if closed:                                         # D-267 + D-265: a started loop is a closed world, edits = next Run
         return ({"closed": "loop", "late": {}, "applied": {}, "rerun": {}} if fresh else None), set(), ([], [], [])
     if not fresh or _interrupted():
@@ -437,6 +491,78 @@ def _relink(el, plan, current):
     return el.blockCount.get(current, 0) > 0
 
 
+_REDO = {"cls": None}                          # D-355: the redo error's class (made once, a child of ComfyUI's interrupt)
+
+
+def redo_wanted(uid, prompt):
+    """D-355: node `uid` waited in itself (the last node of the Run) and her ▶ brought `prompt`: True = she changed something it
+    reads (values or wires of a node before it) and the engine can run that chain again in this Run. Never inside a running Succy
+    loop (closed world, D-265), never twice for a node whose redo already failed in this prompt."""
+    uid = str(uid)
+    el, dp = _run.get("el"), _run.get("dp")
+    if not STATE["hooked"] or not isinstance(prompt, dict) or not prompt or el is None or dp is None or not _can_rerun(el):
+        return False
+    if uid in _run.get("no_redo", ()):
+        return False
+    original = getattr(dp, "original_prompt", None)
+    if not isinstance(original, dict) or uid not in original:
+        return False
+    try:
+        if _loop_running(dp, el, uid):
+            return False
+    except Exception:
+        return False
+    _apply, late, wires, _new = diff_prompt(original, prompt, {uid})
+    return bool((set(late) | set(wires)) & upstream(original, [uid]))
+
+
+def redo_error(uid, prompt):
+    """D-355: what the node raises to hand her graph to the gate. A child of ComfyUI's own interrupt: the engine stops the node quietly
+    (no traceback) and returns it; the gate turns it into PENDING after staging the chain again."""
+    cls = _REDO["cls"]
+    if cls is None:
+        try:
+            import comfy.model_management as mm
+            base = getattr(mm, "InterruptProcessingException", None)
+            if not (isinstance(base, type) and issubclass(base, BaseException)):
+                base = Exception
+        except Exception:
+            base = Exception
+        cls = _REDO["cls"] = type("SuccyRedoChain", (base,), {"_succy_redo": True})
+    err = cls("Succy: her changes before this node run again now (D-355)")
+    err.uid, err.prompt = str(uid), prompt
+    return err
+
+
+def _redo_of(res):
+    ex = res[2] if isinstance(res, tuple) and len(res) > 2 else None
+    return ex if getattr(ex, "_succy_redo", False) and str(getattr(ex, "uid", "")) else None
+
+
+async def _redo(a, ex):
+    """D-355: her graph goes into the running prompt (values / wires of the nodes before the holder, the holder's own values), the
+    changed chain is staged again and the holder waits for it (PENDING). Anything wrong = the holder runs again as it is, and its next
+    ▶ goes on in place (never a redo loop)."""
+    uid, pid = str(a["current_item"]), a.get("prompt_id")
+    report = None
+    try:
+        el = a.get("execution_list")
+        report, ids, links = _take_changes(a, rerun=True, fresh=ex.prompt)
+        if ids:
+            await _refresh_keys(a["caches"], a["dynprompt"], set(report["applied"]) | set(report["rerun"]), ids)
+        if links and any(links):
+            _relink(el, links, uid)
+    except Exception as e:
+        report = {"error": "redo: " + str(e)[:180]}
+        _run.setdefault("no_redo", set()).add(uid)
+    report = (report or {}) | {"redo": _display(a["dynprompt"], uid)}
+    with _lock:
+        STATE["last_report"] = report
+        STATE["redos"] += 1
+    _send("succy.run.resumed", {"prompt_id": pid, "why": "redo", "report": report, "by": _display(a["dynprompt"], uid), "once": False,
+                                "in_place": True})
+
+
 def _hold_for(prompt_id):
     with _lock:
         if not STATE["want"]:
@@ -450,7 +576,7 @@ def _hold_for(prompt_id):
 
 def _new_prompt(prompt_id, dynprompt=None):
     if _run["prompt"] != prompt_id:
-        _run.update(prompt=prompt_id, done=set(), dp=dynprompt, held=set(), staged=set(), el=None, cur=None)
+        _run.update(prompt=prompt_id, done=set(), dp=dynprompt, held=set(), staged=set(), el=None, cur=None, no_redo=set())
         return True
     return False
 
@@ -724,6 +850,10 @@ def wrap(orig):
                 args, kwargs = _with_caches(sig, args, kwargs, _FreshFor(a["caches"], a["current_item"]))
             _run.update(el=a.get("execution_list"), cur=a["current_item"])
             res = await orig(*args, **kwargs)    # interrupted: ComfyUI's own check inside raises and reports it, as always
+            redo = _redo_of(res)
+            if redo is not None and not _interrupted():
+                await _redo(a, redo)                   # D-355: the chain she changed runs again now, then this node
+                return (PENDING, None, None)
             _passed(a["current_item"], res)
             return res
     else:

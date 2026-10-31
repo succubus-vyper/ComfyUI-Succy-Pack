@@ -12,7 +12,7 @@ from aiohttp import web
 import comfy.model_management
 from server import PromptServer
 
-from _succy_common import refused, same_origin, LiveWait, door_values, fresh_values, gate_hold, live_job, live_touch, ram_holder, stop_key, stop_route, value_memo, say, wait_here   # the shared drawer (loaded once by __init__.py)
+from _succy_common import refused, same_origin, LiveWait, door_values, after_wait, gate_hold, live_job, live_touch, ram_holder, stop_key, stop_route, value_memo, say, wait_here   # the shared drawer (loaded once by __init__.py)
 # the picture helpers moved to the shared picture drawer (D-156): Load & Resize uses them too. Same functions, old names.
 from _succy_image import (display_id as _display_id, png_bytes as _png_bytes, snap as _snap, mp_size as _mp_size, resize as _resize,
                           prep_mask as _prep_mask, load_source as _load_source, decode_brush as _decode_brush, runmax as _runmax,
@@ -517,6 +517,12 @@ class Succy_Crop:
             if v is None:
                 raise LiveWait("run", f"the Crop's {inp} comes from a wire: Run once so it gets there")
             got[inp] = v
+        # D-354 (the D-347 rule, on the Python side): a Run's mask (SAM, not live) over a LIVE picture of another size = cut for another
+        # picture: the Stitch / Rotate downstream would get a stretched mask. Same size = trusted (the Crop's own view checks the values).
+        m, li = got.get("mask"), last.get("in_image")
+        if m is not None and inputs.live("image") and m is last.get("in_mask") and li is not None and "image" in got \
+                and tuple(got["image"].shape[1:3]) != tuple(li.shape[1:3]):
+            raise LiveWait("run", "the Crop's mask was cut for another picture: Run again")
         if "image" not in got and not str(widgets.get("source") or ""):
             raise LiveWait("image", "the Crop has no picture: load one on it")
         widgets, _ = door_values(widgets, inputs, last, _DOORS, "the Crop")      # the rings (D-228): now, else the last Run, else "Run once"
@@ -542,10 +548,11 @@ class Succy_Crop:
                 hit = _MEMO_CROP.get(did, key)
                 if hit is not None:
                     result, entry = hit
-                    _send_preview(did, entry["full_img"], mask=mask)
-                    live_touch()                           # the last Run changed (maybe back to an older result): the live views ask again
+                    # kept BEFORE the preview goes out: the preview is what tells the Stitch downstream to ask again (A|B, 31/10)
                     _remember(did, {**entry, "in_image": image if image is not None else entry["in_image"], "in_mask": mask,
                                     "in_out_mp": out_mp, "in_out_scale": out_scale, "in_multiple": multiple})
+                    live_touch()                           # the last Run changed (maybe back to an older result): the live views ask again
+                    _send_preview(did, entry["full_img"], mask=mask)
                     return result
         if image is None:
             image = _load_source(source)
@@ -562,19 +569,20 @@ class Succy_Crop:
         # --- phase 2: show the real image in the viewport, then (maybe) wait for the user to draw on it
         did = _display_id(dynprompt, unique_id)
         if not _quiet:                                     # a download (D-117) neither shows nor waits
-            _send_preview(did, image, x, y, w, h, mask=mask)
-        if hold and not _quiet and not str(run_id).endswith("_continue"):
             # D-338: what came in is kept FIRST (as Rotate / Tile do): waiting at its own Stop, the Crop's live answer (and the Rotate
-            # under it) read this Run's picture / mask; before, right after a restart they said "Run once" for the whole wait
+            # under it) read this Run's picture / mask. D-354: on EVERY Run, and before the preview: the preview is the Stitch's cue to
+            # ask again, and asked mid-crop it heard "Run once" (in_mask not kept yet) and never asked again (her A|B dark, 31/10)
             old = _LAST.get(did)
             entry = {**(old or {}), "in_image": in_image, "in_mask": mask, "in_out_mp": out_mp, "in_out_scale": out_scale, "in_multiple": multiple}
             if _live_reads_new(old, entry):
                 live_touch()
             _remember(did, entry)
+            _send_preview(did, image, x, y, w, h, mask=mask)
+        if hold and not _quiet and not str(run_id).endswith("_continue"):
             if not gate_hold(did, hold_timeout, "succy-crop-info", dynprompt, unique_id):          # D-330: a pause inside the Run (▶ = her box, nothing before redone)
                 say(f"{_TAG} node {did} waiting up to {hold_timeout}s for a selection...")
                 _hold(did, hold_timeout)
-                new = fresh_values(did, unique_id, args)
+                new = after_wait(did, unique_id, args)          # D-355: changes before it = the chain runs again now
                 if new:                                    # D-332: in place with her box of now (no new queue: nothing before redone)
                     return self.crop(**{**args, **new, "run_id": str(run_id) + "_continue"})
 
@@ -1064,7 +1072,7 @@ class Succy_Stitch:
                 if not gate_hold(did, hold_timeout, "succy-crop-info", dynprompt, unique_id):      # D-330: a pause inside the Run
                     say(f"{_TAG} node {did} waiting up to {hold_timeout}s for a retouch...")
                     _hold(did, hold_timeout)
-                    new = fresh_values(did, unique_id, args)
+                    new = after_wait(did, unique_id, args)          # D-355: changes before it = the chain runs again now
                     if new:                                # D-332: in place with her retouch (the last node: no new queue)
                         return self.stitch(**{**args, **new, "run_id": str(run_id) + "_continue"})
         orig = stitch["image"]

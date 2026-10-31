@@ -27,7 +27,7 @@ from collections import OrderedDict
 __all__ = ["AnyType", "ANY", "parse_bool", "parse_int", "parse_float", "loads_loose", "to_container", "convert_text", "same_origin", "DISPLAY",
            "LiveWait", "LiveInputs", "live_eval", "live_touch", "door_values", "live_types", "coerce_widgets", "same_value", "ValueMemo", "value_memo", "memo_stats",
            "tensor_bytes", "ram_holder", "ours_ram", "forget_ours", "set_memo_budget", "say", "set_talk", "TALK",
-           "gate_hold", "gate_action", "route_action", "has_readers", "stop_key", "in_loop", "keep_fresh", "fresh_values"]
+           "gate_hold", "gate_action", "route_action", "has_readers", "stop_key", "in_loop", "keep_fresh", "fresh_values", "after_wait"]
 
 
 class AnyType(str):
@@ -258,7 +258,7 @@ _LIVE_EPOCH = [0]
 # D-336: ONE live job at a time. Five views asking after a Run were five threads each sewing the same 3072x5504 chain, torch on every
 # core in each: 28 s an answer. In turn, the first computes and the four others find it in the memo. Re-entrant: a job may call a job.
 _LIVE_WORK = threading.RLock()
-LIVE_STATS = {"jobs": 0, "busy_ms": 0, "worst_ms": 0, "worst_wait_ms": 0, "waiting": 0, "last_ms": 0, "nodes": {}}   # nodes: type -> n, last / worst ms (its own)
+LIVE_STATS = {"jobs": 0, "busy_ms": 0, "worst_ms": 0, "worst_wait_ms": 0, "waiting": 0, "last_ms": 0, "dropped": 0, "nodes": {}}   # nodes: type -> n, last / worst ms (its own)
 _LIVE_CLOCK = threading.local()
 
 
@@ -283,6 +283,80 @@ def live_job(fn, *args, **kw):
     finally:
         with _LIVE_LOCK:
             LIVE_STATS["waiting"] -= 1
+
+
+# D-339: a view's question still in the queue when she has already moved on is worth nothing: the browser says so (live_drop) and
+# the job, when its turn comes, steps aside (live_stale) instead of sewing a 3072x5504 chain nobody will look at. A job already
+# running finishes (torch can't be stopped halfway), but the memo keeps what it made.
+_LIVE_DROPS = OrderedDict()
+_LIVE_DROPS_MAX = 256
+
+
+class LiveStale(Exception):
+    """A live question the browser dropped before its turn came."""
+
+
+def live_drop(slot, seq):
+    """The view `slot` has a newer question: every one of its questions up to `seq` may step aside."""
+    slot = str(slot or "")
+    try:
+        seq = int(seq)
+    except (TypeError, ValueError):
+        return False
+    if not slot:
+        return False
+    with _LIVE_LOCK:
+        _LIVE_DROPS[slot] = max(seq, _LIVE_DROPS.pop(slot, -1))
+        while len(_LIVE_DROPS) > _LIVE_DROPS_MAX:
+            _LIVE_DROPS.popitem(last=False)
+    return True
+
+
+def live_stale(slot, seq):
+    """True = the browser dropped this question (slot, seq) before it ran: count it and skip it."""
+    if not slot:
+        return False
+    try:
+        seq = int(seq)
+    except (TypeError, ValueError):
+        return False
+    with _LIVE_LOCK:
+        hit = _LIVE_DROPS.get(str(slot), -1) >= seq
+        if hit:
+            LIVE_STATS["dropped"] += 1
+    return hit
+
+
+_LIVE_ASK = threading.local()   # D-340: the question (slot, seq) this thread is answering, and whether it died on the way
+
+
+class live_question:
+    """D-340: `with live_question(slot, seq):` around a live job = the question it answers. It already stepped aside when its turn
+    came (D-339); now it also stops BETWEEN two nodes when the browser drops it mid-chain (the Crop done, the Rotate and the Tile's
+    💡 no longer sewn for nobody). What is already computed stays in the memo. A node that swallows the stop still can't file a
+    half-dead answer: the question is marked and nothing it made after is kept. She leaves mid-sentence; we stop talking."""
+    def __init__(self, slot, seq):
+        self.q = (str(slot or ""), seq) if slot else None
+
+    def __enter__(self):
+        self.prev = (getattr(_LIVE_ASK, "q", None), getattr(_LIVE_ASK, "dead", False))
+        _LIVE_ASK.q, _LIVE_ASK.dead = self.q, False
+        return self
+
+    def __exit__(self, *exc):
+        _LIVE_ASK.q, _LIVE_ASK.dead = self.prev
+        return False
+
+
+def _asked_dead():
+    """True = the question this thread answers was dropped (counted once)."""
+    if getattr(_LIVE_ASK, "dead", False):
+        return True
+    q = getattr(_LIVE_ASK, "q", None)
+    if q and live_stale(*q):
+        _LIVE_ASK.dead = True
+        return True
+    return False
 
 
 class LiveWait(Exception):
@@ -421,10 +495,13 @@ def live_eval(spec, mapping, depth=0, show=None):
     fn = getattr(cls, "succy_live", None) if cls is not None and getattr(cls, "SUCCY_LIVE", None) else None
     if not callable(fn):
         raise LiveWait("run", f"{spec['type']} can't send live: Run once")
+    # D-340: the epoch is read ONCE, before the work: a Run landing mid-computation (live_touch) makes this answer the old Run's,
+    # and it must never be filed under the new epoch (it came back as "fresh" to every question after the Run)
+    epoch = _LIVE_EPOCH[0]
     try:
         # the output asked is NOT part of the node's work: a Rotate reading crop, crop_mask and stitch from one Crop = ONE crop (D-336)
         # and the view's size only for a node that reads it (SUCCY_LIVE_SHOW): a Crop seen at 1536 and read full by its Rotate = one crop
-        key = json.dumps([{k: v for k, v in spec.items() if k != "output"}, _LIVE_EPOCH[0],
+        key = json.dumps([{k: v for k, v in spec.items() if k != "output"}, epoch,
                           show if depth == 0 and getattr(cls, "SUCCY_LIVE_SHOW", False) else None],
                          sort_keys=True, default=str)
     except (TypeError, ValueError):
@@ -435,7 +512,7 @@ def live_eval(spec, mapping, depth=0, show=None):
     bare = {k: v for k, v in spec.items() if k != "output"}
     with _LIVE_LOCK:
         last = _LIVE_LAST.get(me)
-        if last is not None and last[1] == _LIVE_EPOCH[0] and last[0] == bare:
+        if last is not None and last[1] == epoch and last[0] == bare:
             _LIVE_LAST.move_to_end(me)
             return last[2]
     if key is not None:
@@ -444,6 +521,8 @@ def live_eval(spec, mapping, depth=0, show=None):
             if hit is not None:
                 _LIVE_MEMO.move_to_end(key)
                 return hit
+    if _asked_dead():                      # D-340: dropped mid-chain: the next node is not sewn for nobody
+        raise LiveStale()
     widgets = spec.get("widgets") if isinstance(spec.get("widgets"), dict) else {}
     # D-336: each node's OWN time (what its upstream took is not counted twice), for /succy/live/stats
     stack = _LIVE_CLOCK.__dict__.setdefault("stack", [])
@@ -466,16 +545,22 @@ def live_eval(spec, mapping, depth=0, show=None):
             while len(n["why"]) > 12:
                 n["why"].pop(next(iter(n["why"])))
     outs = outs if isinstance(outs, dict) else {}
+    if getattr(_LIVE_ASK, "dead", False):
+        raise LiveStale()                  # a node swallowed the stop and made do with less: never filed as the real answer
     with _LIVE_LOCK:
-        _LIVE_LAST[me] = (bare, _LIVE_EPOCH[0], outs)
+        if epoch != _LIVE_EPOCH[0]:
+            return outs                    # a Run came by meanwhile: hand it to whoever asked, keep nothing (the next asks again)
+        _LIVE_LAST[me] = (bare, epoch, outs)
         _LIVE_LAST.move_to_end(me)
         while len(_LIVE_LAST) > 48:
             _LIVE_LAST.popitem(last=False)
-    if key is not None:
-        with _LIVE_LOCK:
+        if key is not None:
             _LIVE_MEMO[key] = outs
             while len(_LIVE_MEMO) > _LIVE_MEMO_MAX:
                 _LIVE_MEMO.popitem(last=False)
+    # D-340: this node's answer is real and kept; if the question died meanwhile, the node waiting on it below is not sewn
+    if depth > 0 and _asked_dead():
+        raise LiveStale()
     return outs
 
 
@@ -909,6 +994,31 @@ def fresh_values(did, unique_id, current):
     return out
 
 
+def after_wait(did, unique_id, current):
+    """D-355, after the node's own wait (the last node of the Run on Stop): ▶ brought her graph of now.
+    - she changed something this node READS (a Rotate before the Stitch, values or wires) and the gate can run nodes again: the
+      node stops here and hands her graph to the gate (raises the gate's redo error, an interrupt the gate turns into PENDING):
+      the changed chain runs again NOW, in this Run, then this node runs again (and stops again, on the new result);
+    - else: her own values of now ({} = none), the node goes on in place (D-332).
+    A replacement made with the old angle is never 'straightened' with the new one: it is made again. Succubus never fakes a redo."""
+    prompt = _FRESH.get(str(did))
+    gate = _gate()
+    try:
+        if isinstance(prompt, dict) and prompt and gate is not None and getattr(gate, "redo_wanted", None) \
+                and gate.redo_wanted(str(unique_id), prompt):
+            _FRESH.pop(str(did), None)
+            err = gate.redo_error(str(unique_id), prompt)
+        else:
+            err = None
+    except Exception as exc:
+        print(f"[Succy] redo check failed ({exc}): the node goes on in place")
+        err = None
+    if err is not None:
+        say(f"[Succy] node {did}: your changes before it run again now, then it stops again.")
+        raise err
+    return fresh_values(did, unique_id, current)
+
+
 def gate_action(did, action, prompt=None):
     """▶ / ■ pressed on a node the gate holds for: True = the gate took it (resume with the graph of now, or stop)."""
     gate = _gate()
@@ -980,7 +1090,19 @@ def wait_here(states, did, timeout, tag):
             gate.ask(False)                  # D-334: an ask left for this node in the gate: it waits here, the gate holds nobody after it
     except Exception:
         pass
-    t0 = time.time()
+    # D-348: the gate (and so the top bar) knows this node holds the Run: "Paused by <node>", the bar's ▶ = this node's ▶
+    def take(action, prompt):
+        if states.get(did) == "wait":
+            keep_fresh(did, action, prompt)
+            states[did] = action
+    told = False
+    try:
+        if gate is not None and hasattr(gate, "wait_begin"):
+            gate.wait_begin(did, take)
+            told = True
+    except Exception as exc:
+        print(f"[Succy] pause gate did not hear the wait ({exc}): the top bar will not show it")
+    t0, why = time.time(), "stop"
     try:
         while True:
             mm.throw_exception_if_processing_interrupted()
@@ -989,8 +1111,17 @@ def wait_here(states, did, timeout, tag):
                 say(f"{tag} node {did} stopped by user.")
                 mm.interrupt_current_processing()
                 return
-            if st == "continue" or time.time() - t0 >= timeout:
+            if st == "continue":
+                why = "play"
+                return
+            if time.time() - t0 >= timeout:
+                why = "timeout"
                 return
             time.sleep(0.2)
     finally:
         states.pop(did, None)
+        if told:
+            try:
+                gate.wait_end(did, why)
+            except Exception:
+                pass

@@ -7,7 +7,7 @@ import torch.nn.functional as F
 
 from server import PromptServer
 
-from _succy_common import LiveWait, coerce_widgets, fresh_values, gate_hold, live_touch, ram_holder, say, stop_key, stop_route, value_memo, wait_here
+from _succy_common import LiveWait, coerce_widgets, after_wait, gate_hold, live_touch, ram_holder, say, stop_key, stop_route, value_memo, wait_here
 from _succy_image import (FILL_MODES, display_id, file_stamp, fill, homography, input_path, load_picture, rect_pts, remap, resize,
                           quarter, send_preview, turn, turn_size)
 
@@ -299,7 +299,7 @@ class Succy_Rotate:
             if not gate_hold(did, int(hold_timeout), "succy-rotate-info", dynprompt, unique_id):
                 say(f"{_TAG} node {did} waiting up to {hold_timeout}s for the turn...")
                 wait_here(_HOLDS, did, int(hold_timeout), _TAG)
-                new = fresh_values(did, unique_id, args)
+                new = after_wait(did, unique_id, args)          # D-355: changes before it = the chain runs again now
                 if new:
                     return self.rotate(**{**args, **new, "run_id": str(run_id) + "_continue"})
         return (pile, out, om)

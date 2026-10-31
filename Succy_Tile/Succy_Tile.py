@@ -11,7 +11,7 @@ import torch.nn.functional as F
 
 from server import PromptServer
 
-from _succy_common import LIVE_STATS, LiveWait, coerce_widgets, door_values, fresh_values, gate_hold, is_link, live_touch, ram_holder, say, stop_key, stop_route, value_memo, wait_here
+from _succy_common import LIVE_STATS, LiveWait, coerce_widgets, door_values, after_wait, gate_hold, is_link, live_touch, ram_holder, say, stop_key, stop_route, value_memo, wait_here
 from _succy_image import FILL_MODES, display_id, fill, resize, send_preview, snap
 
 # ===================================================
@@ -499,7 +499,10 @@ def _exact_step(W, H, TW, TH, ox, oy, cover, most, div, secs):
     except Exception:
         return None
     d = max(8, min(TW - ox, TH - oy) // div)
-    while ((W - TW) // d + 2) * ((H - TH) // d + 2) > EXACT_POSITIONS:
+    # D-342 (probe B: 4-5 s on a full mask, budget 1.5): HiGHS overshoots its time_limit on big programs (0.43 s asked, 2.3 s
+    # taken at ~5000 places). The places allowed shrink with the time left (~3000 per second): a late step stays small or quits.
+    cap = min(EXACT_POSITIONS, int(3000 * secs))
+    while ((W - TW) // d + 2) * ((H - TH) // d + 2) > cap:
         d *= 2
     xs = torch.tensor(sorted(set(range(0, W - TW + 1, d)) | {W - TW}))
     ys = torch.tensor(sorted(set(range(0, H - TH + 1, d)) | {H - TH}))
@@ -779,7 +782,11 @@ def plan_grid(W, H, kw, mult, cover=None, exact=True):
         # (laid with the free layout's own rule: the cores — a tile minus half an overlap + 1 px — meet, so no fade lands on the mask)
         mx, my = (ox + 1) // 2 + 1, (oy + 1) // 2 + 1
         snap = lambda a, b, L, o: (0 if a < o else a, L if L - b < o else b)          # a sliver left at the picture's edge: up to it
-        (a0, a1), (b0, b1) = snap(area[0], area[2], W, ox), snap(area[1], area[3], H, oy)
+        # D-342 (probe B, overlap 0 / 1 px): the area grows by the overlap, but a core keeps mx px inside its tile and mx > overlap
+        # there — the first tile sat ON the mask's edge and the outer fade ate its first row (alpha 0.33). Grow by mx at least.
+        bx = cover.box
+        e = lambda a, b, b0, b1, L, m: (max(0, min(a, b0 - m)), min(L, max(b, b1 + m)))
+        (a0, a1), (b0, b1) = snap(*e(area[0], area[2], bx[0], bx[2], W, mx), W, ox), snap(*e(area[1], area[3], bx[1], bx[3], H, my), H, oy)
         ex = [a0 + p for p in positions(a1 - a0, TW, 2 * mx)]
         ey = [b0 + p for p in positions(b1 - b0, TH, 2 * my)]
         even = [[x, y] for y in ey for x in ex
@@ -1407,7 +1414,7 @@ class Succy_Tile_Split:
             if not gate_hold(did, int(hold_timeout), "succy-tile-info", dynprompt, unique_id):
                 say(f"{_TAG} node {did} waiting up to {hold_timeout}s for the tiles...")
                 _hold(did, int(hold_timeout))
-                new = fresh_values(did, unique_id, args)
+                new = after_wait(did, unique_id, args)          # D-355: changes before it = the chain runs again now
                 if new:                                    # D-332: in place with her tiles of now (no new queue)
                     return self.split_tiles(**{**args, **new, "run_id": str(run_id) + "_continue"})
         key = {"kw": kw, "mult": mult, "image": image, "mask": mask}
