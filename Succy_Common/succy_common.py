@@ -21,11 +21,13 @@ import json
 import math
 import re
 import threading
+import time
 from collections import OrderedDict
 
 __all__ = ["AnyType", "ANY", "parse_bool", "parse_int", "parse_float", "loads_loose", "to_container", "convert_text", "same_origin", "DISPLAY",
            "LiveWait", "LiveInputs", "live_eval", "live_touch", "door_values", "live_types", "coerce_widgets", "same_value", "ValueMemo", "value_memo", "memo_stats",
-           "tensor_bytes", "ram_holder", "ours_ram", "forget_ours", "set_memo_budget", "say", "set_talk", "TALK"]
+           "tensor_bytes", "ram_holder", "ours_ram", "forget_ours", "set_memo_budget", "say", "set_talk", "TALK",
+           "gate_hold", "gate_action", "route_action", "has_readers", "stop_key", "in_loop", "keep_fresh", "fresh_values"]
 
 
 class AnyType(str):
@@ -250,9 +252,37 @@ def display_id(dynprompt, node_id):
 
 LIVE_DEPTH = 8               # nodes in one chain at most: a loop of wires can't send us round and round
 _LIVE_MEMO = OrderedDict()   # chain -> outputs: two viewers of the same node share one computation
-_LIVE_MEMO_MAX = 8
+_LIVE_MEMO_MAX = 16          # D-336: her chain (Load, Crop, Rotate, Tile, Stitch) + each view's own reduced copy fits
 _LIVE_LOCK = threading.Lock()
 _LIVE_EPOCH = [0]
+# D-336: ONE live job at a time. Five views asking after a Run were five threads each sewing the same 3072x5504 chain, torch on every
+# core in each: 28 s an answer. In turn, the first computes and the four others find it in the memo. Re-entrant: a job may call a job.
+_LIVE_WORK = threading.RLock()
+LIVE_STATS = {"jobs": 0, "busy_ms": 0, "worst_ms": 0, "worst_wait_ms": 0, "waiting": 0, "last_ms": 0, "nodes": {}}   # nodes: type -> n, last / worst ms (its own)
+_LIVE_CLOCK = threading.local()
+
+
+def live_job(fn, *args, **kw):
+    """Run fn(*args, **kw) as THE live job (waits for the one running). Every route that computes a live picture goes through here."""
+    t0 = time.perf_counter()
+    with _LIVE_LOCK:
+        LIVE_STATS["waiting"] += 1
+    try:
+        with _LIVE_WORK:
+            t1 = time.perf_counter()
+            try:
+                return fn(*args, **kw)
+            finally:
+                ms = int((time.perf_counter() - t1) * 1000)
+                with _LIVE_LOCK:
+                    LIVE_STATS["jobs"] += 1
+                    LIVE_STATS["busy_ms"] += ms
+                    LIVE_STATS["last_ms"] = ms
+                    LIVE_STATS["worst_ms"] = max(LIVE_STATS["worst_ms"], ms)
+                    LIVE_STATS["worst_wait_ms"] = max(LIVE_STATS["worst_wait_ms"], int((t1 - t0) * 1000))
+    finally:
+        with _LIVE_LOCK:
+            LIVE_STATS["waiting"] -= 1
 
 
 class LiveWait(Exception):
@@ -267,6 +297,7 @@ def live_touch():
     with _LIVE_LOCK:
         _LIVE_EPOCH[0] += 1
         _LIVE_MEMO.clear()
+        _LIVE_LAST.clear()
 
 
 def live_types(mapping):
@@ -282,11 +313,14 @@ def live_types(mapping):
 class LiveInputs:
     """What a live node gets for its inputs: get(name) = the upstream live output, None when the input has no live source
     (not wired, or wired to a node that only a Run can fill: the node then falls back to its last Run)."""
-    def __init__(self, spec, mapping, depth=0):
+    def __init__(self, spec, mapping, depth=0, show=None):
         spec = spec if isinstance(spec, dict) else {}
         self._from = spec.get("from") if isinstance(spec.get("from"), dict) else {}
         self._linked = set(str(x) for x in (spec.get("linked") or []))
         self._mapping, self._depth = mapping, depth
+        # D-314: the longest side the browser will SEE of this node's own view (None = full size: a node downstream, a Run, ⧉ / ⬇).
+        # A node may work on a smaller copy then, and says the real sizes in "_real" — she dresses down only for the mirror.
+        self.show = show if depth == 0 and show else None
 
     def linked(self, name):
         # a wire whose live source says "I hand out nothing" (an Any on Index 0 or on a hole) counts as NO wire at all (D-172)
@@ -345,8 +379,40 @@ def door_values(widgets, inputs, last, doors, who="the node", wait=True):
     return out, unknown
 
 
-def live_eval(spec, mapping, depth=0):
-    """One node of the chain, as it is now -> {output name: value}. Raises LiveWait when it can't answer yet."""
+_LIVE_LAST = OrderedDict()   # (type, node_id, size) -> (spec, epoch, outputs): each node's last answer (D-336)
+_LIVE_PREV = OrderedDict()   # (type, node_id) -> (spec, epoch, show) of its last computation: why it was computed again (D-336)
+
+
+def _why_again(spec, show):
+    """What changed since this node was last computed: first | run (a Run / live_touch) | size (another view size) | w:<widget names>
+    | from | linked | same (nothing: the memo lost it). Called under _LIVE_LOCK."""
+    k = (spec.get("type"), str(spec.get("node_id", "")))
+    now = ({x: v for x, v in spec.items() if x != "output"}, _LIVE_EPOCH[0], show)
+    prev = _LIVE_PREV.pop(k, None)
+    _LIVE_PREV[k] = now
+    while len(_LIVE_PREV) > 64:
+        _LIVE_PREV.popitem(last=False)
+    if prev is None:
+        return "first"
+    ps, pe, pw = prev
+    s = now[0]
+    if ps.get("widgets") != s.get("widgets"):
+        a, b = ps.get("widgets") or {}, s.get("widgets") or {}
+        return "w:" + ",".join(sorted(x for x in set(a) | set(b) if a.get(x) != b.get(x))[:3])
+    if json.dumps(ps.get("from"), sort_keys=True, default=str) != json.dumps(s.get("from"), sort_keys=True, default=str):
+        return "from"
+    if ps.get("linked") != s.get("linked"):
+        return "linked"
+    if pe != now[1]:
+        return "run"
+    if pw != show:
+        return "size"
+    return "same" if ps == s else "other"
+
+
+def live_eval(spec, mapping, depth=0, show=None):
+    """One node of the chain, as it is now -> {output name: value}. Raises LiveWait when it can't answer yet.
+    show = the longest side the browser views (only the asked node, depth 0: what it hands to others stays full size, D-314)."""
     if not isinstance(spec, dict) or not isinstance(spec.get("type"), str):
         raise LiveWait("run", "nothing live on this wire")
     if depth > LIVE_DEPTH:
@@ -356,9 +422,22 @@ def live_eval(spec, mapping, depth=0):
     if not callable(fn):
         raise LiveWait("run", f"{spec['type']} can't send live: Run once")
     try:
-        key = json.dumps([spec, _LIVE_EPOCH[0]], sort_keys=True, default=str)
+        # the output asked is NOT part of the node's work: a Rotate reading crop, crop_mask and stitch from one Crop = ONE crop (D-336)
+        # and the view's size only for a node that reads it (SUCCY_LIVE_SHOW): a Crop seen at 1536 and read full by its Rotate = one crop
+        key = json.dumps([{k: v for k, v in spec.items() if k != "output"}, _LIVE_EPOCH[0],
+                          show if depth == 0 and getattr(cls, "SUCCY_LIVE_SHOW", False) else None],
+                         sort_keys=True, default=str)
     except (TypeError, ValueError):
         key = None
+    # D-336, her SUCCY_WHY: the Crop computed again 30 times out of 36 with NOTHING changed ("same"): the LRU lost it (many views, many
+    # sizes) or its text key told equal specs apart. Each node also keeps its LAST answer, compared by value: never lost to the others
+    me = (spec["type"], str(spec.get("node_id", "")), show if depth == 0 and getattr(cls, "SUCCY_LIVE_SHOW", False) else None)
+    bare = {k: v for k, v in spec.items() if k != "output"}
+    with _LIVE_LOCK:
+        last = _LIVE_LAST.get(me)
+        if last is not None and last[1] == _LIVE_EPOCH[0] and last[0] == bare:
+            _LIVE_LAST.move_to_end(me)
+            return last[2]
     if key is not None:
         with _LIVE_LOCK:
             hit = _LIVE_MEMO.get(key)
@@ -366,8 +445,32 @@ def live_eval(spec, mapping, depth=0):
                 _LIVE_MEMO.move_to_end(key)
                 return hit
     widgets = spec.get("widgets") if isinstance(spec.get("widgets"), dict) else {}
-    outs = fn(dict(widgets), LiveInputs(spec, mapping, depth), str(spec.get("node_id", "")))
+    # D-336: each node's OWN time (what its upstream took is not counted twice), for /succy/live/stats
+    stack = _LIVE_CLOCK.__dict__.setdefault("stack", [])
+    stack.append(0.0)
+    t0 = time.perf_counter()
+    try:
+        outs = fn(dict(widgets), LiveInputs(spec, mapping, depth, show), str(spec.get("node_id", "")))
+    finally:
+        took = time.perf_counter() - t0
+        own = int((took - stack.pop()) * 1000)
+        if stack:
+            stack[-1] += took
+        with _LIVE_LOCK:
+            n = LIVE_STATS["nodes"].setdefault(spec["type"], {"n": 0, "last_ms": 0, "worst_ms": 0, "why": {}})
+            n["n"] += 1
+            n["last_ms"] = own
+            n["worst_ms"] = max(n["worst_ms"], own)
+            why = _why_again(spec, show if depth == 0 else None)
+            n["why"][why] = n["why"].get(why, 0) + 1
+            while len(n["why"]) > 12:
+                n["why"].pop(next(iter(n["why"])))
     outs = outs if isinstance(outs, dict) else {}
+    with _LIVE_LOCK:
+        _LIVE_LAST[me] = (bare, _LIVE_EPOCH[0], outs)
+        _LIVE_LAST.move_to_end(me)
+        while len(_LIVE_LAST) > 48:
+            _LIVE_LAST.popitem(last=False)
     if key is not None:
         with _LIVE_LOCK:
             _LIVE_MEMO[key] = outs
@@ -570,14 +673,16 @@ def ours_ram():
             "evicted": _BUDGET["evicted"], "too_big": _BUDGET["too_big"]}
 
 
-def forget_ours():
-    """Every memo and every holder lets go (ComfyUI's free, the RAM ceiling). Returns how many entries went."""
+def forget_ours(holders=True):
+    """Every memo lets go, and (holders=True: ComfyUI's free) every holder too. Returns how many memo entries went.
+    D-328: the RAM ceiling passes holders=False: the last Runs are references to what ComfyUI's cache holds anyway (dropping them
+    freed nothing) and they are what the live views and ⧉ / ⬇ read: emptied after every Run they said "Run once" right after one."""
     n = 0
     for m in list(_MEMOS.values()):
         with m._lock:
             n += len(m._d)
         m.forget()
-    for name, (forget, _t) in list(_HOLDERS.items()):
+    for name, (forget, _t) in (list(_HOLDERS.items()) if holders else []):
         try:
             forget()
         except Exception:
@@ -672,3 +777,220 @@ def value_memo(name, cap=12):
 def memo_stats():
     """{memo name: stats} for every value memo: the Monitor's row."""
     return {k: m.stats() for k, m in _MEMOS.items()}
+
+
+# ---------------------------------------------------------------------------
+# D-330: Stop on Crop / Stitch / Tile Split = a pause INSIDE the same Run (the global pause gate, Succy_Common/succy_pause_gate.py),
+# not a new queue. The node shows what came in, asks the gate, runs on with the values it has and the gate holds the Run before the
+# next node; she draws / drags, ▶ hands the gate the graph of now and it runs the node again with her values (D-264), then goes on.
+# Load / SAM / a model before it are never touched again. The old way (wait in the node, ▶ = re-queue) only without the gate.
+# ---------------------------------------------------------------------------
+
+def _gate():
+    import sys
+    return sys.modules.get("_succy_pause_gate")
+
+
+def has_readers(dynprompt, unique_id):
+    """True when some node of the running prompt reads an output of `unique_id` (the gate holds BEFORE the next node: none = no hold).
+    Can't tell = False (the old wait, which always works)."""
+    try:
+        p = getattr(dynprompt, "original_prompt", None)
+        if not isinstance(p, dict):
+            return False
+        me = str(unique_id)
+        return any(isinstance(v, list) and len(v) == 2 and str(v[0]) == me
+                   for n in p.values() if isinstance(n, dict) for v in (n.get("inputs") or {}).values())
+    except Exception:
+        return False
+
+
+_LOOP_STARTS = ("Succy_LoopStart", "Succy_WhileStart")
+_LOOP_ENDS = ("Succy_LoopEnd", "Succy_WhileEnd")
+
+
+def in_loop(dynprompt, unique_id):
+    """True when the node sits INSIDE a Succy loop (after a Start whose End is not before it). Can't tell = False."""
+    try:
+        seen, stack = set(), [str(unique_id)]
+        while stack:
+            nid = stack.pop()
+            if nid in seen:
+                continue
+            seen.add(nid)
+            stack += [str(v[0]) for v in ((dynprompt.get_node(nid) or {}).get("inputs") or {}).values() if is_link(v)]
+        kind = {n: (dynprompt.get_node(n) or {}).get("class_type") for n in seen}
+        ends = [n for n in seen if kind[n] in _LOOP_ENDS]
+        closed = {str(f[0]) for n in ends for f in [(dynprompt.get_node(n).get("inputs") or {}).get("flow")] if is_link(f)}
+        return any(kind[n] in _LOOP_STARTS and n not in closed for n in seen)
+    except Exception:
+        return False
+
+
+def _wants_stop(inputs):
+    """D-332: the prompt inputs of a node on Stop (a wire on `hold` counts as on) that is not the old ▶'s transit."""
+    h = inputs.get("hold", False)
+    return (h is True or is_link(h)) and not str(inputs.get("run_id", "")).endswith("_continue")
+
+
+def _stage_stop(dynprompt, unique_id):
+    return not in_loop(dynprompt, unique_id)
+
+
+def stop_key(cls, hold, run_id):
+    """IS_CHANGED of a node (`cls` = its mapped class, the name it got in __init__.py does not matter) with Stop / Reuse (Crop, Stitch, Tile Split). Stop = the node runs on EVERY Run (the Run waits there).
+    D-332: with the gate (async engine) like the Succy Pause (D-271 / D-273): a STABLE key, the gate runs it anyway and stages it at the
+    start of every prompt, so a ▶ with nothing changed takes what follows from the cache (no sampling again) and a Split right after a
+    cached Load still stops on the 2nd Run. Without the gate: NaN (always changed), as before. Reuse / the old ▶'s transit: cached."""
+    if not hold or str(run_id).endswith("_continue"):
+        return "passthrough"
+    gate = _gate()
+    try:
+        if gate is not None and gate.always_run(cls, _wants_stop, _stage_stop):
+            return "hold"
+    except Exception as exc:
+        print(f"[Succy] pause gate always_run failed ({exc}): the node runs as always changed")
+    return float("nan")
+
+
+def gate_hold(did, timeout, event, dynprompt=None, unique_id=None):
+    """Ask the gate to hold the Run right after node `did` (once a prompt: run again with her values, it lets the Run through).
+    Tells the page (`event`, the node's hold info) so its ▶ resumes in place. -> True = held by the gate, go on at once;
+    False = no gate, or nothing still to run after the node (the last node of the run): the node waits the old way.
+    D-332: the gate knows what is still to run (a Stitch at the end with another branch still to go = held by the gate); when it
+    cannot tell, a node of the prompt reading this one is the sign."""
+    gate, held = _gate(), False
+    try:
+        more = getattr(gate, "more_to_run", lambda: None)() if gate is not None else None
+        held = (gate is not None and (more is not None or has_readers(dynprompt, unique_id))   # the gate decides when it knows
+                and bool(gate.hold_after(str(did), timeout, "continue", once=True)))
+    except Exception as exc:
+        print(f"[Succy] pause gate unavailable ({exc}): the node waits the old way")
+    try:
+        from server import PromptServer
+        PromptServer.instance.send_sync(event, {"node_id": str(did), "in_loop": False, "gate": bool(held), "in_place": True})   # D-332: ▶ never re-queues
+    except Exception:
+        pass
+    return held
+
+
+_FRESH = {}                  # D-332: display id -> the page's prompt of now that ▶ brought to a node waiting in itself
+
+
+def keep_fresh(did, action, prompt):
+    """The route of a node that waits in itself (no gate, or the last node of the run): ▶ brought the prompt of now. Kept for
+    fresh_values(); ■ / no prompt = nothing kept."""
+    if action == "continue" and isinstance(prompt, dict) and prompt:
+        _FRESH[str(did)] = prompt
+    else:
+        _FRESH.pop(str(did), None)
+
+
+def fresh_values(did, unique_id, current):
+    """D-332, after the node's own wait: her plain values of NOW for this node that differ from what it runs with ({} = none).
+    The node goes on with them in place (no new queue: a Crop on Stop before it would stop again, the sampler sample again).
+    Wires are never taken from the page: what came in is what this Run has."""
+    prompt = _FRESH.pop(str(did), None)
+    node = None
+    if isinstance(prompt, dict):
+        node = prompt.get(str(did)) or prompt.get(str(unique_id))
+    ins = node.get("inputs") if isinstance(node, dict) else None
+    if not isinstance(ins, dict):
+        return {}
+    out = {}
+    for k, v in ins.items():
+        if k in current and k not in ("run_id", "unique_id", "dynprompt") and not is_link(v) and not isinstance(current[k], (list, dict)) \
+                and not hasattr(current[k], "shape"):
+            try:
+                if v != current[k]:
+                    out[k] = v
+            except Exception:
+                continue
+    return out
+
+
+def gate_action(did, action, prompt=None):
+    """▶ / ■ pressed on a node the gate holds for: True = the gate took it (resume with the graph of now, or stop)."""
+    gate = _gate()
+    try:
+        return gate is not None and bool(gate.node_action(str(did), action, prompt))
+    except Exception as exc:
+        print(f"[Succy] pause gate action failed: {exc}")
+        return False
+
+
+
+# D-333: the ▶ / ■ route and the old wait of every node with Stop / Reuse (Crop, Stitch, Tile Split, Rotate): one copy, here.
+# `states` = the node module's own dict (display id -> "wait" | "continue" | "stop"), kept on the server instance by the module.
+
+async def stop_route(request, states):
+    """POST /succy/<node>/action {node_id, action: continue | stop, prompt?}: the gate first (it holds the Run for the node), else
+    the node's own wait (▶ with the prompt of now = her values, in place)."""
+    from aiohttp import web
+    if not same_origin(request):
+        return refused()
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "bad JSON"}, status=400)
+    if not isinstance(data, dict) or data.get("node_id") is None or data.get("action") not in ("continue", "stop"):
+        return web.json_response({"error": "node_id and action ('continue' | 'stop') required"}, status=400)
+    where = route_action(states, data["node_id"], data["action"], data.get("prompt"))
+    return web.json_response({"status": "ok", "gate": where.startswith("gate"), "where": where})
+
+
+def route_action(states, node_id, action, prompt=None):
+    """D-334: where ▶ / ■ of a node with Stop / Reuse lands, first match wins, so the buttons are never dead:
+    1. the node waits in itself (D-332: ▶ brings her values, in place): a stale ask left in the gate never swallows the click;
+    2. the gate holds the Run for this node (D-330: resume in place / stop);
+    3. the gate holds the Run for someone else (the node's page and the gate disagree on who): ▶ goes on, ■ stops the Run.
+    -> "node" | "gate" | "gate-any" | "idle" (nothing held: kept for a wait that has not started yet, as before).
+    She never has to press twice; Succubus hates a door that only pretends to be open."""
+    did = str(node_id)
+    if states.get(did) == "wait":
+        keep_fresh(did, action, prompt)
+        states[did] = action
+        return "node"
+    if gate_action(did, action, prompt):
+        return "gate"
+    gate = _gate()
+    try:
+        if gate is not None and gate.snapshot().get("paused"):
+            if action == "stop":
+                gate._interrupt()
+            else:
+                gate.resume(prompt)
+            return "gate-any"
+    except Exception as exc:
+        print(f"[Succy] pause gate action failed: {exc}")
+    states[did] = action
+    return "idle"
+
+
+def wait_here(states, did, timeout, tag):
+    """The old wait, in the node (no gate, or the last node of the run): ▶ (or the timeout) = go on, ■ = the whole Run stops.
+    Interruptible (ComfyUI's own interrupt), never longer than `timeout` seconds."""
+    import time
+    import comfy.model_management as mm
+    states[did] = "wait"
+    gate = _gate()
+    try:
+        snap = gate.snapshot() if gate is not None else {}
+        if snap.get("by") == str(did) and not snap.get("paused"):
+            gate.ask(False)                  # D-334: an ask left for this node in the gate: it waits here, the gate holds nobody after it
+    except Exception:
+        pass
+    t0 = time.time()
+    try:
+        while True:
+            mm.throw_exception_if_processing_interrupted()
+            st = states.get(did, "wait")
+            if st == "stop":
+                say(f"{tag} node {did} stopped by user.")
+                mm.interrupt_current_processing()
+                return
+            if st == "continue" or time.time() - t0 >= timeout:
+                return
+            time.sleep(0.2)
+    finally:
+        states.pop(did, None)

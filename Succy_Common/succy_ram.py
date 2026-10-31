@@ -1,7 +1,7 @@
 # Succy Pack — RAM keeper (D-308). Three things, zero work while nothing runs:
 #   1. ComfyUI's "free" (Free model and node cache) now also empties OUR memos and last-Run pictures: PromptExecutor.reset is wrapped.
 #   2. The RAM ceiling (setting "RAM ceiling (GB)", 0 = off) is checked ONCE at the end of each Run: over it, steps until under:
-#      our memos + last-Run pictures -> ComfyUI's cache lightened (Loop pass clones; RAM pressure cache: its biggest outputs first)
+#      our memos (D-328: not the last-Run pictures, the live views and ⧉ / ⬇ read them) -> ComfyUI's cache lightened (Loop pass clones; RAM pressure cache: its biggest outputs first)
 #      -> only if she chose "Models": ComfyUI's whole node cache + the models (its own free, after the Run; the next Run reloads them).
 #   3. GET /succy/ram/stats (the Monitor's RAM row) · POST /succy/ram/config {ceiling_gb, memo_gb, models} (the settings, from the page).
 # The value memos live under one budget in GB (succy_common.set_memo_budget). She keeps what she needs, and lets go when told.
@@ -99,7 +99,7 @@ def after_run(executor=None, read=rss, queue=_queue, avail=_available):
     if before is None or before <= limit:
         return None
     rec = {"at": time.time(), "before": before, "limit": limit, "steps": []}
-    n = forget_ours()
+    n = forget_ours(holders=False)                         # D-328: the memos; the last Runs stay (live views, ⧉ / ⬇)
     gc.collect()
     after = read()
     rec["steps"].append({"step": "ours", "entries": n, "after": after})

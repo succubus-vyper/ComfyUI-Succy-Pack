@@ -1,4 +1,4 @@
-# Succy global pause gate v1.8.0 (D-263, D-259 (3) + (4), D-264, D-266, D-267, D-268, D-271, D-273, D-277)
+# Succy global pause gate v1.9.0 (D-263, D-259 (3) + (4), D-264, D-266, D-267, D-268, D-271, D-273, D-277, D-332)
 # The ⏸ of the top bar (dev/src/NodeStructure/app/topbar.js) holds the WHOLE run between two nodes:
 #   ComfyUI's engine runs one node at a time through `execution.execute(...)`. We wrap that function: before every node that is
 #   NOT in the cache, if a pause was asked for this prompt, we wait there (short sleeps) until ▶, Stop / Interrupt or a new prompt.
@@ -37,6 +37,10 @@
 # stops before the next node, cached or not. Continue with nothing changed = the outputs come from the cache, nothing samples
 # again; with changes = only what changed runs again, with its chain (D-264, now from the outputs). A Pause holds once per prompt:
 # re-run because something before it changed, it lets the run through.
+# D-332 (Stop of Crop / Split / Stitch, `once` holds): the events say `once` (the page never opens a second wait when the gate runs
+# the node again with her values) · ▶ pressed between the node's ask and the hold keeps her edits (`go`) · the holder she retouched
+# runs again NOW even when nobody still to run reads it (a Stitch at the end) · `more_to_run()`: something still to run after the
+# node (else the node waits the old way: nothing would hold).
 # Loaded by succy_canvas_menu.py (so __init__.py stays untouched). She lets you catch your breath... only when SHE decides.
 import asyncio
 import inspect
@@ -51,9 +55,9 @@ _lock = threading.Lock()
 STATE = {"hooked": False, "why": "not installed", "want": False, "prompt": None, "paused": False, "node": None,
          "done": [], "todo": [], "pauses": 0, "changes": None, "last_report": None,
          "by": None, "deadline": None, "on_timeout": "continue", "closed": False, "live": [],
-         "hold_s": None, "forever": False}       # A3: the top bar's window (starts when the hold does) / "hold forever", only when asked
+         "hold_s": None, "forever": False, "once": False, "go": False}       # A3: the top bar's window (starts when the hold does) / "hold forever", only when asked
 _orphan = {"since": None}                      # A3: when the last page went away while a top-bar pause holds   # D-267: who asked (a Pause node) and its timeout
-_run = {"prompt": None, "done": set(), "dp": None, "held": set(), "staged": set()}   # what the gate has seen pass in the current prompt (cache included)
+_run = {"prompt": None, "done": set(), "dp": None, "held": set(), "staged": set(), "el": None, "cur": None}   # what the gate has seen pass in the current prompt (cache included)
 PENDING = None                                 # execution.ExecutionResult.PENDING, found by install(): lets a held node step back
 FAILURE = None                                 # D-273: ExecutionResult.FAILURE: Stop while held ends the run as ComfyUI's own interrupt
 ALWAYS = {}                                    # D-271: class_type (or class) -> predicate(inputs) "must run now" (the Succy Pause, pause_flow on)
@@ -91,7 +95,7 @@ def snapshot():
         return {k: (list(v) if isinstance(v, (list, set)) else v) for k, v in STATE.items() if k != "changes"} | {"has_changes": STATE["changes"] is not None}
 
 
-def ask(on, prompt_id=None, by=None, timeout=None, on_timeout="continue", closed=False, forever=False):
+def ask(on, prompt_id=None, by=None, timeout=None, on_timeout="continue", closed=False, forever=False, once=False):
     """⏸ asked (on=True) for this prompt, or the ask taken back before it landed (on=False). `by` / `timeout` / `closed`: a Pause
     node asked it (D-267); the ⏸ of the top bar asks without them (edits on) and gets TOPBAR_HOLD_S + the orphan release (A3),
     unless `forever` says, out loud, to wait for ever."""
@@ -102,21 +106,41 @@ def ask(on, prompt_id=None, by=None, timeout=None, on_timeout="continue", closed
         STATE["want"] = bool(on)
         STATE["prompt"] = str(prompt_id) if on and prompt_id else None
         STATE.update(by=str(by) if on and by is not None else None, on_timeout=str(on_timeout or "continue"),
-                     deadline=time.time() + float(timeout) if on and timeout else None, closed=bool(on and closed))
+                     deadline=time.time() + float(timeout) if on and timeout else None, closed=bool(on and closed),
+                     once=bool(on and once), go=False)
     return snapshot()
 
 
-def hold_after(by, timeout=None, on_timeout="continue", closed=False):
+def hold_after(by, timeout=None, on_timeout="continue", closed=False, once=False):
     """D-267, called by the Pause node from INSIDE its own execute: hold the run before the next node not in the cache.
-    False = the gate is not hooked (the node waits the old way, in its own function)."""
+    False = the gate is not hooked (the node waits the old way, in its own function).
+    D-330: once=True (Crop / Stitch / Tile Split on Stop): one hold a prompt; run again with her edits (D-264), it lets the run through."""
     if not STATE["hooked"] or not _run["prompt"]:
         return False
-    if str(by) in _run["staged"]:                      # D-273: a staged Pause holds once a prompt (a loop's clones hold every turn)
+    if once:
+        if str(by) in _run["held"]:
+            return True                                  # run again with her values: through, never a second stop
+        if more_to_run() is False:
+            return False                                 # D-332: the last node of the run: nothing to hold before, the node waits
+        _run["held"].add(str(by))
+    elif str(by) in _run["staged"]:                      # D-273: a staged Pause holds once a prompt (a loop's clones hold every turn)
         if str(by) in _run["held"]:
             return True                                # run again because something before it changed: let it through
         _run["held"].add(str(by))
-    ask(True, _run["prompt"], by=by, timeout=timeout, on_timeout=on_timeout, closed=closed)
+    ask(True, _run["prompt"], by=by, timeout=timeout, on_timeout=on_timeout, closed=closed, once=once)
     return True
+
+
+def more_to_run():
+    """D-332: True = some other node of the running prompt is still to run (the gate holds before it); False = the node at work is
+    the last one; None = cannot tell."""
+    el, cur = _run.get("el"), _run.get("cur")
+    if el is None:
+        return None
+    try:
+        return bool({str(n) for n in list(el.pendingNodes)} - {str(cur)})
+    except Exception:
+        return None
 
 
 def node_action(by, action, prompt=None):
@@ -173,7 +197,10 @@ def _expired():
 def resume(prompt=None):
     """▶: the gate lets the run go on. `prompt` = the page's prompt of now (graphToPrompt().output): the green nodes' edits."""
     with _lock:
-        STATE["want"] = False
+        if STATE["want"] and not STATE["paused"] and STATE["by"] is not None:
+            STATE["go"] = True                         # D-332: asked, not held yet (the node still at work): hold, take her edits, go
+        else:
+            STATE["want"] = False
         STATE["changes"] = prompt if isinstance(prompt, dict) and prompt else None
     return snapshot()
 
@@ -337,14 +364,15 @@ def _take_changes(a, rerun=False):
     with _lock:
         fresh, STATE["changes"] = STATE["changes"], None
         closed = STATE["closed"]
+        holder = STATE["by"] if STATE["once"] else None
     if closed:                                         # D-267 + D-265: a started loop is a closed world, edits = next Run
-        return ({"closed": "loop", "late": {}, "applied": {}, "rerun": {}} if fresh else None), set(), ([], [])
+        return ({"closed": "loop", "late": {}, "applied": {}, "rerun": {}} if fresh else None), set(), ([], [], [])
     if not fresh or _interrupted():
-        return None, set(), ([], [])
+        return None, set(), ([], [], [])
     dp, el = a["dynprompt"], a.get("execution_list")
     original = getattr(dp, "original_prompt", None)
     if not isinstance(original, dict):
-        return {"error": "the running prompt is not readable"}, set(), ([], [])
+        return {"error": "the running prompt is not readable"}, set(), ([], [], [])
     todo = {str(i) for i in list(getattr(el, "pendingNodes", {}) or {})} | {str(a["current_item"])}
     apply, late, wires, new = diff_prompt(original, fresh, todo, values=True)
     rew, pulled = rewire_plan(original, fresh, todo) if rerun else ({}, {})
@@ -368,6 +396,10 @@ def _take_changes(a, rerun=False):
                 moved[nid] = dict(fn.get("inputs") or {})
                 late[nid] = {**late.get(nid, {}), **moved[nid]}
     again, more = rerun_plan(original, late, todo, el) if rerun and late else (set(), [])
+    stage = []
+    if rerun and holder is not None and holder in late and holder not in again and holder in original:
+        again.add(holder)                              # D-332: the node she retouched runs again now, read or not (a Stitch at the end)
+        stage.append(holder)
     redo = {n: late.pop(n) for n in list(late) if n in again}
     for nid, vals in redo.items():
         original[nid]["inputs"].update(vals)
@@ -387,13 +419,15 @@ def _take_changes(a, rerun=False):
     with _lock:
         STATE["last_report"] = report
     changed = set(apply) | set(redo) | set(rew) | set(pulled)
-    return report, (downstream(original, changed) if changed else set()), (drop, links)
+    return report, (downstream(original, changed) if changed else set()), (drop, links, stage)
 
 
 def _relink(el, plan, current):
     """New keys in place: old waits of rewired nodes dropped, the green readers wait for their (new / red) sources.
     True = the held node itself must step back."""
-    drop, links = plan
+    drop, links, stage = (tuple(plan) + ([],))[:3]
+    for nid in stage:
+        el.add_node(nid)                               # D-332: the holder, with what it reads that is not in the cache
     for src, g in drop:
         if g in (el.blocking.get(src) or {}):
             del el.blocking[src][g]
@@ -409,14 +443,14 @@ def _hold_for(prompt_id):
             return False
         if STATE["prompt"] not in (None, str(prompt_id)):
             STATE["want"], STATE["prompt"] = False, None     # asked for a run that has ended: never leaks onto the next one
-            STATE.update(by=None, deadline=None, closed=False, hold_s=None, forever=False)
+            STATE.update(by=None, deadline=None, closed=False, hold_s=None, forever=False, once=False, go=False)
             return False
         return True
 
 
 def _new_prompt(prompt_id, dynprompt=None):
     if _run["prompt"] != prompt_id:
-        _run.update(prompt=prompt_id, done=set(), dp=dynprompt, held=set(), staged=set())
+        _run.update(prompt=prompt_id, done=set(), dp=dynprompt, held=set(), staged=set(), el=None, cur=None)
         return True
     return False
 
@@ -587,19 +621,22 @@ def _enter(a):
     with _lock:
         STATE.update(paused=True, node=shown, done=done, todo=todo, live=live)
         STATE["pauses"] += 1
-        by = STATE["by"]
-    _send("succy.run.paused", {"prompt_id": pid, "node": shown, "done": done, "todo": todo, "live": live, "by": by, "closed": closed})
+        by, once = STATE["by"], STATE["once"]
+    _send("succy.run.paused", {"prompt_id": pid, "node": shown, "done": done, "todo": todo, "live": live, "by": by, "closed": closed, "once": once})
 
 
 def _leave(pid, report=None, timeout=False):
     why = "stop" if _interrupted() else "timeout" if timeout else "play"
     with _lock:
-        by = STATE["by"]
-        STATE.update(paused=False, node=None, done=[], todo=[], live=[], by=None, deadline=None, closed=False, hold_s=None, forever=False)
+        by, once = STATE["by"], STATE["once"]
+        if STATE["go"]:
+            STATE["want"] = False                      # D-332: the early ▶ is spent here
+        STATE.update(paused=False, node=None, done=[], todo=[], live=[], by=None, deadline=None, closed=False, hold_s=None, forever=False,
+                     once=False, go=False)
         _orphan["since"] = None
         if why == "stop":
             STATE["want"], STATE["prompt"], STATE["changes"] = False, None, None
-    _send("succy.run.resumed", {"prompt_id": pid, "why": why, "report": report, "by": by})
+    _send("succy.run.resumed", {"prompt_id": pid, "why": why, "report": report, "by": by, "once": once})
 
 
 def _passed(uid, result):
@@ -663,7 +700,7 @@ def wrap(orig):
                 _enter(a)
                 report, back, late = None, False, False
                 try:
-                    while _hold_for(a.get("prompt_id")) and not _interrupted():
+                    while _hold_for(a.get("prompt_id")) and not _interrupted() and not STATE["go"]:
                         if _expired():
                             late = True
                             break
@@ -672,7 +709,7 @@ def wrap(orig):
                     report, ids, links = _take_changes(a, rerun=_can_rerun(el))
                     if ids:
                         await _refresh_keys(a["caches"], a["dynprompt"], set(report["applied"]) | set(report["rerun"]), ids)
-                    if links and (links[0] or links[1]):
+                    if links and any(links):
                         back = _relink(el, links, a["current_item"])
                 except Exception as e:                 # an edit that cannot land never breaks the run
                     report = {"error": str(e)[:200]}
@@ -685,6 +722,7 @@ def wrap(orig):
                     return stopped                     # D-273: Stop before an output from the cache: no "success", nothing emitted
             if "caches" in a and _always(a.get("dynprompt"), a["current_item"]):
                 args, kwargs = _with_caches(sig, args, kwargs, _FreshFor(a["caches"], a["current_item"]))
+            _run.update(el=a.get("execution_list"), cur=a["current_item"])
             res = await orig(*args, **kwargs)    # interrupted: ComfyUI's own check inside raises and reports it, as always
             _passed(a["current_item"], res)
             return res
@@ -695,7 +733,7 @@ def wrap(orig):
                 _enter(a)
                 report, late = None, False
                 try:
-                    while _hold_for(a.get("prompt_id")) and not _interrupted():
+                    while _hold_for(a.get("prompt_id")) and not _interrupted() and not STATE["go"]:
                         if _expired():
                             late = True
                             break
@@ -705,6 +743,7 @@ def wrap(orig):
                     report = {"error": str(e)[:200]}
                 finally:
                     _leave(a.get("prompt_id"), report, late)
+            _run.update(el=a.get("execution_list"), cur=a["current_item"])
             res = orig(*args, **kwargs)
             _passed(a["current_item"], res)
             return res

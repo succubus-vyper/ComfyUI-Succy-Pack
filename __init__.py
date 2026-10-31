@@ -105,6 +105,34 @@ NODES = {
         "display":  "Succy - Value (internal)",
         "category": "Succy Pack/hidden",
     },
+        "Succy_Rotate": {
+        "folder":   "Succy_Rotate",
+        "py_file":  "Succy_Rotate.py",
+        "class":    "Succy_Rotate",
+        "display":  "Succy - 🔄Rotate & Flip",
+        "category": "Succy Pack",
+    },
+        "Succy_Tile_Split": {
+        "folder":   "Succy_Tile",
+        "py_file":  "Succy_Tile.py",
+        "class":    "Succy_Tile_Split",
+        "display":  "Succy - 🧩Tile Split",
+        "category": "Succy Pack",
+    },
+    "Succy_Tile_Merge": {
+        "folder":   "Succy_Tile",
+        "py_file":  "Succy_Tile.py",
+        "class":    "Succy_Tile_Merge",
+        "display":  "Succy - 🧩Tile Merge",
+        "category": "Succy Pack",
+    },
+        "Succy_Multi_From_Batch_List": {
+        "folder":   "Succy_Utils",
+        "py_file":  "Succy_Multi_From_Batch_List.py",
+        "class":    "Succy_Multi_From_Batch_List",
+        "display":  "Succy - 🍒Multi From Batch/List",
+        "category": "Succy Pack",
+    },
 }
 
 # Usiamo MODULES per il loop per sfruttare i mapping definiti nel file stesso

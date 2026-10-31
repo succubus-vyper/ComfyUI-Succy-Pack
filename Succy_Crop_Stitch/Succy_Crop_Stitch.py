@@ -12,13 +12,14 @@ from aiohttp import web
 import comfy.model_management
 from server import PromptServer
 
-from _succy_common import refused, same_origin, LiveWait, door_values, live_touch, ram_holder, value_memo, say   # the shared drawer (loaded once by __init__.py)
+from _succy_common import refused, same_origin, LiveWait, door_values, fresh_values, gate_hold, live_job, live_touch, ram_holder, stop_key, stop_route, value_memo, say, wait_here   # the shared drawer (loaded once by __init__.py)
 # the picture helpers moved to the shared picture drawer (D-156): Load & Resize uses them too. Same functions, old names.
 from _succy_image import (display_id as _display_id, png_bytes as _png_bytes, snap as _snap, mp_size as _mp_size, resize as _resize,
                           prep_mask as _prep_mask, load_source as _load_source, decode_brush as _decode_brush, runmax as _runmax,
                           hex_rgb as _hex_rgb, grow as _grow, box1 as _box1, blur as _blur, load_mask as _load_mask,
                           send_preview, live_input, live_inputs, live_empty, file_stamp as _file_stamp, parse_warp as _parse_warp, warp_quad as _warp_quad,
-                          homography as _homography, rect_pts as _rect_pts, bend_quad as _bend_quad, warp_corners as _warp_corners, remap as _remap, quad_mask as _quad_mask, quad_region as _quad_region)
+                          homography as _homography, rect_pts as _rect_pts, bend_quad as _bend_quad, warp_corners as _warp_corners, remap as _remap, quad_mask as _quad_mask, quad_region as _quad_region,
+                          unturn as _unturn, fill as _fill)
 
 # ===================================================
 # Succy Crop & Stitch — phase 1 (backend only, native widgets)
@@ -36,9 +37,9 @@ from _succy_image import (display_id as _display_id, png_bytes as _png_bytes, sn
 _TAG = "[Succy Crop&Stitch]"
 
 # --- phase 2: the hold ("stop on every run" / "reuse the last selection") -------------------------------------
-# Same dance as Succy Pause: the node waits in place, the frontend (SurvivalKit.hold, class Succy_Crop) posts
-# "stop" / "continue" here. Continue normally RE-QUEUES the graph with run_id "<ts>_continue": the node then skips
-# the wait and crops with the x/y/w/h the user just drew. State key = the id SHOWN in the graph.
+# Same dance as Succy Pause: the frontend (SurvivalKit.hold, class Succy_Crop) posts "stop" / "continue" here. D-330: the gate
+# holds the Run right after the node; D-332: a node waiting in itself (no gate, or the last node of the run) gets ▶ with the prompt
+# of now and goes on with her values in place (no re-queue). State key = the id SHOWN in the graph.
 # __init__.py loads this file ONCE (Crop and Stitch share the module). The state dict and the routes still live on the server instance
 # and are created only the first time, so a module reload can't register a second POST route (ComfyUI would refuse to start).
 _NODE_STATES = getattr(PromptServer.instance, "_succy_crop_states", None)
@@ -64,8 +65,23 @@ def _remember(did, entry):
         _LAST.pop(next(iter(_LAST)), None)
 
 
-def _send_preview(did, image, *_box):
-    send_preview(did, image, _TAG)
+def _live_reads_new(old, entry):
+    """D-333: True when the Crop's live view would read something else from its last Run (the picture / mask that came in, the
+    rings). The gate running the Crop again after ▶ brings the same ones: every live view downstream worked it all out again for nothing."""
+    if not isinstance(old, dict):
+        return True
+    return any(old.get(k) is not entry[k] for k in ("in_image", "in_mask")) or \
+        any(old.get(k) != entry[k] for k in ("in_out_mp", "in_out_scale", "in_multiple"))
+
+
+def _send_preview(did, image, *_box, mask=None):
+    # D-331: a wired mask (SAM...) travels with the picture: the view shows it and the brush edits on top of it
+    if mask is not None:
+        try:
+            mask = _prep_mask(mask, int(image.shape[1]), int(image.shape[2]))
+        except Exception:
+            mask = None
+    send_preview(did, image, _TAG, mask=mask)
 
 
 # the rings (EXT doors, D-224/D-225) as door_values reads them (D-228): widget key, its sockets (own + pre-D-224), its last-Run key
@@ -77,16 +93,7 @@ _DOWNLOADS = ("full_img", "cutout", "mask", "crop_img", "crop_mask", "straight_i
 if _FIRST_LOAD:
     @PromptServer.instance.routes.post("/succy/crop/action")
     async def _crop_action(request):
-        if not same_origin(request):
-            return refused()
-        try:
-            data = await request.json()
-        except Exception:
-            return web.json_response({"error": "bad JSON"}, status=400)
-        if not isinstance(data, dict) or data.get("node_id") is None or data.get("action") not in ("continue", "stop"):
-            return web.json_response({"error": "node_id and action ('continue' | 'stop') required"}, status=400)
-        _NODE_STATES[str(data["node_id"])] = data["action"]
-        return web.json_response({"status": "ok"})
+        return await stop_route(request, _NODE_STATES)
 
     async def _outs_for(request, nid, need):
         try:
@@ -105,19 +112,19 @@ if _FIRST_LOAD:
             if last.get(need) is None:
                 return None, web.json_response({"error": "nothing to download yet: run the node once"}, status=404)
             return last, None
-        got, wait = await asyncio.to_thread(_wired_inputs, data, last)
+        got, wait = await asyncio.to_thread(live_job, _wired_inputs, data, last)
         if wait:
             if soft:
                 return None, web.json_response({"ready": False, "need": wait[0], "why": wait[1]})
             return None, web.json_response({"error": wait[1] + ", then download"}, status=404)
         try:                                               # the rings (D-228): the kit's one reader, as the live view
-            widgets, _ = await asyncio.to_thread(door_values, widgets, live_inputs(data), last, _DOORS, "the Crop")
+            widgets, _ = await asyncio.to_thread(live_job, door_values, widgets, live_inputs(data), last, _DOORS, "the Crop")
         except LiveWait as w:
             if soft:
                 return None, web.json_response({"ready": False, "need": w.need, "why": w.why})
             return None, web.json_response({"error": w.why + ", then download"}, status=404)
         try:
-            outs = await asyncio.to_thread(_crop_now, widgets, got.get("image"), got.get("mask"), nid)
+            outs = await asyncio.to_thread(live_job, _crop_now, widgets, got.get("image"), got.get("mask"), nid)
         except Exception as exc:
             return None, web.json_response({"error": str(exc).replace(_TAG, "").strip()}, status=400)
         return outs, None
@@ -136,7 +143,7 @@ if _FIRST_LOAD:
         if outs.get(which) is None:                        # straight_img exists only for a box with dragged corners (D-188)
             return web.json_response({"error": "the straight cut needs a box with dragged corners (Ctrl + corner, or rotate)"}, status=400)
         try:
-            body = await asyncio.to_thread(_png_bytes, outs[which], _stitch_meta(outs.get("stitch")))
+            body = await asyncio.to_thread(live_job, _png_bytes, outs[which], _stitch_meta(outs.get("stitch")))
         except Exception as exc:
             return web.json_response({"error": f"could not encode {which}: {exc}"}, status=500)
         name = f"{outs.get('stem') or 'crop'}_{which}.png"
@@ -154,25 +161,40 @@ if _FIRST_LOAD:
             data = await request.json()
         except Exception:
             data = {}
-        wait = _stitch_wait(data, _LAST.get(nid) or {})
-        if wait:
-            return web.json_response({"ready": False, "need": wait[0], "why": wait[1]})
-        outs, err = await _outs_from(data, nid, "crop_img", soft=True)
-        if err:
-            return err
-        st = outs.get("stitch")
-        if st is None:
-            st = (_LAST.get(nid) or {}).get("stitch")
-        if st is None:
-            return web.json_response({"ready": False, "need": "run", "why": "the Crop has nothing to stitch yet: Run once"})
+        turns = None
+        if _not_crop(data):                                # D-314: a Rotate on the stitch wire: the pile walked down to the cut under it
+            try:
+                st, turns = await asyncio.to_thread(live_job, _live_plan, data)
+            except LiveWait as w:
+                return web.json_response({"ready": False, "need": w.need, "why": w.why})
+        else:
+            wait = _stitch_wait(data, _LAST.get(nid) or {})
+            if wait:
+                return web.json_response({"ready": False, "need": wait[0], "why": wait[1]})
+            st = None
+            if data.get("widgets"):                        # D-336: the very crop the live views asked (one memo), not one more of its own
+                try:
+                    st = await asyncio.to_thread(live_job, _live_stitch, {**data, "node_id": nid, "type": "Succy_Crop"})
+                except LiveWait as w:
+                    return web.json_response({"ready": False, "need": w.need, "why": w.why})
+                except Exception as exc:
+                    return web.json_response({"error": str(exc).replace(_TAG, "").strip()}, status=400)
+            if st is None:
+                st = (_LAST.get(nid) or {}).get("stitch")
+            if st is None:
+                return web.json_response({"ready": False, "need": "run", "why": "the Crop has nothing to stitch yet: Run once"})
         try:
             if what == "info":
-                return web.json_response(_stitch_meta(st, as_dict=True))
+                meta = _stitch_meta(st, as_dict=True)
+                if turns:                                  # last first: the browser straightens the replacement through each (D-314)
+                    meta["turns"] = turns
+                return web.json_response(meta)
             rx0, ry0, rx1, ry1 = st["region"]
+            # the browser draws them at <= 1024 px (RES): a 6k region travels at 2048, not as a 100 MB PNG (D-314)
             if what == "base":
-                body = await asyncio.to_thread(_png_bytes, _stitch_base(st)[:1].permute(0, 2, 3, 1))
+                body = await asyncio.to_thread(live_job, lambda: _png_bytes(_fit_long(_stitch_base(st)[:1], 2048).permute(0, 2, 3, 1)))
             elif what == "mask":
-                body = await asyncio.to_thread(_png_bytes, st["mask"][:1])
+                body = await asyncio.to_thread(live_job, lambda: _png_bytes(_fit_long(st["mask"][:1].float()[:, None], 2048)[:, 0]))
             else:
                 return web.json_response({"error": f"unknown what '{what}'"}, status=400)
         except Exception as exc:
@@ -192,7 +214,12 @@ if _FIRST_LOAD:
             data = {}
         crop = data.get("crop") or {}
         st, outs = None, {}
-        if crop.get("node_id") is not None:
+        if crop.get("node_id") is not None and _not_crop(crop):   # D-313: a Rotate (or any pile maker) answers its stitch live
+            try:
+                st = await asyncio.to_thread(live_job, _live_stitch, crop)
+            except LiveWait as w:
+                return web.json_response({"error": f"the stitch: {w.why}"}, status=404)
+        elif crop.get("node_id") is not None:
             outs, err = await _outs_from(crop, str(crop["node_id"]), "crop_img")
             if err:
                 return err
@@ -203,7 +230,7 @@ if _FIRST_LOAD:
         for inp, key in (("replacement", "st_image"), ("base_image", "st_base"), ("mask", "st_mask")):
             if inp in linked and not live_empty(data, inp):
                 try:                                       # a Succy node on the wire answers live, full size (D-156)
-                    v = await asyncio.to_thread(_live_full, data, inp)
+                    v = await asyncio.to_thread(live_job, _live_full, data, inp)
                 except LiveWait as w:
                     return web.json_response({"error": f"the {inp.replace('_', ' ')}: {w.why}"}, status=404)
                 if v is None:
@@ -212,8 +239,8 @@ if _FIRST_LOAD:
                     return web.json_response({"error": f"the {inp.replace('_', ' ')} comes from a wire: run the node once, then copy / download"}, status=404)
                 wired[inp] = v
         try:
-            img = await asyncio.to_thread(_stitch_now, st, wired, widgets)
-            body = await asyncio.to_thread(_png_bytes, img)
+            img = await asyncio.to_thread(live_job, _stitch_now, st, wired, widgets)
+            body = await asyncio.to_thread(live_job, _png_bytes, img)
         except Exception as exc:
             return web.json_response({"error": str(exc).replace(_TAG, "").strip()}, status=400)
         name = f"{outs.get('stem') or 'stitch'}_stitched.png"
@@ -237,6 +264,71 @@ def _stitch_wait(data, last):
     if "image" not in linked and not str(widgets.get("source") or ""):
         return ("image", "the Crop has no picture: load one on it (or wire one and Run)")
     return None
+
+
+def _not_crop(data):
+    """The node on Stitch's stitch wire is something else than a Crop (a Rotate, D-313). Older browsers send no type: a Crop."""
+    t = data.get("type") if isinstance(data, dict) else None
+    return isinstance(t, str) and t != "" and t != "Succy_Crop"
+
+
+def _live_stitch(spec):
+    """The stitch a live node on the wire hands out now (its own succy_live, the chain behind it included). Raises LiveWait."""
+    from _succy_common import live_eval
+    from _succy_image import node_mapping
+    with torch.inference_mode():
+        st = live_eval(spec, node_mapping()).get("stitch")
+    if st is None:
+        raise LiveWait("run", f"{spec.get('type', 'the node')} has no stitch yet: Run once")
+    return st
+
+
+def _live_plan(spec):
+    """D-314: the pile on Stitch's stitch wire, walked down: (the cut under every turn — a Crop's stitch, or the picture that went into
+    the first Rotate —, [the turns, last first]). A node that can plan (Succy_Rotate.succy_plan) hands only its steps: nothing is
+    turned to learn how to turn it back. Raises LiveWait."""
+    from _succy_common import _LIVE_EPOCH, LiveInputs, live_eval
+    from _succy_image import node_mapping
+    try:                                                   # info, base and mask ask the same pile one after the other: walked once
+        key = json.dumps([spec, _LIVE_EPOCH[0]], sort_keys=True, default=str)
+    except (TypeError, ValueError):
+        key = None
+    if key is not None and _PLAN[0] == key:
+        return _PLAN[1]
+    mapping = node_mapping()
+    cls = mapping.get(spec.get("type"))
+    with torch.inference_mode():
+        fn = getattr(cls, "succy_plan", None)
+        if callable(fn):
+            st = fn(dict(spec.get("widgets") or {}), LiveInputs(spec, mapping), str(spec.get("node_id", "")))
+        else:
+            st = live_eval(spec, mapping).get("stitch")
+    if st is None:
+        raise LiveWait("run", f"{spec.get('type', 'the node')} has no stitch yet: Run once")
+    turns = []
+    while isinstance(st, dict) and st.get("op") == "turn":
+        turns.append({"angle": float(st["angle"]), "flip_h": bool(st["flip_h"]), "flip_v": bool(st["flip_v"]),
+                      "in_w": int(st["in_size"][0]), "in_h": int(st["in_size"][1]), "out_w": int(st["out_size"][0]), "out_h": int(st["out_size"][1])})
+        if st.get("prev") is None:
+            st = _pile_bottom(st)
+            break
+        st = st["prev"]
+    if key is not None:
+        _PLAN[0], _PLAN[1] = key, (st, turns)
+    return st, turns
+
+
+_PLAN = [None, None]                                       # the last pile walked: (its chain, (cut, turns))
+ram_holder("stitch live pile", lambda: _PLAN.__setitem__(slice(None), [None, None]), lambda: [_PLAN[1]] if _PLAN[1] else [])
+
+
+def _fit_long(x, longest):
+    """BCHW -> long side <= longest (area average), else as it is."""
+    h, w = int(x.shape[-2]), int(x.shape[-1])
+    if max(w, h) <= longest:
+        return x
+    k = longest / max(w, h)
+    return F.interpolate(x.float(), size=(max(1, round(h * k)), max(1, round(w * k))), mode="area")
 
 
 def _live_full(data, inp):
@@ -327,21 +419,7 @@ def _stitch_base(st):
 
 def _hold(display_id, timeout):
     """Wait for the user. Returns when she continues (or the timeout runs out); a Stop interrupts the whole run."""
-    _NODE_STATES[display_id] = "wait"
-    t0 = time.time()
-    try:
-        while True:
-            comfy.model_management.throw_exception_if_processing_interrupted()
-            st = _NODE_STATES.get(display_id, "wait")
-            if st == "stop":
-                say(f"{_TAG} node {display_id} stopped by user.")
-                comfy.model_management.interrupt_current_processing()
-                return
-            if st == "continue" or time.time() - t0 >= timeout:
-                return
-            time.sleep(0.2)
-    finally:
-        _NODE_STATES.pop(display_id, None)
+    wait_here(_NODE_STATES, display_id, timeout, _TAG)
 
 
 # --- phase 3 (D-106): picture without a wire, free hand mask, grow + feather of the output mask ----------------------
@@ -401,10 +479,8 @@ class Succy_Crop:
 
     @classmethod
     def IS_CHANGED(cls, hold=False, run_id="", **kwargs):
-        # a node that must stop never comes from the cache (the second Run would skip the wait); a "<ts>_continue" transit may
-        if hold and not str(run_id).endswith("_continue"):
-            return float("nan")
-        return "passthrough"
+        # a node on Stop runs on every Run (D-332: a stable key the gate runs anyway, NaN without it); Reuse / a "<ts>_continue" transit may be cached
+        return stop_key(cls, hold, run_id)
 
     # D-118/D-120: six pictures, in the order the user reaches for them. Defaults (megapixels 0, multiple 1) = everything at REAL resolution.
     #   stitch     everything Succy Stitch needs to put the worked crop back
@@ -416,13 +492,17 @@ class Succy_Crop:
     # D-128 (the user's call): the graph gets stitch, mask and cutout; ⬇ still hands out every picture (full_img, cutout, mask, crop_img, crop_mask)
     # D-189 (her call): crop_img is an output again, as `crop` — the photo all around the shape, what an outside generator needs to see.
     # Last on purpose: a workflow wired to `cutout` keeps its wire on cutout.
-    RETURN_TYPES = ("STITCH", "MASK", "IMAGE", "IMAGE")
-    RETURN_NAMES = ("stitch", "mask", "cutout", "crop")
+    # D-318d: crop_mask is an output too (last again): the mask cut like `crop`, what a Tile Split on the crop wants (`mask` is the WHOLE
+    # picture's: stretched over the crop it lands on the wrong pixels).
+    # D-320 (her call): `cutout` leaves the graph (still on ⬇ and in the Mask view); the order is stitch, mask, crop, crop_mask.
+    # An older workflow's wires follow their names on load (the JS moves them), a wire on `cutout` is unplugged.
+    RETURN_TYPES = ("STITCH", "MASK", "IMAGE", "MASK")
+    RETURN_NAMES = ("stitch", "mask", "crop", "crop_mask")
     FUNCTION = "crop"
     SUCCY_CACHE = "memo"  # SmartCache (D-213): pictures: the value memo (D-210)
 
     # LIVE LINK (D-156): the outputs a Succy node on the other end of the wire sees as they are now, no Queue
-    SUCCY_LIVE = ("stitch", "mask", "cutout", "crop")
+    SUCCY_LIVE = ("stitch", "mask", "crop", "crop_mask")
 
     @classmethod
     def succy_live(cls, widgets, inputs, node_id):
@@ -441,10 +521,11 @@ class Succy_Crop:
             raise LiveWait("image", "the Crop has no picture: load one on it")
         widgets, _ = door_values(widgets, inputs, last, _DOORS, "the Crop")      # the rings (D-228): now, else the last Run, else "Run once"
         outs = _crop_now(widgets, got.get("image"), got.get("mask"), node_id)
-        return {"mask": outs["mask"], "cutout": outs["cutout"], "stitch": outs["stitch"], "crop": outs["crop_img"]}
+        return {"mask": outs["mask"], "stitch": outs["stitch"], "crop": outs["crop_img"], "crop_mask": outs["crop_mask"]}
 
     def crop(self, x, y, w, h, context, workspace_mp, out_mp, multiple, box_snap=1, alpha=True, solid_color="#000000", box=True, box_feather=0, mask_grow=0, mask_feather=0, hold=False, hold_timeout=300,
              run_id="", source="", brush="", quad="", out_scale=1.0, image=None, mask=None, out_mp_in=None, multiple_in=None, unique_id=None, dynprompt=None, _quiet=False, _all=False):
+        args = {k: v for k, v in locals().items() if k != "self"}          # D-332: ▶ of the node's own wait goes on with her values
         if out_mp_in is not None:                          # EXT before D-224 (an old API prompt): the wire wins over the slider
             out_mp = max(0.0, float(out_mp_in))
         if multiple_in is not None:
@@ -461,7 +542,7 @@ class Succy_Crop:
                 hit = _MEMO_CROP.get(did, key)
                 if hit is not None:
                     result, entry = hit
-                    _send_preview(did, entry["full_img"])
+                    _send_preview(did, entry["full_img"], mask=mask)
                     live_touch()                           # the last Run changed (maybe back to an older result): the live views ask again
                     _remember(did, {**entry, "in_image": image if image is not None else entry["in_image"], "in_mask": mask,
                                     "in_out_mp": out_mp, "in_out_scale": out_scale, "in_multiple": multiple})
@@ -481,10 +562,21 @@ class Succy_Crop:
         # --- phase 2: show the real image in the viewport, then (maybe) wait for the user to draw on it
         did = _display_id(dynprompt, unique_id)
         if not _quiet:                                     # a download (D-117) neither shows nor waits
-            _send_preview(did, image, x, y, w, h)
+            _send_preview(did, image, x, y, w, h, mask=mask)
         if hold and not _quiet and not str(run_id).endswith("_continue"):
-            say(f"{_TAG} node {did} waiting up to {hold_timeout}s for a selection...")
-            _hold(did, hold_timeout)
+            # D-338: what came in is kept FIRST (as Rotate / Tile do): waiting at its own Stop, the Crop's live answer (and the Rotate
+            # under it) read this Run's picture / mask; before, right after a restart they said "Run once" for the whole wait
+            old = _LAST.get(did)
+            entry = {**(old or {}), "in_image": in_image, "in_mask": mask, "in_out_mp": out_mp, "in_out_scale": out_scale, "in_multiple": multiple}
+            if _live_reads_new(old, entry):
+                live_touch()
+            _remember(did, entry)
+            if not gate_hold(did, hold_timeout, "succy-crop-info", dynprompt, unique_id):          # D-330: a pause inside the Run (▶ = her box, nothing before redone)
+                say(f"{_TAG} node {did} waiting up to {hold_timeout}s for a selection...")
+                _hold(did, hold_timeout)
+                new = fresh_values(did, unique_id, args)
+                if new:                                    # D-332: in place with her box of now (no new queue: nothing before redone)
+                    return self.crop(**{**args, **new, "run_id": str(run_id) + "_continue"})
 
         # --- selection (full-size [H,W] mask): base = input mask (if it has pixels) ∪ the rectangle (if on and drawn, softened by
         #     box_feather; 0 wide or 0 high = not drawn yet, D-164 — the wired mask is edited by every tool, it no longer silences the box),
@@ -567,17 +659,18 @@ class Succy_Crop:
         if alpha:
             cutout = torch.cat([rgb, a], dim=-1)
         else:
-            col = torch.tensor(_hex_rgb(solid_color), device=rgb.device, dtype=rgb.dtype)
-            cutout = rgb * a + col * (1.0 - a)
+            # the kit's one Fill (D-313), Color: the same rgb * a + colour * (1 - a) as before, soft edges fade into it (D-111)
+            cutout = _fill(rgb.permute(0, 3, 1, 2), (1.0 - a).permute(0, 3, 1, 2), "color", solid_color).permute(0, 2, 3, 1).contiguous()
         full_mask = sel.clamp(0.0, 1.0)[None]                                 # [1, H, W]: the whole picture, soft edges and all
         if not _quiet:
-            live_touch()
             entry = {"full_img": image, "cutout": cutout, "mask": full_mask, "crop_img": out_img, "crop_mask": out_mask,
                      "stem": _stem(source), "in_image": in_image, "in_mask": mask, "stitch": stitch,
                      "in_out_mp": out_mp, "in_out_scale": out_scale, "in_multiple": multiple}
+            if _live_reads_new(_LAST.get(did), entry):
+                live_touch()                           # D-333: the gate's run again after ▶ (same picture in) leaves the live views be
             _remember(did, entry)
             if memo:
-                _MEMO_CROP.put(did, key, ((stitch, full_mask, cutout, out_img), entry))
+                _MEMO_CROP.put(did, key, ((stitch, full_mask, out_img, out_mask), entry))
         if _all:                                   # the downloads (D-117) want every picture
             outs = {"stitch": stitch, "full_img": image, "cutout": cutout, "mask": full_mask, "crop_img": out_img, "crop_mask": out_mask}
             if qd is not None:                     # perspective box: the quad straightened too (Photoshop's perspective crop), only as a file
@@ -586,7 +679,7 @@ class Succy_Crop:
                     rq, sw, sh = geo
                     outs["straight_img"] = _remap(image.permute(0, 3, 1, 2), None, _homography(_rect_pts(0, 0, sw, sh), rq), sw, sh)[0].permute(0, 2, 3, 1).contiguous()
             return outs
-        return (stitch, full_mask, cutout, out_img)
+        return (stitch, full_mask, out_img, out_mask)
 
 
 # ---------------------------------------------------------------------------
@@ -798,6 +891,32 @@ def _place_rect(rw, rh, ox, oy, scale):
     return ((rw - nw) // 2 + int(ox), (rh - nh) // 2 + int(oy), nw, nh)
 
 
+def _unroll(st, image):
+    """D-313: the stitch wire is a PILE (Crop: "I cut here" · Rotate: "I turned it"). The replacement goes back through every turn,
+    last first (straightened, un-flipped, at its own scale); what is left is a Crop's cut. A Rotate with nothing under it = the whole
+    picture that went into it, its mask (none = all of it) the place to put the work back. -> (crop-like stitch, IMAGE)."""
+    while isinstance(st, dict) and st.get("op") == "turn":
+        x = _unturn(image.permute(0, 3, 1, 2).float(), st["in_size"], st["angle"], st["flip_h"], st["flip_v"])
+        image = x.clamp(0.0, 1.0).permute(0, 2, 3, 1).contiguous()
+        if st.get("prev") is not None:
+            st = st["prev"]
+            continue
+        st = _pile_bottom(st)
+    return st, image
+
+
+def _pile_bottom(st):
+    """The first Rotate of a pile (nothing under it) as a Crop-like stitch: the whole picture that went in, its mask (none or empty =
+    all of it) the place the work goes back."""
+    W, H = st["in_size"]
+    base = st["image"]
+    m = st.get("mask")
+    m = torch.ones((1, H, W), device=base.device) if m is None else m.float().amax(dim=0, keepdim=True).to(base.device)
+    if not bool((m > 0.01).any()):                         # an empty mask (a Load with nothing drawn): the whole picture
+        m = torch.ones_like(m)
+    return {"version": 1, "image": base, "region": (0, 0, W, H), "selection": (0, 0, W, H), "orig_size": (W, H), "work_size": (W, H), "mask": m}
+
+
 def _resolve_stitch(st, base, mask):
     """The stitch Stitch works with (D-128): Crop's, with a base image and / or a mask that win over it.
     A mask (whole picture, white = replace) makes the cut its bounding box, no context. Without a stitch both are needed."""
@@ -871,10 +990,8 @@ class Succy_Stitch:
 
     @classmethod
     def IS_CHANGED(cls, hold=False, run_id="", **kwargs):
-        # same rule as Crop: a node that must stop never comes from the cache; a "<ts>_continue" transit may
-        if hold and not str(run_id).endswith("_continue"):
-            return float("nan")
-        return "passthrough"
+        # same rule as Crop (D-332): on Stop it runs on every Run; Reuse / a "<ts>_continue" transit may be cached
+        return stop_key(cls, hold, run_id)
 
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("composite",)
@@ -913,6 +1030,7 @@ class Succy_Stitch:
                offset_x=0, offset_y=0, scale=100.0, source="", base_file="", mask_file="", brush="", place="",
                hold=False, hold_timeout=300, run_id="", warp="", hole="", item_brush="", stitch=None, base_image=None, mask=None, replacement=None,
                unique_id=None, dynprompt=None, _quiet=False):
+        args = {k: v for k, v in locals().items() if k != "self"}          # D-332: ▶ of the node's own wait goes on with her values
         memo = not _quiet
         if memo:
             did = _display_id(dynprompt, unique_id)
@@ -936,14 +1054,19 @@ class Succy_Stitch:
             raise ValueError(f"{_TAG} no replacement: connect one, or drop / paste / load it on the node.")
         base_in = base_image if base_image is not None else _load_source(base_file)
         mask_in = mask if mask is not None else _load_mask(mask_file)
+        stitch, image = _unroll(stitch, image)                                # D-313: a Rotate in the pile is undone first
         stitch = _resolve_stitch(stitch, base_in, mask_in)
         if not _quiet:                                     # the node shows the replacement that came in; Copy / Download re-run from it (D-124)
             did = _display_id(dynprompt, unique_id)
             _remember(did, {"st_image": image, "st_base": base_image, "st_mask": mask})
             _send_preview(did, image, 0, 0, 0, 0)
             if hold and not str(run_id).endswith("_continue"):            # retouch on the fresh result, then ▶ (same shield as Crop / Pause)
-                say(f"{_TAG} node {did} waiting up to {hold_timeout}s for a retouch...")
-                _hold(did, hold_timeout)
+                if not gate_hold(did, hold_timeout, "succy-crop-info", dynprompt, unique_id):      # D-330: a pause inside the Run
+                    say(f"{_TAG} node {did} waiting up to {hold_timeout}s for a retouch...")
+                    _hold(did, hold_timeout)
+                    new = fresh_values(did, unique_id, args)
+                    if new:                                # D-332: in place with her retouch (the last node: no new queue)
+                        return self.stitch(**{**args, **new, "run_id": str(run_id) + "_continue"})
         orig = stitch["image"]
         B_o, H, W, C = orig.shape
         rx0, ry0, rx1, ry1 = stitch["region"]

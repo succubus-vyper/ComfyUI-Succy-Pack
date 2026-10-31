@@ -17,7 +17,8 @@ import torch
 from PIL import Image
 
 
-from _succy_common import ANY, parse_bool, parse_float, parse_int, to_container, wired_outputs, say   # the shared drawer (loaded once by __init__.py)
+from _succy_image import png_meta   # D-325: prompt + workflow in the PNG, like ComfyUI's own Preview Image
+from _succy_common import ANY, parse_bool, parse_float, parse_int, ram_holder, to_container, wired_outputs, say   # the shared drawer (loaded once by __init__.py)
 
 _PREVIEW_FILES = OrderedDict()   # node key -> the temp files it currently shows (the next run deletes the ones it no longer needs)
 _PLAYER = OrderedDict()          # node key -> (weak ref to the source video/audio, its player file): same source = no re-save
@@ -796,11 +797,32 @@ DEFAULT_FPS = 24.0
 _THUMB_SIDE = 256            # longest side of a gallery thumbnail (the big view asks for 1600, the download for the full frame)
 _BIG_SIDE = 1600
 _KEEP_MAX = 32               # nodes whose last gallery / clip the routes remember (weak refs: ComfyUI's cache owns the tensors)
-_GALLERY = OrderedDict()     # node key -> (weak ref to the batch shown, token of that Run)
+_META = OrderedDict()        # node key -> (prompt, extra_pnginfo) of its last Run: what its downloads carry (D-325)
+_GALLERY = OrderedDict()     # node key -> (holder of the batch shown, token of that Run). D-318e: a STRONG hold, one per node: a weak ref
+                             # died as soon as execute returned when nobody else owned the batch (a live answer, an inverted mask...):
+                             # the gallery flashed, then every frame said "expired". Let go by ComfyUI's free (the RAM row counts it).
 _CLIPS = OrderedDict()       # node key -> what Apply fps needs to re-time the player without a Run (D-205c)
 _RETIMED = OrderedDict()     # node key -> (weak ref to the ORIGINAL video, its re-timing signature, the player file at that fps)
 _LAST = OrderedDict()        # node key -> the last Run's inputs (source by weak ref): As clip switches live from these (D-205d)
 _HELD = OrderedDict()        # node key -> the batch made from a LIST (D-244b): nobody else owns it, so we hold it while it shows
+
+
+def _forget_galleries():
+    _GALLERY.clear()
+    _HELD.clear()
+
+
+ram_holder("preview gallery", _forget_galleries, lambda: _gallery_tensors() + list(_HELD.values()))   # D-308 / D-318e
+
+
+def _gallery_tensors():
+    out = []
+    for v in list(_GALLERY.values()):
+        if not isinstance(v[0], _VideoFrames):
+            t = v[0]()
+            if t is not None:
+                out.append(t)
+    return out
 
 
 def _remember(store, key, value):
@@ -976,7 +998,8 @@ def gallery_frame(key, token, index, side=_THUMB_SIDE):
         im = im.copy()
         im.thumbnail((int(side), int(side)))
     buf = io.BytesIO()
-    im.save(buf, format="PNG", compress_level=1)
+    # the full-size frame is a download (D-325): the Run's prompt + workflow ride in it; the views stay bare
+    im.save(buf, format="PNG", compress_level=1, pnginfo=None if side else png_meta(*_META.get(str(key), (None, None))))
     return buf.getvalue()
 
 
@@ -1051,7 +1074,9 @@ class Succy_Preview_Anything_Convert:
             },
             # the node's id: one set of preview files per node, the old ones go away when the new ones land (no pile-up in temp/).
             # prompt: to see which outputs are wired, so a frame nobody reads is never decoded.
-            "hidden": {"unique_id": "UNIQUE_ID", "prompt": "PROMPT"},
+            # extra_pnginfo (D-325): the workflow, written with the prompt into every picture this node saves or hands for download
+            # (dropped on ComfyUI, the file opens the graph that made it, like the native Preview Image)
+            "hidden": {"unique_id": "UNIQUE_ID", "prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"},
         }
 
     # The slots change with the input: "*" so every shape type-checks; the sockets the user sees are typed by the frontend
@@ -1150,7 +1175,7 @@ class Succy_Preview_Anything_Convert:
 
     def _execute(self, preview, source, output_type, invert_mask=False, trim_start=0.0, trim_end=0.0, current_time=0.0,
                 split_audio=False, as_clip="auto", clip_fps=DEFAULT_FPS, fps_auto=True, audio_gain=1.0, audio=None, fps_override=None,
-                unique_id=None, prompt=None, _view=False, succy_used="", compare=None, start_frame=None, end_frame=None, current_frame=None,
+                unique_id=None, prompt=None, extra_pnginfo=None, _view=False, succy_used="", compare=None, start_frame=None, end_frame=None, current_frame=None,
                 video_format="auto"):
         # _view (D-205d): the As clip switch, live, from the route: only what the box shows, nothing computed for downstream
         self._view = bool(_view)
@@ -1160,7 +1185,8 @@ class Succy_Preview_Anything_Convert:
             _remember_run(source, audio, dict(preview=preview, output_type=output_type, invert_mask=invert_mask, trim_start=trim_start,
                           trim_end=trim_end, current_time=current_time, split_audio=split_audio, as_clip=as_clip, clip_fps=clip_fps,
                           fps_auto=fps_auto, audio_gain=audio_gain, fps_override=fps_override, unique_id=unique_id, prompt=prompt,
-                          start_frame=start_frame, end_frame=end_frame, current_frame=current_frame))
+                          extra_pnginfo=extra_pnginfo, start_frame=start_frame, end_frame=end_frame, current_frame=current_frame))
+        _remember(_META, _node_key(unique_id), (prompt, extra_pnginfo))   # the gallery's full-size downloads carry them too
         combined = vhs_combine_file(source)                 # VHS Video Combine's Filenames: we play the file it wrote
         if combined:
             source = _video_from_file(combined)
@@ -1293,7 +1319,7 @@ class Succy_Preview_Anything_Convert:
 
                     shown = converted if invert_shown else source      # inverted mask: preview what comes out
                     # grayscale and RGBA handled: the alpha is KEPT (D-106: a Crop cutout previewed as RGB looked uncut)
-                    _to_pil(shown[0]).save(file_path, compress_level=4)
+                    _to_pil(shown[0]).save(file_path, compress_level=4, pnginfo=png_meta(prompt, extra_pnginfo))
                     files = [filename]
                     # A|B (D-236): one picture + a compare picture plugged = its first frame, beside ours (shown only)
                     if int(shown.shape[0]) == 1 and isinstance(compare, torch.Tensor) and compare.dim() in (3, 4) and int(compare.shape[0]) >= 1:
@@ -1307,7 +1333,7 @@ class Succy_Preview_Anything_Convert:
                     if int(shown.shape[0]) > 1:                        # a batch: the gallery of all of it, served frame by frame (D-205c)
                         try:
                             token = f"{random.randint(0, 1 << 30):x}"
-                            _remember(_GALLERY, node_key, (weakref.ref(shown), token))
+                            _remember(_GALLERY, node_key, (lambda t=shown: t, token))
                             ui_gallery = {"key": node_key, "token": token, "total": int(shown.shape[0])}
                             if gallery_fps:                    # the frame picked in the gallery = `selected` (current_time = index / fps)
                                 ui_gallery["fps"] = float(gallery_fps)
@@ -1405,7 +1431,7 @@ class Succy_Preview_Anything_Convert:
                 first = vf.get(0, 0)
                 if first is None:
                     raise ValueError("no frame could be read")
-                first.save(os.path.join(folder_paths.get_temp_directory(), name), compress_level=4)
+                first.save(os.path.join(folder_paths.get_temp_directory(), name), compress_level=4, pnginfo=png_meta(*_META.get(node_key, (None, None))))
                 token = f"{random.randint(0, 1 << 30):x}"
                 old = _GALLERY.get(node_key)
                 if old and isinstance(old[0], _VideoFrames):

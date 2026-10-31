@@ -4,7 +4,8 @@ Loaded ONCE by __init__.py right after succy_common and registered as `_succy_im
 Moved here word for word from Succy_Crop_Stitch.py (Crop, Stitch and Load share them), plus:
   - load_picture       a file -> (IMAGE [1,H,W,3], MASK [1,H,W] or None): the alpha becomes the mask, like ComfyUI's Load Image
   - send_preview       the picture a node is looking at -> temp JPEG + event `succy-crop-image` (the browser's shot feed)
-  - the LIVE routes    /succy/live/types (who can answer live) and /succy/live/view (a node's output as it is now, reduced)
+  - the LIVE routes    /succy/live/types (who can answer live), /succy/live/view (a node's output as it is now, reduced),
+                       /succy/live/stats (the one live queue, D-336)
   - file_stamp         a file kept on a node -> 'path|mtime': the value memo's word for "the same file" (D-210)
   - /succy/memo/stats  the value memo's hits / misses / skips per node (the Monitor's row, D-210)
 Images are ComfyUI BHWC floats in [0,1]; masks BHW.
@@ -207,6 +208,19 @@ def blur(m, px):
     if px <= 0:
         return m
     r = max(1, int(round(px / 3)))
+    if m.dim() == 2 and min(m.shape) > 64:
+        # D-336: only the part that is not zero (+ the blur's reach) is worked: a box on a 3072x5504 photo blurred 1.6 s, the box
+        # alone a blink. Same numbers: outside that window the input is zero all around, the three boxes reach 3r, the margin 3r+2
+        ys, xs = torch.nonzero(m.amax(1) != 0, as_tuple=True)[0], torch.nonzero(m.amax(0) != 0, as_tuple=True)[0]
+        if ys.numel() == 0:
+            return m.clamp(0.0, 1.0)
+        H, W, pad = m.shape[0], m.shape[1], 3 * r + 2
+        y0, y1 = max(0, int(ys[0]) - pad), min(H, int(ys[-1]) + 1 + pad)
+        x0, x1 = max(0, int(xs[0]) - pad), min(W, int(xs[-1]) + 1 + pad)
+        if (y1 - y0) * (x1 - x0) < 0.7 * H * W:
+            out = torch.zeros_like(m)
+            out[y0:y1, x0:x1] = blur(m[y0:y1, x0:x1].contiguous(), px)
+            return out
     x = m
     for _ in range(3):
         x = box1(box1(x, r, 1), r, 0)
@@ -272,10 +286,11 @@ def rect_pts(x, y, w, h):
     return [(x, y), (x + w, y), (x + w, y + h), (x, y + h)]
 
 
-def remap(img, fm, hm, ow, oh):
+def remap(img, fm, hm, ow, oh, mode="bilinear"):
     """Sample img (BCHW, or None) and fm ([1,1,H,W] = where it is really there, None = everywhere) at ow x oh through hm
     (3x3: OUTPUT pixel -> SOURCE pixel, pixel centres). Colour: border padding; fm: zero outside the source, so what the
     output sees beyond the picture (or behind the horizon) is 0. Bilinear, grid_sample(align_corners=False) — the browser's `remap`.
+    mode = "bicubic" for the colour only (Rotate, D-313: a free angle resamples twice, it wants the better filter); fm stays bilinear.
     -> (img or None, fm). The one door every Free Edit goes through: warp, straighten, put back."""
     ref = img if img is not None else fm
     H, W = int(ref.shape[-2]), int(ref.shape[-1])
@@ -291,9 +306,11 @@ def remap(img, fm, hm, ow, oh):
     grid = torch.stack([2.0 * sx / W - 1.0, 2.0 * sy / H - 1.0], dim=-1).float()[None]
     out = None
     if img is not None:
-        out = F.grid_sample(img, grid.expand(img.shape[0], -1, -1, -1), mode="bilinear", padding_mode="border", align_corners=False)
+        out = F.grid_sample(img, grid.expand(img.shape[0], -1, -1, -1), mode=mode, padding_mode="border", align_corners=False)
+        if mode == "bicubic":
+            out = out.clamp(0.0, 1.0)                     # bicubic loves to overshoot
     m = fm if fm is not None else torch.ones((1, 1, H, W), device=dev)
-    om = F.grid_sample(m.float(), grid, mode="bilinear", padding_mode="zeros", align_corners=False)
+    om = F.grid_sample(m.float(), grid.expand(m.shape[0], -1, -1, -1), mode="bilinear", padding_mode="zeros", align_corners=False)
     return out, om.clamp(0.0, 1.0)
 
 
@@ -368,6 +385,138 @@ def quad_region(rect, d, pad):
     return rq, sw + 2 * pad, sh + 2 * pad
 
 
+# ---------------- Fill (D-313): the kit's ONE way to fill where there is no picture ----------------
+# Rotate's new corners, the Load's pad borders, the Any's pad, the Crop's Solid cutout: all through here (broken for all or for none).
+FILL_MODES = ("blur", "color")
+
+
+def _smooth3(x):
+    # 3x3 mean, replicate edge: takes the staircase off each bilinear step up the pyramid
+    return F.avg_pool2d(F.pad(x, (1, 1, 1, 1), mode="replicate"), 3, stride=1)
+
+
+def _pushpull(x, w):
+    """x BCHW, w [B|1,1,H,W] in 0..1 = how much of each pixel is really there -> x with the gaps filled: the picture's own edge stretched
+    inwards and blurred, coarser the further it goes (a pull-push pyramid: no shapes, no clones). Where w is 1 the pixel stays exactly.
+    Costs ~1.3x the picture whatever the size of the gap: an 8k is tenths of a second."""
+    H, W = int(x.shape[-2]), int(x.shape[-1])
+    w = w.to(x.dtype).clamp(0.0, 1.0).expand(x.shape[0], 1, H, W)
+    xs, ws = [x * w], [w]
+    while min(int(xs[-1].shape[-2]), int(xs[-1].shape[-1])) > 2:
+        sz = ((int(xs[-1].shape[-2]) + 1) // 2, (int(xs[-1].shape[-1]) + 1) // 2)
+        xs.append(F.interpolate(xs[-1], size=sz, mode="area"))
+        ws.append(F.interpolate(ws[-1], size=sz, mode="area"))
+    top = ws[-1]
+    mean = xs[-1].sum(dim=(2, 3), keepdim=True) / top.sum(dim=(2, 3), keepdim=True).clamp_min(1e-8)
+    est = torch.where(top > 1e-6, xs[-1] / top.clamp_min(1e-6), mean)
+    for lx, lw in zip(reversed(xs[:-1]), reversed(ws[:-1])):
+        up = _smooth3(F.interpolate(est, size=tuple(lx.shape[-2:]), mode="bilinear", align_corners=False))
+        est = lx + up * (1.0 - lw)                     # lx = the real pixels' share (premultiplied), the gap takes the coarser guess
+    return est.clamp(0.0, 1.0)
+
+
+def fill(x, hole, mode="blur", color="#000000"):
+    """D-313, the ONE Fill. x BCHW, hole [B|1,1,H,W] in 0..1 (1 = nothing there, soft edges welcome) -> BCHW.
+    color = a flat colour (black is just a colour) · blur = the picture's own edge stretched in and blurred hard, no shapes, no clones
+    (a mirror was turned down: the sampler sees the copy and draws it twice). Where hole is 0 nothing changes.
+    She covers what is missing so well that nobody asks what was there."""
+    hole = hole.to(x.dtype).clamp(0.0, 1.0)
+    if not bool((hole > 0).any()):
+        return x
+    if mode == "blur":
+        return _pushpull(x, 1.0 - hole)
+    C = int(x.shape[1])
+    col = torch.tensor((hex_rgb(color) + [1.0] * C)[:C], dtype=x.dtype, device=x.device).view(1, C, 1, 1)
+    return x * (1.0 - hole) + col * hole
+
+
+# ---------------- Rotate / Flip (D-313): turn a picture, and turn it back (Stitch) ----------------
+# Order: flip first (exact), then turn `angle` degrees CLOCKWISE around the centre, on a canvas grown to hold all of it.
+# Quarter turns move pixels (no resampling, no loss); a free angle samples bicubic. Stitch's way back is unturn().
+
+def quarter(angle):
+    """The number of quarter turns (0..3) when `angle` is one, else None."""
+    a = float(angle) % 360.0
+    q = round(a / 90.0)
+    return q % 4 if abs(a - 90.0 * q) < 1e-6 else None
+
+
+def turn_size(W, H, angle):
+    """(OW, OH): the canvas a W x H picture needs once turned by `angle` degrees — the box around it. The browser does the same sum."""
+    q = quarter(angle)
+    if q is not None:
+        return (H, W) if q % 2 else (W, H)
+    r = math.radians(float(angle))
+    c, s = abs(math.cos(r)), abs(math.sin(r))
+    # ceil = nothing cut, minus 0.05 px: a hair off a quarter turn (90.0001°) must not grow a whole row of fill
+    return max(1, int(math.ceil(W * c + H * s - 0.05))), max(1, int(math.ceil(W * s + H * c - 0.05)))
+
+
+def turn_hm(W, H, OW, OH, angle):
+    """3x3 for remap: a pixel of the OW x OH canvas -> where it comes from in the W x H picture (clockwise on screen, y down:
+    out = R (src - centre) + canvas centre, so src = R^T (out - canvas centre) + centre)."""
+    r = math.radians(float(angle))
+    c, s = math.cos(r), math.sin(r)
+    ox, oy, cx, cy = OW / 2.0, OH / 2.0, W / 2.0, H / 2.0
+    return [c, s, cx - c * ox - s * oy, -s, c, cy + s * ox - c * oy, 0.0, 0.0, 1.0]
+
+
+def _flip(t, flip_h, flip_v):
+    dims = [d for d, on in ((-1, flip_h), (-2, flip_v)) if on]
+    return t if t is None or not dims else torch.flip(t, dims)
+
+
+def _batch_as_channels(m, fn):
+    # a batch of masks [B,1,H,W] through a one-item sampler: the batch rides as channels, then comes back
+    return fn(m.permute(1, 0, 2, 3)).permute(1, 0, 2, 3)
+
+
+def turn(x, m, angle, flip_h=False, flip_v=False):
+    """x BCHW (or None), m [B,1,H,W] (or None) -> (x, m, cover). cover [1,1,OH,OW] = where the picture really is (1) and the new
+    corners (0): what Fill fills and the mask marks. Outside the picture the mask is 0."""
+    ref = x if x is not None else m
+    H, W = int(ref.shape[-2]), int(ref.shape[-1])
+    x, m = _flip(x, flip_h, flip_v), _flip(m, flip_h, flip_v)
+    q = quarter(angle)
+    if q is not None:
+        if q:
+            x = None if x is None else torch.rot90(x, -q, (-2, -1))          # rot90 with k > 0 turns counter-clockwise on screen
+            m = None if m is None else torch.rot90(m, -q, (-2, -1))
+        OW, OH = turn_size(W, H, angle)
+        return x, m, torch.ones((1, 1, OH, OW), device=ref.device)
+    OW, OH = turn_size(W, H, angle)
+    hm = turn_hm(W, H, OW, OH, angle)
+    if x is not None:
+        x, cover = remap(x.float(), None, hm, OW, OH, "bicubic")
+    else:
+        _, cover = remap(None, None if m is None else torch.ones_like(m[:1]), hm, OW, OH)
+    if m is not None:
+        m = _batch_as_channels(m.float(), lambda t: remap(None, t, hm, OW, OH)[1])
+    return x, m, cover
+
+
+def unturn(x, size, angle, flip_h=False, flip_v=False):
+    """Stitch's way back (D-313). x BCHW shaped like turn()'s canvas, at any scale (an upscale x2 comes home too: measured, never
+    asked) -> the W x H frame it was turned from (`size`), at that same scale, then un-flipped. -> BCHW."""
+    W, H = int(size[0]), int(size[1])
+    OW, OH = turn_size(W, H, angle)
+    h, w = int(x.shape[-2]), int(x.shape[-1])
+    k = (w / OW + h / OH) / 2.0
+    TW, TH = max(1, int(round(W * k))), max(1, int(round(H * k)))
+    q = quarter(angle)
+    if q is not None:
+        y = torch.rot90(x, q, (-2, -1)) if q else x
+        y = resize(y, TH, TW) if tuple(y.shape[-2:]) != (TH, TW) else y
+    else:
+        r = math.radians(float(angle))
+        c, s = math.cos(r), math.sin(r)
+        fx, fy, ax, ay = W / TW, H / TH, w / OW, h / OH
+        hm = [ax * c * fx, -ax * s * fy, ax * (-c * W / 2.0 + s * H / 2.0 + OW / 2.0),
+              ay * s * fx, ay * c * fy, ay * (-s * W / 2.0 - c * H / 2.0 + OH / 2.0), 0.0, 0.0, 1.0]
+        y, _ = remap(x.float(), None, hm, TW, TH, "bicubic")
+    return _flip(y, flip_h, flip_v)
+
+
 def png_bytes(t, meta=None):
     """IMAGE [B,H,W,3|4] or MASK [B,H,W] -> PNG bytes of the first item (RGB, RGBA or greyscale), fast compression.
     meta (a JSON string) goes into a tEXt chunk called succy_crop."""
@@ -385,9 +534,11 @@ def png_bytes(t, meta=None):
     return buf.getvalue()
 
 
-def send_preview(did, image, tag=_TAG):
+def send_preview(did, image, tag=_TAG, info=None, mask=None):
     """Save a downscaled JPEG of the first image in temp/ and tell the viewport where it is (event succy-crop-image).
-    One file per node id: the browser re-reads it with a fresh `v`."""
+    One file per node id: the browser re-reads it with a fresh `v`. info = what the node wants its view to say about it (JSON,
+    D-316: the Tile Split's grid, the Merge's measured scale) — the browser hands it on as shot_system.info.
+    D-331: mask = [H, W] (the picture's size) a wire brought (SAM...): saved beside it as a grey PNG (`mask_file`), the view shows it."""
     try:
         import folder_paths
         from server import PromptServer
@@ -399,9 +550,18 @@ def send_preview(did, image, tag=_TAG):
             im = im.resize((max(1, round(W * s)), max(1, round(H * s))), Image.LANCZOS)
         name = "succy_crop_" + re.sub(r"[^0-9A-Za-z_-]", "_", did) + ".jpg"
         im.save(os.path.join(folder_paths.get_temp_directory(), name), quality=88)
+        mname = None
+        if mask is not None:
+            m = (mask.detach().float().reshape(-1, *mask.shape[-2:])[0].clamp(0, 1) * 255.0).round().to(torch.uint8).cpu().numpy()
+            mi = Image.fromarray(m, "L")
+            if mi.size != im.size:                         # area average: a hard edge stays where it is (D-163)
+                mi = mi.resize(im.size, Image.BOX)
+            mname = name[:-4] + "_mask.png"
+            mi.save(os.path.join(folder_paths.get_temp_directory(), mname), compress_level=1)
         PromptServer.instance.send_sync("succy-crop-image", {
             "node_id": did, "filename": name, "subfolder": "", "type": "temp",
-            "width": W, "height": H, "v": int(time.time() * 1000),
+            "width": W, "height": H, "v": int(time.time() * 1000), **({"info": info} if info is not None else {}),
+            **({"mask_file": mname} if mname else {}),
         })
     except Exception as exc:
         print(f"{tag} preview failed: {exc}")
@@ -469,12 +629,17 @@ def _install_routes():
     if srv is None or getattr(srv, "_succy_live_routes", False):
         return
     srv._succy_live_routes = True
-    from _succy_common import LiveWait, live_eval, live_types, memo_stats, refused, same_origin
+    from _succy_common import LIVE_STATS, LiveWait, live_eval, live_job, live_types, memo_stats, refused, same_origin
 
     @srv.routes.get("/succy/memo/stats")
     async def _memo_stats(request):
         # D-210: {memo name: {hits, misses, skips, kept, nodes: {id: {hits, misses, skips, last}}}} — counters only, no pictures
         return web.json_response({"memos": memo_stats()})
+
+    @srv.routes.get("/succy/live/stats")
+    async def _live_stats(request):
+        # D-336: the ONE live queue: jobs done, ms busy, the slowest job, the longest wait, how many wait now (SUCCY_LIVE reads it)
+        return web.json_response({**LIVE_STATS, "nodes": {k: dict(v) for k, v in LIVE_STATS["nodes"].items()}})
 
     @srv.routes.get("/succy/live/types")
     async def _live_types(request):
@@ -483,7 +648,7 @@ def _install_routes():
 
     def _view(spec, output, longest):
         with torch.inference_mode():
-            outs = live_eval(spec, node_mapping())
+            outs = live_eval(spec, node_mapping(), show=longest)
             t = outs.get(output)
             if t is None and output in (outs.get("_empty") or ()):
                 return {"ready": True, "empty": True}           # chosen to give nothing (D-172): a wire that is as good as absent
@@ -492,6 +657,9 @@ def _install_routes():
             if not isinstance(t, torch.Tensor):
                 return {"ready": False, "need": "run", "why": f"{spec.get('type', 'the node')}'s '{output}' is not a picture or a mask"}
             pic = live_picture(t, longest)
+            real = (outs.get("_real") or {}).get(output)       # D-314: worked on a smaller copy -> the sizes the Run will have
+            if real:
+                pic["width"], pic["height"] = int(real[0]), int(real[1])
         info = outs.get("_info")
         return {"ready": True, **pic, **({"info": info} if isinstance(info, dict) else {})}
 
@@ -510,11 +678,61 @@ def _install_routes():
         except Exception:
             return web.json_response({"error": "bad JSON"}, status=400)
         try:
-            return web.json_response(await asyncio.to_thread(_view, spec, output, longest))
+            return web.json_response(await asyncio.to_thread(live_job, _view, spec, output, longest))
         except LiveWait as w:
             return web.json_response({"ready": False, "need": w.need, "why": w.why})
         except Exception as exc:
             return web.json_response({"ready": False, "need": "error", "why": str(exc).replace(_TAG, "").strip()})
+
+    def _full(body, name):
+        # D-325: the live picture on input `name` at FULL size, as a PNG (alpha / mask kept): the ⧉ / ⬇ of a box showing it live.
+        # No workflow here: the browser writes the graph as it is now into the file before saving it.
+        spec = ((body or {}).get("from") or {}).get(name)
+        if not isinstance(spec, dict):
+            raise LiveWait("run", f"nothing live on '{name}'")
+        with torch.inference_mode():
+            t = live_eval(spec, node_mapping()).get(str(spec.get("output", "")))
+            if not isinstance(t, torch.Tensor):
+                raise LiveWait("run", f"{spec.get('type', 'the node')} has no live picture: Run once")
+            return png_bytes(t)
+
+    @srv.routes.post("/succy/live/full")
+    async def _live_full(request):
+        if not same_origin(request):
+            return refused()
+        name = str(request.query.get("input", "source"))
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"error": "bad JSON"}, status=400)
+        try:
+            data = await asyncio.to_thread(live_job, _full, body, name)
+        except LiveWait as w:
+            return web.json_response({"error": w.why}, status=409)
+        except Exception as exc:
+            return web.json_response({"error": str(exc).replace(_TAG, "").strip()}, status=500)
+        return web.Response(body=data, content_type="image/png", headers={"Content-Disposition": 'attachment; filename="succy_live.png"'})
+
+
+def png_meta(prompt=None, extra_pnginfo=None):
+    """ComfyUI's own PNG metadata (like SaveImage / PreviewImage): `prompt` + every extra_pnginfo key (`workflow`), so the file
+    dropped on ComfyUI opens the graph that made it. None with --disable-metadata or nothing to write."""
+    try:
+        from comfy.cli_args import args
+        if getattr(args, "disable_metadata", False):
+            return None
+    except Exception:
+        pass
+    extra = extra_pnginfo if isinstance(extra_pnginfo, dict) else {}
+    if prompt is None and not extra:
+        return None
+    from PIL.PngImagePlugin import PngInfo
+    meta = PngInfo()
+    if prompt is not None:
+        meta.add_text("prompt", json.dumps(prompt))
+    for k, v in extra.items():
+        meta.add_text(str(k), json.dumps(v))
+    return meta
 
 
 _install_routes()

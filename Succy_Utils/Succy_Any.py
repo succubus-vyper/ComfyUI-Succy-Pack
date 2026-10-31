@@ -6,6 +6,8 @@ import re
 import torch
 import comfy.utils
 
+from _succy_image import fill   # the kit's one Fill (D-313), loaded once by __init__.py
+
 from _succy_common import ANY, LiveWait, coerce_widgets, door_values, live_touch, parse_bool, parse_int, wired_outputs, say   # the shared drawer (loaded once by __init__.py)
 
 # ====================================================================== #
@@ -200,9 +202,11 @@ def _fit(x, h, w, fit):
         nw, nh = max(1, round(x.shape[-1] * k)), max(1, round(x.shape[-2] * k))
         y = comfy.utils.common_upscale(x, nw, nh, "bilinear", "disabled")
         out = torch.zeros((x.shape[0], x.shape[1], h, w), dtype=x.dtype, device=x.device)
+        hole = torch.ones((1, 1, h, w), dtype=x.dtype, device=x.device)
         top, left = (h - nh) // 2, (w - nw) // 2
         out[:, :, top:top + nh, left:left + nw] = y
-        return out
+        hole[..., top:top + nh, left:left + nw] = 0.0
+        return fill(out, hole, "color", "#000000")         # the kit's one Fill (D-313): black borders, as before
     return comfy.utils.common_upscale(x, w, h, "bilinear", "disabled")
 
 

@@ -13,7 +13,7 @@ import folder_paths
 from server import PromptServer
 
 from _succy_common import LiveWait, coerce_widgets, door_values, live_touch, ram_holder, refused, same_origin, value_memo
-from _succy_image import (IMAGE_EXT, blur, decode_brush, display_id, file_stamp, grow, hex_rgb, input_path, load_picture, mp_size, send_preview,
+from _succy_image import (FILL_MODES, IMAGE_EXT, blur, fill, decode_brush, display_id, file_stamp, grow, hex_rgb, input_path, load_picture, mp_size, send_preview,
                           snap, parse_warp, quad_mask)
 
 # ===================================================
@@ -181,8 +181,9 @@ def resize_plan(w, h, resize, width, height, fit, anchor, megapixels, scale_by, 
     return sw, sh, sw, sh, 0, 0
 
 
-def apply_resize(img, mask, plan, interp, pad_color, outpaint):
-    """Picture [B,H,W,C] and mask [B?,H,W] through the plan, together: same scale, same place, same canvas."""
+def apply_resize(img, mask, plan, interp, pad_color, outpaint, pad_fill="color"):
+    """Picture [B,H,W,C] and mask [B?,H,W] through the plan, together: same scale, same place, same canvas.
+    The pad borders go through the kit's one Fill (D-313): color = pad_color · blur = the picture's edge stretched and blurred."""
     sw, sh, cw, ch, ox, oy = plan
     B, H, W, C = img.shape
     x = img.movedim(-1, 1)
@@ -197,15 +198,16 @@ def apply_resize(img, mask, plan, interp, pad_color, outpaint):
             m = F.interpolate(m, size=(sh, sw), mode="bilinear", align_corners=False, antialias=sh < m.shape[-2] or sw < m.shape[-1])
         m = m.clamp(0.0, 1.0)
     if (cw, ch, ox, oy) != (sw, sh, 0, 0):
-        col = torch.tensor((hex_rgb(pad_color) + [1.0] * C)[:C], dtype=x.dtype, device=x.device)
-        canvas = col.view(1, C, 1, 1).expand(B, C, ch, cw).clone()
+        canvas = torch.zeros((B, C, ch, cw), dtype=x.dtype, device=x.device)
+        hole = torch.ones((1, 1, ch, cw), dtype=x.dtype, device=x.device)
         mc = torch.full((m.shape[0], 1, ch, cw), 1.0 if outpaint else 0.0, dtype=m.dtype, device=m.device)
         sx, sy, dx, dy = max(0, -ox), max(0, -oy), max(0, ox), max(0, oy)
         w, h = min(sw - sx, cw - dx), min(sh - sy, ch - dy)
         if w > 0 and h > 0:
             canvas[..., dy:dy + h, dx:dx + w] = x[..., sy:sy + h, sx:sx + w]
+            hole[..., dy:dy + h, dx:dx + w] = 0.0
             mc[..., dy:dy + h, dx:dx + w] = m[..., sy:sy + h, sx:sx + w]
-        x, m = canvas, mc
+        x, m = fill(canvas, hole, pad_fill if pad_fill in FILL_MODES else "color", pad_color), mc
     return x.movedim(1, -1).contiguous(), m[:, 0]
 
 
@@ -286,7 +288,7 @@ def produce(kw, image, mask, did, advance):
         m = drawn_mask(H, W, alpha[0] if alpha is not None else None, kw, dev)
     plan = resize_plan(W, H, kw.get("resize", "off"), kw.get("width", 0), kw.get("height", 0), kw.get("fit", "fit"), kw.get("anchor", "center"),
                        kw.get("megapixels", 0), kw.get("scale_by", 1.0), kw.get("multiple", 1))
-    out, om = apply_resize(pic, m, plan, kw.get("interpolation", "lanczos"), kw.get("pad_color", "#000000"), bool(kw.get("outpaint")))
+    out, om = apply_resize(pic, m, plan, kw.get("interpolation", "lanczos"), kw.get("pad_color", "#000000"), bool(kw.get("outpaint")), kw.get("pad_fill", "color"))
     info.update(width=int(out.shape[2]), height=int(out.shape[1]))
     return out, om, info, pic
 
@@ -570,6 +572,8 @@ class Succy_Load_Image_Resize:
                 "quad": ("STRING", {"default": "", "tooltip": "The box's corners dragged: Ctrl + corner / rotate (managed by the frontend)"}),
                 # after `quad` on purpose (D-248): workflows saved before it keep their widget values in line
                 "index_from": ("INT", {"default": 0, "min": 0, "max": 99999, "step": 1, "tooltip": "Next: the picture it starts from (0 = the first). A new value takes Next back there"}),
+                # last on purpose (D-313): old workflows keep their widget values in line, the missing one takes its default (= as before)
+                "pad_fill": (list(FILL_MODES), {"default": "color", "tooltip": "pad: the borders · color = pad_color · blur = the picture's edge stretched and blurred (no shapes, no clones)"}),
             },
             "optional": {
                 "image": ("IMAGE", {"tooltip": "Resize this picture instead (Image mode only: the Folder has no image input)"}),
