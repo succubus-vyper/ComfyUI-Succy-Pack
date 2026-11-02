@@ -18,7 +18,7 @@ from PIL import Image
 
 
 from _succy_image import png_meta   # D-325: prompt + workflow in the PNG, like ComfyUI's own Preview Image
-from _succy_common import ANY, parse_bool, parse_float, parse_int, ram_holder, to_container, wired_outputs, say   # the shared drawer (loaded once by __init__.py)
+from _succy_common import ANY, parse_bool, parse_float, parse_int, ram_holder, to_container, wired_outputs, say, LiveWait   # the shared drawer (loaded once by __init__.py)
 
 _PREVIEW_FILES = OrderedDict()   # node key -> the temp files it currently shows (the next run deletes the ones it no longer needs)
 _PLAYER = OrderedDict()          # node key -> (weak ref to the source video/audio, its player file): same source = no re-save
@@ -1090,6 +1090,24 @@ class Succy_Preview_Anything_Convert:
     FUNCTION = "comfy_run"
     SUCCY_CACHE = "none"  # SmartCache (D-213): a viewer with files and players: ComfyUI's own cache is enough
     OUTPUT_NODE = True
+
+    # D-357: a picture passes THROUGH live. Merge -> Preview -> Stitch used to break the live chain at the Preview (it sent nothing live):
+    # the Stitch kept the last Run's picture while Feather moved. Only the plain case (one picture, Convert To = IMAGE) is the same
+    # tensor the Run hands on; any conversion (text, mask, clip, lists) still needs a Run.
+    SUCCY_LIVE = ("output",)
+
+    @classmethod
+    def succy_live(cls, widgets, inputs, node_id):
+        if not inputs.linked("source"):
+            raise LiveWait("run", "the Preview has nothing plugged in")
+        if str(widgets.get("output_type") or "STRING") != "IMAGE":
+            raise LiveWait("run", "the Preview converts what it gets (Convert To is not IMAGE): Run once")
+        v = inputs.get("source")
+        if v is None:
+            raise LiveWait("run", "the Preview's source comes from a wire that only a Run fills: Run once")
+        if not (isinstance(v, torch.Tensor) and v.dim() == 4 and int(v.shape[0]) == 1):
+            raise LiveWait("run", "the Preview passes one picture on live: Run once")
+        return {"output": v}
 
     # -------------------------------------------------------------- #
     def comfy_run(self, **kw):

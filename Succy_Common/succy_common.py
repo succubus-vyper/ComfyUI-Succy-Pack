@@ -995,27 +995,11 @@ def fresh_values(did, unique_id, current):
 
 
 def after_wait(did, unique_id, current):
-    """D-355, after the node's own wait (the last node of the Run on Stop): ▶ brought her graph of now.
-    - she changed something this node READS (a Rotate before the Stitch, values or wires) and the gate can run nodes again: the
-      node stops here and hands her graph to the gate (raises the gate's redo error, an interrupt the gate turns into PENDING):
-      the changed chain runs again NOW, in this Run, then this node runs again (and stops again, on the new result);
-    - else: her own values of now ({} = none), the node goes on in place (D-332).
-    A replacement made with the old angle is never 'straightened' with the new one: it is made again. Succubus never fakes a redo."""
-    prompt = _FRESH.get(str(did))
-    gate = _gate()
-    try:
-        if isinstance(prompt, dict) and prompt and gate is not None and getattr(gate, "redo_wanted", None) \
-                and gate.redo_wanted(str(unique_id), prompt):
-            _FRESH.pop(str(did), None)
-            err = gate.redo_error(str(unique_id), prompt)
-        else:
-            err = None
-    except Exception as exc:
-        print(f"[Succy] redo check failed ({exc}): the node goes on in place")
-        err = None
-    if err is not None:
-        say(f"[Succy] node {did}: your changes before it run again now, then it stops again.")
-        raise err
+    """After the node's own wait (the last node of the Run on Stop): ▶ = CONTINUE, never back (D-360, her rule 1/11: "if you change
+    something behind it, you queue a new Run; the last node's ▶ is the continue of a pause, it never goes back"). Her own values of
+    now ({} = none), the node goes on in place (D-332). D-355's redo of the chain before it (a Rotate turned during the Stop ran
+    Split -> sampler -> Merge again in the same Run, then the node stopped a second time) is gone: what she changes behind it
+    reaches it live where it can (the yellow "last Run" pill says when it can't, D-356)."""
     return fresh_values(did, unique_id, current)
 
 

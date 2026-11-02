@@ -37,7 +37,7 @@ cd ComfyUI/custom_nodes
 git clone https://github.com/succubus-vyper/ComfyUI-Succy-Pack.git
 ```
 Restart ComfyUI. Every node lives under the **Succy Pack** category.
-No extra Python packages needed (`regex` is optional and recommended: see below). Tested with ComfyUI frontend **1.55.17**, with the new Vue nodes on.
+No extra Python packages needed (`regex` is optional and recommended: see below). Last tested with ComfyUI `17ff1dcce` and frontend **1.57.6**, with the new Vue nodes on.
 
 ---
 
@@ -98,6 +98,16 @@ Switch, batch and list in one body. Plug anything into her first input and every
 Just the ones you want, out of everything you plug. Plug batches or lists (pictures, masks, latents, prompts, sound, text…) and the same **Index** (from 0, like a Loop's index) and **Length** pick the items out of every one of them: `in_1` gives `out_1`, `in_2` gives `out_2`, each output wearing the type of its input; plug the last input and another opens.
 - A batch stays a batch (a slice of it), a list stays a list (the items picked). Index 0, Length 1 = the first picture and its mask; Index 0, Length 2 = the first two of each.
 - Index and Length have their EXT dot: a Loop's iteration_index wires straight into Index (both count from 0). Past the end is clamped: something always comes out.
+
+### 😈 Prampt (Prompt Builder)
+> ⚠️ **Experimental · pre-alpha · highly incomplete.** This is a big, complicated node and I'm still building it, in dedicated sessions. Expect missing pieces, rough edges, changing rules and saved workflows that may need redoing between updates. It's in the pack so you can peek, play and tell me what you think, not so you can lean on it yet. Don't build anything precious on it.
+
+*My own prompt builder, moved into a node. Same window, same rules, same command.*
+Tabs **Protagonist · NPC · Cinematography · Scene · Settings**: cards in **Preset** (a notecard, or 🧠 LLM CHOICE), **Custom** (your text: just start typing) or **Random / Parametric** (the seed writes it). Visual Engine → Composition → Background → Action fields cascade, and their menus only offer what my rules allow next to what you already chose.
+- **Lock what you love, roll the rest:** pick a value = it's white and stays; 🎲 rerolls just that card, **Global Roll** rolls everything that isn't yours. A **real seed**: same seed, same command.
+- **Ref 1-10** tags (`[REF 1-3]`), one number in one card only; the AR window shows the ratio; every text box has its own ◯ ring to take text from a wire.
+- Out come **two strings**: `system` (the System box) and `prompt` (the Prompt prefix + every input block), ready for whatever talks to your model. No LLM, no API key inside. Both boxes start as the two halves of your System_instructions.txt.
+- Needs the builder's data: put `data_engine\*.json` and `data\` (System_instructions.txt + notecards) into `Succy_Prompt_Builder/`. They're only read, never changed.
 
 ### 🎯 Pick Combo
 A small spreadsheet inside a node. Rows × columns, each column with its own type. Pick **one row** and every column comes out of its own socket, plus `index`, `label` and `all`.

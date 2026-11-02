@@ -50,6 +50,8 @@
 # reads -> it raises `redo_error` (a child of ComfyUI's interrupt); the gate catches it as the node's result, writes her graph into the
 # running prompt (D-264 / D-266 / D-277, same code), stages the changed chain again and answers PENDING: the chain runs (a Split on
 # Stop lets it through, once), then the node runs again on the new result and stops again. Page: "succy.run.resumed" why = "redo".
+# D-360 (her rule, 1/11): the last node's ▶ is a CONTINUE, never back: succy_common.after_wait no longer asks for the redo. redo_wanted /
+# redo_error / _redo stay here unused (the gate still turns such an error into PENDING if one ever came), to be removed in a cleanup.
 # Loaded by succy_canvas_menu.py (so __init__.py stays untouched). She lets you catch your breath... only when SHE decides.
 import asyncio
 import inspect

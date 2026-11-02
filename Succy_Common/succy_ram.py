@@ -1,6 +1,7 @@
 # Succy Pack — RAM keeper (D-308). Three things, zero work while nothing runs:
 #   1. ComfyUI's "free" (Free model and node cache) now also empties OUR memos and last-Run pictures: PromptExecutor.reset is wrapped.
-#   2. The RAM ceiling (setting "RAM ceiling (GB)", 0 = off) is checked ONCE at the end of each Run: over it, steps until under:
+#   2. The RAM ceiling (setting "RAM ceiling (GB)", 0 = off) is checked ONCE at the end of each Run: over it, steps until under
+#      (D-362: when the loaded models alone are over the ceiling, ComfyUI's cache is left alone: emptying it could never get there):
 #      our memos (D-328: not the last-Run pictures, the live views and ⧉ / ⬇ read them) -> ComfyUI's cache lightened (Loop pass clones; RAM pressure cache: its biggest outputs first)
 #      -> only if she chose "Models": ComfyUI's whole node cache + the models (its own free, after the Run; the next Run reloads them).
 #   3. GET /succy/ram/stats (the Monitor's RAM row) · POST /succy/ram/config {ceiling_gb, memo_gb, models} (the settings, from the page).
@@ -87,7 +88,18 @@ def drop_clones(executor, over=0, avail=_available):
     return n, kind
 
 
-def after_run(executor=None, read=rss, queue=_queue, avail=_available):
+def _models_bytes():
+    """D-362: bytes of every model ComfyUI holds (on the GPU + offloaded): with dynamic VRAM the weights stay in RAM too, so this
+    is the floor the process cannot go under without unloading them. 0 when unknown (then the ceiling behaves as before)."""
+    try:
+        import sys
+        mon = sys.modules.get("_succy_monitor")
+        return sum(int(m[1]) + int(m[2]) for m in mon.loaded_models()) if mon is not None else 0
+    except Exception:
+        return 0
+
+
+def after_run(executor=None, read=rss, queue=_queue, avail=_available, models=_models_bytes):
     """End of a Run: under the ceiling = nothing. Over: ours first, then ComfyUI's cache lightened, then (only with "Models" on)
     the whole cache + the models through ComfyUI's own free flags, which its worker applies right after this Run. Returns what was done (also kept in STATE["last"])."""
     STATE["runs"] += 1
@@ -103,6 +115,20 @@ def after_run(executor=None, read=rss, queue=_queue, avail=_available):
     gc.collect()
     after = read()
     rec["steps"].append({"step": "ours", "entries": n, "after": after})
+    # D-362: the models alone over the ceiling = no emptying of the outputs can reach it: it only threw her cache away every Run
+    # (24 GB process, 5 GB ceiling: 19 outputs out for 70 MB, the KSampler redone each time). The cache stays; the Monitor says why.
+    floor = models() or 0
+    if after is not None and after > limit and floor >= limit:
+        rec["steps"].append({"step": "stop: the models alone are over the ceiling (cache kept, raise the ceiling)", "models": floor,
+                             "after": after})
+        if CONFIG["models"]:
+            q = queue()
+            if q is not None and hasattr(q, "set_flag"):
+                q.set_flag("unload_models", True)
+                q.set_flag("free_memory", True)
+                rec["steps"].append({"step": "comfy cache + models", "after": None})
+        STATE["last"] = rec
+        return rec
     if after is not None and after > limit and executor is not None:
         n, kind = drop_clones(executor, after - limit, avail)
         if n:

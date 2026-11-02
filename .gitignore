@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 dev/node_modules/
 Succy_Label/_font_cache/
+# her V6 archives + notecards: copied by hand, read only, never in git (D-365)
+Succy_Prompt_Builder/data_engine/
+Succy_Prompt_Builder/data/

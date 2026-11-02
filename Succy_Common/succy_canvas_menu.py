@@ -1,14 +1,13 @@
 # Succy canvas menu backend v1.0.0 (D-201)
 # The routes behind the right-click on the canvas (dev/src/Succy_CanvasMenu.js):
 #   GET  /succy/menu/status      -> running / pending / is the worker alive / boot id (the page knows a reboot landed when it changes)
-#   POST /succy/menu/free_soft   -> empty the CUDA cache (models stay loaded)
 #   POST /succy/menu/force_stop  -> clear the queue, interrupt, and if the job won't listen: an interrupt thrown INSIDE the worker
 #   POST /succy/menu/reboot      -> restart ComfyUI WITHOUT auto-launch: no new browser tab, the tab that asked reloads itself
 #   GET/POST /succy/console      -> may the nodes talk in ComfyUI's console (D-311, the page sends its setting at boot and on change)
+# (the soft Free VRAM left the menu in D-361: it lives in the Clean VRAM node)
 # Hard VRAM, Clear Queue and Interrupt use ComfyUI's own routes (/free, /queue, /interrupt) from the page.
 # She says when to stop, and she means it.
 import ctypes
-import gc
 import os
 import sys
 import threading
@@ -49,19 +48,6 @@ def _status():
 @PromptServer.instance.routes.get("/succy/menu/status")
 async def _menu_status(request):
     return web.json_response(_status())
-
-
-@PromptServer.instance.routes.post("/succy/menu/free_soft")
-async def _menu_free_soft(request):
-    if not same_origin(request):
-        return _refused()
-    try:
-        import comfy.model_management as mm
-        gc.collect()
-        mm.soft_empty_cache()
-    except Exception as e:
-        return web.json_response({"error": str(e)}, status=500)
-    return web.json_response({"ok": True})
 
 
 def _throw_into_worker():
