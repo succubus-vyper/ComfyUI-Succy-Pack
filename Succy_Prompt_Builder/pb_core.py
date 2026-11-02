@@ -23,7 +23,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 JSON_DIR = os.path.join(HERE, "data_engine")       # her V6 archives, byte for byte (copied by hand, not in git)
 NOTE_DIR = os.path.join(HERE, "data")              # System_instructions.txt + the notecards (Bodies/, Clothes/, ...)
 JSON_NAMES = ("human_bodies", "clothes", "composition_specs", "visual_engines", "backgrounds", "actions")
-FOLDERS = ("Bodies", "Clothes", "Actions", "Backgrounds", "Visual_Engines", "Compositions")
+SETTING_FOLDERS = {"system": "System", "prefix": "Prampt_Prefix"}     # the Settings tab's two preset pickers (D-376)
+FOLDERS = ("Bodies", "Clothes", "Actions", "Backgrounds", "Visual_Engines", "Compositions", *SETTING_FOLDERS.values())
+EXAMPLE = "Example"                                  # the notecard written in System/ and Prampt_Prefix/ when they are empty
 SYSTEM_FILE = "System_instructions.txt"
 MAX_NOTE_BYTES = 256 * 1024                         # a notecard is a page of text, not a novel
 MAX_NOTES = 500                                     # per folder
@@ -53,6 +55,7 @@ DEFAULTS = {
     **{f"m_npc{i}_{s}": ("preset" if i == 1 else "custom") for i in NPCS for s in ("body", "clothes")},
     **{f"m_{k}": "parametric" for k in ENGINE_KEYS},
     **{f"p_{k}": "" for k in PANELS},              # chosen notecard (or "LLM CHOICE")
+    **{f"p_{k}": "" for k in SETTING_FOLDERS},      # chosen System / Prampt prefix notecard
     **{f"v_{p}": "" for p in PARAM_OWNER},          # a LOCKED parameter value; "" = random (blue, from the seed)
     **{f"r_{k}": 0 for k in PANELS},                # 🎲 counter: +1 = that field rolls again, nothing else moves
     **{f"ref_{n}": "" for n in range(1, 11)},       # Ref n -> the panel holding it (one panel per number, all over the UI)
@@ -192,14 +195,28 @@ def system_parts():
     return txt.strip(), ""
 
 
+def ensure_examples():
+    """D-376: System/ and Prampt_Prefix/ are folders of notecards like Bodies/ and Clothes/. A folder with no .txt gets ONE example
+    (Example.txt) holding the old System_instructions.txt half, so a fresh install has something to pick. Never overwrites a file."""
+    sysp, prep = system_parts()
+    for key, txt in (("system", sysp), ("prefix", prep)):
+        path = os.path.join(NOTE_DIR, SETTING_FOLDERS[key])
+        try:
+            if txt and not (os.path.isdir(path) and any(f.lower().endswith(".txt") for f in os.listdir(path))):
+                os.makedirs(path, exist_ok=True)
+                with open(os.path.join(path, EXAMPLE + ".txt"), "x", encoding="utf-8") as f:
+                    f.write(txt)
+        except OSError:
+            pass
+
+
 def missing_files():
-    out = [f"data_engine/{n}.json" for n in JSON_NAMES if _stamp(os.path.join(JSON_DIR, n + ".json")) is None]
-    if _stamp(os.path.join(NOTE_DIR, SYSTEM_FILE)) is None:
-        out.append(f"data/{SYSTEM_FILE}")
-    return out
+    return [f"data_engine/{n}.json" for n in JSON_NAMES if _stamp(os.path.join(JSON_DIR, n + ".json")) is None]
 
 
 def folder_of(panel):
+    if panel in SETTING_FOLDERS:
+        return SETTING_FOLDERS[panel]
     if panel.endswith("body"):
         return "Bodies"
     if panel.endswith("clothes"):
@@ -320,7 +337,7 @@ def locked_of(data, engine):
 def compute(data, texts=None, seed=0, system=None, wired=None, prefix=None):
     """data: the packed widget (dict or JSON) · texts: {native name: box text} · wired: {native name: text from a wire} (a ring lit
     at Run; in the live view the last Run's value or a marker) · system / prefix: the node's own System and Prompt prefix
-    ("" = that half of System_instructions.txt, D-365c).
+    (D-376: exactly what the boxes hold).
     -> {"boxes": {panel: text shown}, "auto": {param: value}, "ve": {...}, "subjects", "final": {panel: text in the prompt},
         "prompt": str, "notes": [str]}"""
     d = clean_data(data)
@@ -421,9 +438,9 @@ def compute(data, texts=None, seed=0, system=None, wired=None, prefix=None):
         eng_text[eng] = with_ref(d, eng, text) if text != AUTO else AUTO
         out["final"][eng] = eng_text[eng]
 
-    f_sys, f_pre = system_parts()
-    out["system"] = system.strip() if (system or "").strip() else f_sys
-    out["prompt"] = compose_prompt(d, out["final"], ve_vals, prefix.strip() if (prefix or "").strip() else f_pre)
+    # D-376: what is in the boxes is what goes out (the old "empty = the file's half" fallback is gone: pick a notecard or write it)
+    out["system"] = (system or "").strip()
+    out["prompt"] = compose_prompt(d, out["final"], ve_vals, (prefix or "").strip())
     return out
 
 

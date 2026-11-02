@@ -15,7 +15,7 @@ from _succy_common import refused, same_origin, say   # the shared drawer (loade
 #  Widgets:  seed (+ control_after_generate) · data (packed JSON: modes,  #
 #  sexes, NPCs, notecards, locked values, 🎲 counters, Ref) · one STRING  #
 #  per text box (its own EXT ring) · system_prompt / prompt_prefix        #
-#  ("" = that half of System_instructions.txt, split on *-_-_-_-_-_-*).   #
+#  (D-376: written, or picked from the System/ and Prampt_Prefix/ notecard folders).   #
 #  The brain is pb_core.compute: the Run and the live view share it.      #
 # ====================================================================== #
 
@@ -110,9 +110,9 @@ if PromptServer is not None and not getattr(PromptServer.instance, "_succy_pb_ro
         # body {} -> what the node needs to start: missing files, the notecard names per panel, the system text of the file
         if not same_origin(request):
             return refused()
-        names = {p: core.notecard_names(p) for p in core.PANELS}
-        sys_txt, pre_txt = core.system_parts()
-        return web.json_response({"missing": core.missing_files(), "notecards": names, "system": sys_txt, "prefix": pre_txt})
+        core.ensure_examples()
+        names = {p: core.notecard_names(p) for p in (*core.PANELS, *core.SETTING_FOLDERS)}
+        return web.json_response({"missing": core.missing_files(), "notecards": names})
 
     @routes.post("/succy/prompt_builder/view")
     async def _pb_view(request):
@@ -156,7 +156,7 @@ if PromptServer is not None and not getattr(PromptServer.instance, "_succy_pb_ro
             return refused()
         j = await _body(request) or {}
         panel, name = str(j.get("panel") or ""), str(j.get("name") or "")
-        if panel not in core.PANELS:
+        if panel not in core.PANELS and panel not in core.SETTING_FOLDERS:
             return web.json_response({"error": "unknown panel"}, status=400)
         notes = core.notecards(core.folder_of(panel))
         if name not in notes:
