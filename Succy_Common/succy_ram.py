@@ -2,7 +2,8 @@
 #   1. ComfyUI's "free" (Free model and node cache) now also empties OUR memos and last-Run pictures: PromptExecutor.reset is wrapped.
 #   2. The RAM ceiling (setting "RAM ceiling (GB)", 0 = off) is checked ONCE at the end of each Run: over it, steps until under
 #      (D-362: when the loaded models alone are over the ceiling, ComfyUI's cache is left alone: emptying it could never get there):
-#      our memos (D-328: not the last-Run pictures, the live views and ⧉ / ⬇ read them) -> ComfyUI's cache lightened (Loop pass clones; RAM pressure cache: its biggest outputs first)
+#      our memos (D-328: not the last-Run pictures, the live views and ⧉ / ⬇ read them) -> ComfyUI's cache lightened (Loop pass clones; RAM pressure cache: its biggest outputs first,
+#      D-379: never the outputs of the workflow's own nodes, or SAM ran again at every Run)
 #      -> only if she chose "Models": ComfyUI's whole node cache + the models (its own free, after the Run; the next Run reloads them).
 #   3. GET /succy/ram/stats (the Monitor's RAM row) · POST /succy/ram/config {ceiling_gb, memo_gb, models} (the settings, from the page).
 # The value memos live under one budget in GB (succy_common.set_memo_budget). She keeps what she needs, and lets go when told.
@@ -65,8 +66,9 @@ def drop_clones(executor, over=0, avail=_available):
     """Step 2: lighten ComfyUI's cache without emptying it. Returns (entries that went, the cache kind it found).
     - Classic cache (HierarchicalCache): the outputs kept for the clones of expanded nodes (every pass of a Loop / While); the
       expanding node's own result lives in the main cache, so a cached Loop End still answers at once.
-    - RAM pressure cache (ComfyUI's default since 0.4x, D-308c): its own ram_release, asked to free `over` bytes, this Run's entries
-      included, the biggest first (her Loop's full pictures): small things like the loaders stay."""
+    - RAM pressure cache (ComfyUI's default since 0.4x, D-308c): its own ram_release, asked to free `over` bytes, the biggest first
+      (her Loop's full pictures). D-379: NEVER the outputs of the workflow's own nodes (SAM went at the end of every Run and ran again
+      at the next one): only the clones (Loop passes) and old entries can go. Can't tell which are hers = nothing goes."""
     out = getattr(getattr(executor, "caches", None), "outputs", None)
     kind = type(out).__name__ if out is not None else "no cache"
     rel = getattr(out, "ram_release", None)
@@ -74,11 +76,24 @@ def drop_clones(executor, over=0, avail=_available):
         now = avail()
         if now is None:
             return 0, kind + " (no psutil)"
+        keep = workflow_keys(out)
+        gen, used = getattr(out, "generation", None), getattr(out, "used_generation", None)
+        if keep is None or not isinstance(gen, int) or not isinstance(used, dict):
+            return 0, kind + " (workflow outputs unknown: cache kept)"
+        # ram_release(free_active=False) leaves every entry used in this Run: the clones of this Run are marked one Run older for the
+        # call (so they can go, biggest first), and given back their mark if they stay. The workflow's own outputs keep theirs.
+        older = [k for k in list(getattr(out, "cache", {}) or {}) if k not in keep and used.get(k) == gen]
+        for k in older:
+            used[k] = gen - 1
         before = len(getattr(out, "cache", {}) or {})
         try:
-            rel(now + over, free_active=True)
+            rel(now + over, free_active=False)
         except Exception as e:                             # another ComfyUI, other arguments: say it, the full free still comes
             return 0, kind + " (ram_release: " + str(e)[:80] + ")"
+        finally:
+            for k in older:
+                if k in used:
+                    used[k] = gen
         return max(0, before - len(getattr(out, "cache", {}) or {})), kind
     subs = getattr(out, "subcaches", None)
     if kind != "HierarchicalCache" or not isinstance(subs, dict):
@@ -86,6 +101,19 @@ def drop_clones(executor, over=0, avail=_available):
     n = len(subs)
     subs.clear()
     return n, kind
+
+
+def workflow_keys(out):
+    """D-379: the cache keys of the nodes of the prompt that just ran (not the clones a Loop made): their outputs are what the next Run
+    takes from the cache. None = can't tell."""
+    try:
+        prompt = getattr(getattr(out, "dynprompt", None), "original_prompt", None)
+        ks = getattr(out, "cache_key_set", None)
+        if not isinstance(prompt, dict) or ks is None:
+            return None
+        return {k for k in (ks.get_data_key(n) for n in prompt) if k is not None}
+    except Exception:
+        return None
 
 
 def _models_bytes():
@@ -138,7 +166,7 @@ def after_run(executor=None, read=rss, queue=_queue, avail=_available, models=_m
     if after is not None and after > limit and not CONFIG["models"]:
         # D-308d: what is left is mostly the models (dynamic VRAM keeps the weights in RAM inside the loaders' cached outputs, and
         # ram_release leaves them on purpose): emptying the whole cache would reload them from disk, which "Models" off forbids
-        rec["steps"].append({"step": "stop: the rest is models / loaders (setting Models off)", "after": after})
+        rec["steps"].append({"step": "stop: the rest is models / loaders / this workflow's outputs, kept (setting Models off)", "after": after})
     elif after is not None and after > limit:
         q = queue()
         if q is not None and hasattr(q, "set_flag"):
