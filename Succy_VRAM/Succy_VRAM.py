@@ -148,16 +148,19 @@ except Exception as _e:
 # --- API endpoint for the live reading (one shared poller on the frontend) ---
 @PromptServer.instance.routes.get("/succy/vram/stats")
 async def get_vram_stats(request):
-    if torch.cuda.is_available():
-        free, total = torch.cuda.mem_get_info()
-        used = total - free
-        return web.json_response({
-            "total": round(total / (1024 ** 3), 2),
-            "free": round(free / (1024 ** 3), 2),
-            "used": round(used / (1024 ** 3), 2),
-            "cached_cleaner": dict(HOOK),
-        })
-    return web.json_response({"total": 0, "free": 0, "used": 0, "cached_cleaner": dict(HOOK)})
+    # D-385: read in a thread, 3 s at most: on the server's own loop a CUDA call stuck behind a full card froze the whole server
+    import asyncio
+
+    def _read():
+        if torch.cuda.is_available():
+            free, total = torch.cuda.mem_get_info()
+            return {"total": round(total / (1024 ** 3), 2), "free": round(free / (1024 ** 3), 2), "used": round((total - free) / (1024 ** 3), 2)}
+        return {"total": 0, "free": 0, "used": 0}
+    try:
+        got = await asyncio.wait_for(asyncio.to_thread(_read), 3.0)
+    except asyncio.TimeoutError:
+        got = {"total": 0, "free": 0, "used": 0, "stuck": True}
+    return web.json_response({**got, "cached_cleaner": dict(HOOK)})
 
 
 class Succy_CleanVram_Madafacca:

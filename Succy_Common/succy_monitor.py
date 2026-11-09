@@ -324,7 +324,12 @@ except Exception:
 
 @PromptServer.instance.routes.get("/succy/monitor/stats")
 async def _monitor_stats(request):
+    import asyncio
     try:
-        return web.json_response(snapshot(parse_tiles(request.rel_url.query.get("tiles"))))
+        # D-385: in a thread, 3 s at most: a CUDA / NVML reading stuck behind a full card must not freeze the server's loop
+        snap = await asyncio.wait_for(asyncio.to_thread(snapshot, parse_tiles(request.rel_url.query.get("tiles"))), 3.0)
+        return web.json_response(snap)
+    except asyncio.TimeoutError:
+        return web.json_response({"v": 1, "error": "the GPU did not answer in 3 s (stuck?)"}, status=503)
     except Exception as e:
         return web.json_response({"v": 1, "error": str(e)}, status=500)

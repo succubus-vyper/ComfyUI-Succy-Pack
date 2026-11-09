@@ -9,6 +9,8 @@ rawLink=True: ComfyUI would pass [node_id, slot] and the loop would run once.
 from __future__ import annotations
 
 import math
+import sys
+
 import torch
 from comfy_execution.graph_utils import GraphBuilder, is_link
 
@@ -89,6 +91,13 @@ def _emit_while_status(start_id, iteration, side, active_slots, condition=None, 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+def _ram_pass(**kw):
+    """D-381: the RAM keeper (Succy_Common/succy_ram.py) frees the finished pass and writes its memory reading. Absent = nothing."""
+    ram = sys.modules.get("_succy_ram")
+    if ram is not None and hasattr(ram, "loop_pass"):
+        ram.loop_pass(**kw)                                    # never raises (it keeps its own errors)
+
+
 def _is_flow(value):
     return (
         isinstance(value, (tuple, list))
@@ -275,6 +284,8 @@ class Succy_LoopStart:
         is_first = idx == 0
         is_last = idx >= max(total - 1, 0)
         _emit_for_start(state.get("start_id"), idx, total)
+        if is_first:
+            _ram_pass(index=0, total=total, start_id=state.get("start_id"), begin=True)   # D-381: the baseline reading
 
         item = None
         if mode == "list":
@@ -462,6 +473,9 @@ class Succy_LoopEnd(_LoopGraphMixin):
         start_id = state.get("start_id")
 
         _emit_for_status(start_id, idx + 1, total, bool(accumulate))
+        # D-381: this pass is over: its clones (all upstream of this Loop End, all done) leave ComfyUI's cache; the next pass gets the
+        # state as a value. output_value lives on in the state (accum / carry). She clears the table before serving the next course.
+        _ram_pass(dynprompt=dynprompt, unique_id=unique_id, index=idx, total=total, start_id=start_id)
 
         if idx >= total - 1:
             if accumulate:
@@ -549,6 +563,7 @@ class Succy_WhileEnd(_LoopGraphMixin):
         start_id = state.get("start_id") if state else None
         iteration = int(state.get("iteration", 0)) if state else 0
         active = [i for i, v in enumerate(values) if v is not None]
+        _ram_pass(dynprompt=dynprompt, unique_id=unique_id, index=iteration, total=0, start_id=start_id)   # D-381: same as the Loop End
 
         if not condition:
             _emit_while_status(start_id, iteration, "end", active, condition=False, done=True)

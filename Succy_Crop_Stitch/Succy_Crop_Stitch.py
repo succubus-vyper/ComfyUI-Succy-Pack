@@ -231,8 +231,8 @@ if _FIRST_LOAD:
             if inp in linked and not live_empty(data, inp):
                 try:                                       # a Succy node on the wire answers live, full size (D-156)
                     v = await asyncio.to_thread(live_job, _live_full, data, inp)
-                except LiveWait as w:
-                    return web.json_response({"error": f"the {inp.replace('_', ' ')}: {w.why}"}, status=404)
+                except LiveWait:
+                    v = None                               # D-383: not live yet = the last Run's (below), as for the Crop's wires
                 if v is None:
                     v = last.get(key)
                 if v is None:
@@ -346,8 +346,10 @@ def _wired_inputs(data, last):
             continue
         try:
             v = _live_full(data, inp)
-        except LiveWait as w:
-            return None, (w.need, f"the Crop's {inp}: {w.why}")
+        except LiveWait:
+            # D-383 (D-380's twin): a live source that can't answer yet (a Preview converting to MASK) = the last Run's, like a wire
+            # nobody can read live. Its "Run once" used to stop the Crop's ⬇ and the Stitch's ⧉ / ⬇ even right after a Run.
+            v = None
         if v is None:
             v = last.get("in_" + inp)
         if v is None:

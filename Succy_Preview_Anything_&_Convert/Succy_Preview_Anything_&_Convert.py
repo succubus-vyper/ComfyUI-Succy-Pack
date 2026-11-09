@@ -1837,6 +1837,29 @@ def _fps_note(where):
     return f" ({where})" if where and where != "video" else ""
 
 
+_ALIVE_TYPES = ("temp", "output", "input")
+_ALIVE_MAX = 64
+
+
+def files_alive(files):
+    """D-383: for each {filename, subfolder, type} the page saved with its workflow: True = the file is on disk, False = gone (ComfyUI
+    empties temp at every start) or outside its folder, None = can't tell (an unknown type, no folder_paths). At most 64 asked."""
+    out = []
+    for f in list(files or [])[:_ALIVE_MAX]:
+        try:
+            t, name = str(f.get("type") or "temp"), str(f.get("filename") or "")
+            if t not in _ALIVE_TYPES:
+                out.append(None)
+                continue
+            base = os.path.abspath(folder_paths.get_directory_by_type(t))
+            path = os.path.abspath(os.path.join(base, str(f.get("subfolder") or ""), name))
+            # a name that climbs out of its folder ("../") is never looked at: gone, as far as the page is concerned
+            out.append(bool(name) and os.path.commonpath([base, path]) == base and path != base and os.path.isfile(path))
+        except Exception:
+            out.append(None)
+    return out
+
+
 # ------------------------------------------------------------------ #
 #  Routes (D-205c): the gallery frame by frame, Apply fps right now    #
 #  Registered once per server (a module reload must not add a twin). #
@@ -1881,6 +1904,16 @@ def _register_routes():
             return web.json_response({"error": f"could not re-time: {exc}"}, status=500)
         return web.json_response(out)
 
+
+    @srv.routes.post("/succy/preview/alive")
+    async def _alive(request):
+        if not same_origin(request):
+            return refused()
+        try:
+            data = await request.json()
+            return web.json_response({"alive": await asyncio.to_thread(files_alive, data.get("files") or [])})
+        except Exception as exc:
+            return web.json_response({"error": str(exc)[:200]}, status=400)
 
     @srv.routes.post("/succy/preview/view")
     async def _view(request):
