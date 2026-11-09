@@ -7,7 +7,7 @@ import torch.nn.functional as F
 
 from server import PromptServer
 
-from _succy_common import LiveWait, coerce_widgets, after_wait, gate_hold, live_touch, ram_holder, say, stop_key, stop_route, value_memo, wait_here
+from _succy_common import live_or_none, LiveWait, coerce_widgets, after_wait, gate_hold, live_touch, ram_holder, say, stop_key, stop_route, value_memo, wait_here
 from _succy_image import (FILL_MODES, display_id, file_stamp, fill, homography, input_path, load_picture, rect_pts, remap, resize,
                           quarter, send_preview, turn, turn_size)
 
@@ -311,7 +311,7 @@ class Succy_Rotate:
         for inp in ("image", "mask", "stitch"):
             if not inputs.linked(inp):
                 continue
-            v = inputs.get(inp)
+            v = live_or_none(inputs, inp)         # D-380: a live source still waiting = the last Run's
             if v is None:
                 v = last.get("in_" + inp)
             if v is None:

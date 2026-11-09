@@ -12,7 +12,7 @@ from aiohttp import web
 import comfy.model_management
 from server import PromptServer
 
-from _succy_common import refused, same_origin, LiveWait, door_values, after_wait, gate_hold, live_job, live_touch, ram_holder, stop_key, stop_route, value_memo, say, wait_here   # the shared drawer (loaded once by __init__.py)
+from _succy_common import live_or_none, refused, same_origin, LiveWait, door_values, after_wait, gate_hold, live_job, live_touch, ram_holder, stop_key, stop_route, value_memo, say, wait_here   # the shared drawer (loaded once by __init__.py)
 # the picture helpers moved to the shared picture drawer (D-156): Load & Resize uses them too. Same functions, old names.
 from _succy_image import (display_id as _display_id, png_bytes as _png_bytes, snap as _snap, mp_size as _mp_size, resize as _resize,
                           prep_mask as _prep_mask, load_source as _load_source, decode_brush as _decode_brush, runmax as _runmax,
@@ -511,7 +511,7 @@ class Succy_Crop:
         for inp in ("image", "mask"):
             if not inputs.linked(inp):
                 continue
-            v = inputs.get(inp)
+            v = live_or_none(inputs, inp)         # D-380: a live source still waiting = the last Run's
             if v is None:
                 v = last.get("in_" + inp)
             if v is None:
@@ -1016,7 +1016,7 @@ class Succy_Stitch:
         for inp, key in (("replacement", "st_image"), ("base_image", "st_base"), ("mask", "st_mask")):
             if not inputs.linked(inp):
                 continue
-            v = inputs.get(inp)
+            v = live_or_none(inputs, inp)         # D-380
             if v is None:
                 v = last.get(key)
             if v is None:

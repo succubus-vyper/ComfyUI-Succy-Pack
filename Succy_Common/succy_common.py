@@ -24,7 +24,7 @@ import threading
 import time
 from collections import OrderedDict
 
-__all__ = ["AnyType", "ANY", "parse_bool", "parse_int", "parse_float", "loads_loose", "to_container", "convert_text", "same_origin", "DISPLAY",
+__all__ = ["AnyType", "live_or_none", "ANY", "parse_bool", "parse_int", "parse_float", "loads_loose", "to_container", "convert_text", "same_origin", "DISPLAY",
            "LiveWait", "LiveInputs", "live_eval", "live_touch", "door_values", "live_types", "coerce_widgets", "same_value", "ValueMemo", "value_memo", "memo_stats",
            "tensor_bytes", "ram_holder", "ours_ram", "forget_ours", "set_memo_budget", "say", "set_talk", "TALK",
            "gate_hold", "gate_action", "route_action", "has_readers", "stop_key", "in_loop", "keep_fresh", "fresh_values", "after_wait"]
@@ -423,6 +423,17 @@ class LiveInputs:
         if outs.get(out) is None:
             raise LiveWait("run", f"{src.get('type', 'the node')} has no live '{out}': Run once")
         return outs[out]
+
+
+def live_or_none(inputs, name):
+    """D-380: inputs.get(name), but a live source that can't answer yet (LiveWait: a Preview converting to MASK, a chain that needs a
+    Run) = None, so the node falls back on its last Run's value like for a wire nobody can read live. Before D-357 the Preview was
+    not live (get = None, the Crop took its last Run's mask); once it was, its "Run once" went up through the Crop for good:
+    Crop -> Tile Split kept the 'Waiting for' veil after every Run (her Tiled_Upscaler_Krea2_3, mask from a Preview on MASK)."""
+    try:
+        return inputs.get(name)
+    except LiveWait:
+        return None
 
 
 def door_values(widgets, inputs, last, doors, who="the node", wait=True):

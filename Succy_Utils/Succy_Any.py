@@ -8,7 +8,7 @@ import comfy.utils
 
 from _succy_image import fill   # the kit's one Fill (D-313), loaded once by __init__.py
 
-from _succy_common import ANY, LiveWait, coerce_widgets, door_values, live_touch, parse_bool, parse_int, wired_outputs, say   # the shared drawer (loaded once by __init__.py)
+from _succy_common import live_or_none, ANY, LiveWait, coerce_widgets, door_values, live_touch, parse_bool, parse_int, wired_outputs, say   # the shared drawer (loaded once by __init__.py)
 
 # ====================================================================== #
 #  Succy_Any — switch, batch and list in one body                        #
@@ -415,7 +415,7 @@ class Succy_Any:
         for n in wired:
             if not inputs.linked(n):                       # unplugged, or a live source that gives nothing: a hole
                 continue
-            v = inputs.get(n)
+            v = live_or_none(inputs, n)           # D-380: a live source still waiting = the last Run's
             if v is None:
                 v = last.get(n)
             if v is None:

@@ -12,7 +12,7 @@ from PIL import Image, ImageOps
 import folder_paths
 from server import PromptServer
 
-from _succy_common import LiveWait, coerce_widgets, door_values, live_touch, ram_holder, refused, same_origin, value_memo
+from _succy_common import live_or_none, LiveWait, coerce_widgets, door_values, live_touch, ram_holder, refused, same_origin, value_memo
 from _succy_image import (FILL_MODES, IMAGE_EXT, blur, fill, decode_brush, display_id, file_stamp, grow, hex_rgb, input_path, load_picture, mp_size, send_preview,
                           snap, parse_warp, quad_mask)
 
@@ -650,7 +650,7 @@ class Succy_Load_Image_Resize:
         for inp in ("image", "mask"):
             if not inputs.linked(inp) or widgets.get("mode") == "folder":
                 continue
-            v = inputs.get(inp)
+            v = live_or_none(inputs, inp)         # D-380: a live source still waiting = the last Run's
             if v is None:
                 v = last.get("in_" + inp)
             if v is None:

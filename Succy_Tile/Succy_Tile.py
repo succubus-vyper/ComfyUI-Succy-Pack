@@ -11,7 +11,7 @@ import torch.nn.functional as F
 
 from server import PromptServer
 
-from _succy_common import LIVE_STATS, LiveWait, coerce_widgets, door_values, after_wait, gate_hold, is_link, live_touch, ram_holder, say, stop_key, stop_route, value_memo, wait_here
+from _succy_common import live_or_none, LIVE_STATS, LiveWait, coerce_widgets, door_values, after_wait, gate_hold, is_link, live_touch, ram_holder, say, stop_key, stop_route, value_memo, wait_here
 from _succy_image import FILL_MODES, display_id, fill, resize, send_preview, snap
 
 # ===================================================
@@ -1448,7 +1448,7 @@ class Succy_Tile_Split:
         last = _LAST.get(node_id) or {}
         if not inputs.linked("image"):
             raise LiveWait("image", "wire a picture to image")
-        image = inputs.get("image")
+        image = live_or_none(inputs, "image")     # D-380: a live source still waiting = the last Run's
         if image is None:
             image = last.get("image")
         if image is None:
@@ -1464,7 +1464,7 @@ class Succy_Tile_Split:
         # the mask: its live source, else the last Run's; wired but unknown = the grid without it, the line says so
         mask = None
         if inputs.linked("mask"):
-            mask = inputs.get("mask")
+            mask = live_or_none(inputs, "mask")
             if mask is None:
                 mask = last.get("mask")
             if mask is None:
